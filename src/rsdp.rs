@@ -1,4 +1,4 @@
-use core::{str,mem};
+use core::str;
 use super::AcpiError;
 
 /// The first structure found in ACPI. It just tells us where the RSDT is.
@@ -12,6 +12,8 @@ use super::AcpiError;
 ///
 /// If `revision > 0`, (the hardware ACPI version is Version 2.0 or greater), the RSDP contains
 /// some new fields. For ACPI Version 1.0, these fields are not valid and should not be accessed.
+/// For ACPI Version 2.0+, `xsdt_address` should be used (truncated to `u32` on x86) instead of
+/// `rsdt_address`.
 #[repr(C, packed)]
 pub(crate) struct Rsdp
 {
@@ -38,11 +40,6 @@ impl Rsdp
     ///     3) For Version 2.0+, that the extension checksum is correct
     pub(crate) fn validate(&self) -> Result<(), AcpiError>
     {
-        // FIXME: Check what version of ACPI this is. This works for Version 1.0 (revision=0), but
-        // for subsequent versions, we also need to check the checksum for the extension fields.
-        // In fact, should we rewrite this to be clearer what fields we're testing for each
-        // checksum?
-
         // Check the signature
         if &self.signature != b"RSD PTR "
         {
@@ -55,17 +52,33 @@ impl Rsdp
             return Err(AcpiError::RsdpInvalidOemId);
         }
 
-        // Sum all bytes in the structure
+        // Check the fields present in all versions against `checksum`
         let mut sum : usize = 0;
-        for i in 0..mem::size_of::<Rsdp>()
-        {
-            sum += unsafe { *(self as *const Rsdp as *const u8).offset(i as isize) } as usize;
-        }
+        sum += self.signature.iter().map(|&b| usize::from(b)).sum::<usize>();
+        sum += self.checksum as usize;
+        sum += self.oem_id.iter().map(|&b| usize::from(b)).sum::<usize>();
+        sum += self.revision as usize;
+        sum += self.rsdt_address as usize;
 
         // Check that the lowest byte is 0
         if sum & 0b1111_1111 != 0
         {
             return Err(AcpiError::RsdpInvalidChecksum);
+        }
+
+        // For Version 2.0+, check the extension checksum too
+        if self.revision > 0
+        {
+            let mut sum : usize = 0;
+            sum += self.length as usize;
+            sum += self.xsdt_address as usize;
+            sum += self.ext_checksum as usize;
+            sum += self.reserved.iter().map(|&b| usize::from(b)).sum::<usize>();
+
+            if sum & 0b1111_1111 != 0
+            {
+                return Err(AcpiError::RsdpInvalidChecksum);
+            }
         }
 
         Ok(())
