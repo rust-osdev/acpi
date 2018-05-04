@@ -4,55 +4,70 @@
 extern crate std;
 
 mod rsdp;
+mod sdt;
 
-pub use rsdp::Rsdp;
+use core::ops::Deref;
+use core::ptr::NonNull;
+use rsdp::Rsdp;
 
-use core::str;
-
-/// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
-/// this is.
-#[repr(C, packed)]
-pub struct SdtHeader
+pub enum AcpiError
 {
-    signature           : [u8; 4],
-    length              : u32,
-    revision            : u8,
-    checksum            : u8,
-    oem_id              : [u8; 6],
-    oem_table_id        : [u8; 8],
-    oem_revision        : u32,
-    creator_id          : u32,
-    creator_revision    : u32,
+    RsdpIncorrectSignature,
+    RsdpInvalidOemId,
+    RsdpInvalidChecksum,
 }
 
-impl SdtHeader
+/// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
+/// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `mem::size_of::<T>()`
+/// bytes.
+pub struct PhysicalMapping<T>
 {
-    /// Check that:
-    ///     a) The signature is valid UTF8
-    ///     b) The checksum of the SDT.
-    ///
-    /// This assumes that the whole SDT is mapped.
-    fn validate(&self) -> Result<(), &str>
+    pub physical_start  : usize,
+    pub virtual_start   : NonNull<T>,
+    pub region_length   : usize,
+    pub mapped_length   : usize,    // Differs from `region_length` if padding is added to align to page boundaries
+}
+
+impl<T> Deref for PhysicalMapping<T>
+{
+    type Target = T;
+
+    fn deref(&self) -> &T
     {
-        // Check the signature
-        if str::from_utf8(&self.signature).is_err()
+        unsafe
         {
-            return Err("SDT signature is not valid UTF8");
+            self.virtual_start.as_ref()
         }
-
-        // Sum all bytes in the SDT (not just the header)
-        let mut sum : usize = 0;
-        for i in 0..self.length
-        {
-            sum += unsafe { *(self as *const SdtHeader as *const u8).offset(i as isize) } as usize;
-        }
-
-        // Check that the lowest byte is 0
-        if sum & 0b1111_1111 != 0
-        {
-            return Err("SDT has incorrect checksum");
-        }
-
-        Ok(())
     }
+}
+
+/// The kernel must provide an implementation of this trait for `acpi` to interface with. It has
+/// utility methods `acpi` uses to for e.g. mapping physical memory, but also an interface for
+/// `acpi` to tell the kernel about the tables it's parsing, such as how the kernel should
+/// configure the APIC or PCI routing.
+pub trait AcpiHandler
+{
+    /// Given a starting physical address, map a region of physical memory that contains a `T`
+    /// somewhere in the virtual address space. The address doesn't have to be page-aligned, so
+    /// the implementation may have to add padding to either end.
+    fn map_physical_region<T>(&mut self, physical_address : usize) -> PhysicalMapping<T>;
+
+    /// Unmap the given physical mapping. Safe because we consume the mapping, and so it can't be
+    /// used after being passed to this function.
+    fn unmap_physical_region<T>(&mut self, region : PhysicalMapping<T>);
+}
+
+/// This is the entry point of `acpi`. Given the **physical** address of the RSDP, it parses all
+/// the SDTs in the RSDT, calling the relevant handlers in the implementation's `AcpiHandler`.
+pub fn parse_acpi<T>(handler : &mut T, rsdp_address : usize) -> Result<(), AcpiError>
+    where T : AcpiHandler
+{
+    let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address);
+    (*rsdp_mapping).validate()?;
+
+    // TODO: map the RSDT
+    // TODO: parse the RSDT
+
+    handler.unmap_physical_region(rsdp_mapping);
+    Ok(())
 }
