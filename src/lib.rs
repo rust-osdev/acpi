@@ -10,6 +10,7 @@ use core::ops::Deref;
 use core::ptr::NonNull;
 use rsdp::Rsdp;
 
+#[derive(Debug)]
 pub enum AcpiError
 {
     RsdpIncorrectSignature,
@@ -19,12 +20,11 @@ pub enum AcpiError
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
 /// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `mem::size_of::<T>()`
-/// bytes.
+/// bytes, but may be bigger.
 pub struct PhysicalMapping<T>
 {
     pub physical_start  : usize,
     pub virtual_start   : NonNull<T>,
-    pub region_length   : usize,
     pub mapped_length   : usize,    // Differs from `region_length` if padding is added to align to page boundaries
 }
 
