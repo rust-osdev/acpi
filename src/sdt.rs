@@ -23,12 +23,24 @@ impl SdtHeader
     ///     b) The checksum of the SDT.
     ///
     /// This assumes that the whole SDT is mapped.
-    fn validate(&self) -> Result<(), &str>
+    fn validate(&self) -> Result<(), AcpiError>
     {
         // Check the signature
         if str::from_utf8(&self.signature).is_err()
         {
-            return Err("SDT signature is not valid UTF8");
+            return Err(AcpiError::SdtInvalidSignature);
+        }
+
+        // Check the OEM id
+        if str::from_utf8(&self.oem_id).is_err()
+        {
+            return Err(AcpiError::SdtInvalidOemId);
+        }
+
+        // Check the OEM table id
+        if str::from_utf8(&self.oem_table_id).is_err()
+        {
+            return Err(AcpiError::SdtInvalidTableId);
         }
 
         // Sum all bytes in the SDT (not just the header)
@@ -41,9 +53,37 @@ impl SdtHeader
         // Check that the lowest byte is 0
         if sum & 0b1111_1111 != 0
         {
-            return Err("SDT has incorrect checksum");
+            return Err(AcpiError::SdtInvalidChecksum);
         }
 
         Ok(())
+    }
+
+    pub fn signature<'a>(&'a self) -> &'a str
+    {
+        // Safe to unwrap because we check signature is valid UTF8 in `validate`
+        str::from_utf8(&self.signature).unwrap()
+    }
+
+    pub fn length(&self) -> u32
+    {
+        self.length
+    }
+
+    pub fn revision(&self) -> u8
+    {
+        self.revision
+    }
+
+    pub fn oem_id<'a>(&'a self) -> &'a str
+    {
+        // Safe to unwrap because checked in `validate`
+        str::from_utf8(&self.oem_id).unwrap()
+    }
+
+    pub fn oem_table_id<'a>(&'a self) -> &'a str
+    {
+        // Safe to unwrap because checked in `validate`
+        str::from_utf8(&self.oem_table_id).unwrap()
     }
 }

@@ -16,6 +16,11 @@ pub enum AcpiError
     RsdpIncorrectSignature,
     RsdpInvalidOemId,
     RsdpInvalidChecksum,
+
+    SdtInvalidSignature,
+    SdtInvalidOemId,
+    SdtInvalidTableId,
+    SdtInvalidChecksum,
 }
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
