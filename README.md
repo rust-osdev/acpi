@@ -1,4 +1,7 @@
 # Acpi
+[![Build Status](https://travis-ci.org/rust-osdev/acpi.svg?branch=master)](https://travis-ci.org/rust-osdev/acpi)
+[![Version](https://img.shields.io/crates/v/acpi.svg?style=rounded-square)](https://crates.io/crates/acpi/)
+
 A library to parse ACPI tables and AML, written in Rust. Designed to be easy to use from inside a
 kernel written in Rust, and fully tested.
 **Acpi is currently very early in development, will be highly unstable and is next to useless for
