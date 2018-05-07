@@ -1,4 +1,5 @@
 use core::str;
+use AcpiError;
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
 /// this is.
