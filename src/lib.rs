@@ -3,6 +3,8 @@
 #[cfg(test)]
 extern crate std;
 
+#[macro_use] extern crate log;
+
 mod rsdp;
 mod sdt;
 #[cfg(test)] mod constructed_tables_test;

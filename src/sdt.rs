@@ -111,7 +111,7 @@ pub(crate) fn dispatch_sdt<H>(handler : &mut H, physical_address : usize) -> Res
                  * We don't recognise this signature. Early on, this probably just means we don't
                  * have support yet, but later on maybe this should become an actual error
                  */
-                // TODO: add warn!()
+                warn!("Unsupported SDT signature: {}. Skipping.", signature);
             },
         }
     }
