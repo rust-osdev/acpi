@@ -5,7 +5,7 @@
 use std::mem;
 use std::ptr::NonNull;
 use std::boxed::Box;
-use super::{AcpiHandler, AcpiInfo, PhysicalMapping, rsdp::Rsdp};
+use super::{AcpiHandler, PhysicalMapping, rsdp::Rsdp, parse_rsdp, sdt::SdtHeader};
 
 const OEM_ID : &[u8; 6] = b"RUST  ";
 
@@ -17,6 +17,13 @@ const OEM_ID : &[u8; 6] = b"RUST  ";
 const RSDP_ADDRESS : usize = 0x0;
 const RSDT_ADDRESS : usize = 0x1;
 
+#[repr(C, packed)]
+struct TestRsdt
+{
+    header  : SdtHeader,
+    // TODO: We should probably actually add some SDTs
+}
+
 struct TestHandler;
 
 impl AcpiHandler for TestHandler
@@ -27,26 +34,55 @@ impl AcpiHandler for TestHandler
         {
             RSDP_ADDRESS =>
             {
-                let rsdp = Rsdp::make_testcase(*b"RSD PTR ",
-                                               None,
-                                               *OEM_ID,
-                                               0,
-                                               RSDT_ADDRESS as u32,
-                                               0,
-                                               0x0,
-                                               None,
-                                               [0, 0, 0]
-                                              );
+                let rsdp = Box::new(Rsdp::make_testcase(*b"RSD PTR ",
+                                                        None,
+                                                        *OEM_ID,
+                                                        0,
+                                                        RSDT_ADDRESS as u32,
+                                                        0,
+                                                        0x0,
+                                                        None,
+                                                        [0, 0, 0]
+                                                       ));
 
                 PhysicalMapping
                 {
                     physical_start  : RSDP_ADDRESS,
                     virtual_start   : unsafe
                                       {
-                                          NonNull::<T>::new_unchecked(Box::into_raw(Box::new(rsdp)) as *mut T)
+                                          NonNull::<T>::new_unchecked(Box::into_raw(rsdp) as *mut T)
                                       },
                     region_length   : mem::size_of::<Rsdp>(),
                     mapped_length   : mem::size_of::<Rsdp>(),
+                }
+            },
+
+            RSDT_ADDRESS =>
+            {
+                let checksum = 0;   // TODO: calculate real checksum
+                let rsdt = Box::new(TestRsdt
+                                    {
+                                        header  : SdtHeader::make_testcase(*b"RSDT",
+                                                                           mem::size_of::<TestRsdt>() as u32,
+                                                                           0,
+                                                                           checksum,
+                                                                           *OEM_ID,
+                                                                           *b"OEMRSDT ",
+                                                                           0xDEADBEEF,
+                                                                           0xDEADBEEF,
+                                                                           0xDEADBEEF),
+
+                                    });
+
+                PhysicalMapping
+                {
+                    physical_start  : RSDT_ADDRESS,
+                    virtual_start   : unsafe
+                                      {
+                                          NonNull::<T>::new_unchecked(Box::into_raw(rsdt) as *mut T)
+                                      },
+                    region_length   : mem::size_of::<TestRsdt>(),
+                    mapped_length   : mem::size_of::<TestRsdt>(),
                 }
             },
 
@@ -58,7 +94,8 @@ impl AcpiHandler for TestHandler
     {
         match region.physical_start
         {
-            RSDP_ADDRESS =>
+            RSDP_ADDRESS |
+            RSDT_ADDRESS =>
             {
                 let _ = unsafe { Box::from_raw(region.virtual_start.as_ptr()) };
             },
@@ -72,11 +109,10 @@ impl AcpiHandler for TestHandler
 fn test_constructed_tables()
 {
     let mut test_handler = TestHandler;
-    match AcpiInfo::parse_rsdp(&mut test_handler, RSDP_ADDRESS)
+    match parse_rsdp(&mut test_handler, RSDP_ADDRESS)
     {
-        Ok(info) =>
+        Ok(_) =>
         {
-            assert_eq!(info.revision, 0);
         },
 
         Err(err) =>
