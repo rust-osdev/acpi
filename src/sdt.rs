@@ -1,5 +1,5 @@
 use core::str;
-use AcpiError;
+use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
 /// this is.
@@ -87,4 +87,35 @@ impl SdtHeader
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_table_id).unwrap()
     }
+}
+
+/// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
+/// function parses that table.
+pub(crate) fn dispatch_sdt<H>(handler : &mut H, physical_address : usize) -> Result<(), AcpiError>
+    where H : AcpiHandler
+{
+    let header_mapping = handler.map_physical_region::<SdtHeader>(physical_address);
+    {
+        let signature = (*header_mapping).signature();
+        let length = (*header_mapping).length();
+
+        /*
+         * For a recognised signature, a new physical mapping should be created with the correct type
+         * and length, and then the dispatched to the correct function to actually parse the table.
+         */
+        match signature
+        {
+            _ =>
+            {
+                /*
+                 * We don't recognise this signature. Early on, this probably just means we don't
+                 * have support yet, but later on maybe this should become an actual error
+                 */
+                // TODO: add warn!()
+            },
+        }
+    }
+
+    handler.unmap_physical_region(header_mapping);
+    Ok(())
 }

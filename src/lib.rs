@@ -67,79 +67,82 @@ pub trait AcpiHandler
     fn unmap_physical_region<T>(&mut self, region : PhysicalMapping<T>);
 }
 
-pub struct AcpiInfo<'a, H : 'a>
+/// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
+/// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
+/// address of the RSDT/XSDT to `parse_rsdt`.
+pub fn parse_rsdp<H>(handler : &mut H, rsdp_address : usize) -> Result<(), AcpiError>
     where H : AcpiHandler
 {
-    handler     : &'a mut H,
-    revision    : u8,
+    let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address);
+    (*rsdp_mapping).validate()?;
+    let revision = (*rsdp_mapping).revision();
+
+    if revision == 0
+    {
+        /*
+         * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
+         */
+        let rsdt_address = (*rsdp_mapping).rsdt_address();
+        handler.unmap_physical_region(rsdp_mapping);
+        parse_rsdt(handler, revision, rsdt_address as usize)?;
+    }
+    else
+    {
+        /*
+         * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
+         * to 32 bits on x86.
+         */
+        let xsdt_address = (*rsdp_mapping).xsdt_address();
+        handler.unmap_physical_region(rsdp_mapping);
+        parse_rsdt(handler, revision, xsdt_address as usize)?;
+    }
+
+    Ok(())
 }
 
-impl<'a, H> AcpiInfo<'a, H>
+/// This is the entry point of `acpi` if you already have the **physical** address of the
+/// RSDT/XSDT; it parses all the SDTs in the RSDT/XSDT, calling the relevant handlers in the
+/// implementation's `AcpiHandler`.
+///
+/// If the given revision is 0, an address to the RSDT is expected. Otherwise, an address to
+/// the XSDT is expected.
+pub fn parse_rsdt<H>(handler            : &mut H,
+                     revision           : u8,
+                     physical_address   : usize) -> Result<(), AcpiError>
     where H : AcpiHandler
 {
-    /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
-    /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
-    /// address of the RSDT/XSDT to `parse_rsdt`.
-    pub fn parse_rsdp(handler : &'a mut H, rsdp_address : usize) -> Result<AcpiInfo<H>, AcpiError>
-    {
-        let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address);
-        (*rsdp_mapping).validate()?;
-        let revision = (*rsdp_mapping).revision();
+    let mapping = handler.map_physical_region::<SdtHeader>(physical_address);
 
-        if revision == 0
+    // TODO: extend the mapping to header.length
+    // TODO: validate the signature and checksum
+
+    if revision == 0
+    {
+        /*
+         * ACPI Version 1.0. It's a RSDT!
+         */
+        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
+        let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
+
+        for i in 0..num_tables
         {
-            /*
-             * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
-             */
-            let rsdt_address = (*rsdp_mapping).rsdt_address();
-            handler.unmap_physical_region(rsdp_mapping);
-            AcpiInfo::parse_rsdt(handler, revision, rsdt_address as usize)
+            sdt::dispatch_sdt(handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
         }
-        else
+    }
+    else
+    {
+        /*
+         * ACPI Version 2.0+. It's a XSDT!
+         */
+        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
+        let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
+
+        for i in 0..num_tables
         {
-            /*
-             * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
-             * to 32 bits on x86.
-             */
-            let xsdt_address = (*rsdp_mapping).xsdt_address();
-            handler.unmap_physical_region(rsdp_mapping);
-            AcpiInfo::parse_rsdt(handler, revision, xsdt_address as usize)
+            sdt::dispatch_sdt(handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
         }
     }
 
-    /// This is the entry point of `acpi` if you already have the **physical** address of the
-    /// RSDT/XSDT; it parses all the SDTs in the RSDT/XSDT, calling the relevant handlers in the
-    /// implementation's `AcpiHandler`.
-    ///
-    /// If the given revision is 0, an address to the RSDT is expected. Otherwise, an address to
-    /// the XSDT is expected.
-    pub fn parse_rsdt(handler           : &'a mut H,
-                      revision          : u8,
-                      physical_address  : usize) -> Result<AcpiInfo<H>, AcpiError>
-    {
-        let mapping = handler.map_physical_region::<SdtHeader>(physical_address);
-
-        // TODO: extend the mapping to header.length
-        // TODO: validate the signature and checksum
-
-        if revision == 0
-        {
-            /*
-             * ACPI Version 1.0. It's a RSDT!
-             */
-            let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
-            let pointer_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
-        }
-        else
-        {
-            /*
-             * ACPI Version 2.0+. It's a XSDT!
-             */
-            let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
-            let pointer_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
-        }
-
-        handler.unmap_physical_region(mapping);
-        unimplemented!();
-    }
+    handler.unmap_physical_region(mapping);
+    Ok(())
 }
