@@ -116,7 +116,8 @@ pub fn parse_rsdt<H>(handler            : &mut H,
     let mapping = handler.map_physical_region::<SdtHeader>(physical_address);
 
     // TODO: extend the mapping to header.length
-    // TODO: validate the signature and checksum
+    // TODO: validate the signature and checksum (XXX: if it's a RSDT, the signature will be
+    // "RSDT", whereas a XSDT will have a signature of "XSDT"
 
     if revision == 0
     {

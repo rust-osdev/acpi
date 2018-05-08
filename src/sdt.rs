@@ -20,14 +20,14 @@ pub struct SdtHeader
 impl SdtHeader
 {
     /// Check that:
-    ///     a) The signature is valid UTF8
-    ///     b) The checksum of the SDT.
+    ///     a) The signature matches the one given
+    ///     b) The checksum of the SDT
     ///
     /// This assumes that the whole SDT is mapped.
-    fn validate(&self) -> Result<(), AcpiError>
+    fn validate(&self, signature : &[u8; 4]) -> Result<(), AcpiError>
     {
         // Check the signature
-        if str::from_utf8(&self.signature).is_err()
+        if &self.signature == signature
         {
             return Err(AcpiError::SdtInvalidSignature);
         }
