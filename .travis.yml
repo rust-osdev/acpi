@@ -11,6 +11,15 @@ matrix:
     - rust: beta
   fast_finish: true
 
+branches:
+  only:
+    # This is where pull requests from "bors r+" are build
+    - staging
+    # This is where pull requests from "bors try" are build
+    - trying
+    # This allows building of pull requests
+    - master
+
 before_script:
   - rustup component add rustfmt-preview
 
