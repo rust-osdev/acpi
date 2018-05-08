@@ -1,4 +1,5 @@
 use core::str;
+use fadt::{parse_fadt, Fadt};
 use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -22,9 +23,9 @@ impl SdtHeader {
     ///     b) The checksum of the SDT
     ///
     /// This assumes that the whole SDT is mapped.
-    fn validate(&self, signature: &[u8; 4]) -> Result<(), AcpiError> {
+    pub fn validate(&self, signature: &[u8; 4]) -> Result<(), AcpiError> {
         // Check the signature
-        if &self.signature == signature {
+        if &self.signature != signature {
             return Err(AcpiError::SdtInvalidSignature);
         }
 
@@ -45,7 +46,7 @@ impl SdtHeader {
         }
 
         // Check that the lowest byte is 0
-        if sum & 0b1111_1111 != 0 {
+        if sum % 0b1111_1111 != 0 {
             return Err(AcpiError::SdtInvalidChecksum);
         }
 
@@ -117,6 +118,11 @@ where
          * and length, and then the dispatched to the correct function to actually parse the table.
          */
         match signature {
+            "FADT" => {
+                let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
+                parse_fadt(&fadt_mapping)?;
+                handler.unmap_physical_region(fadt_mapping);
+            }
             _ => {
                 /*
                  * We don't recognise this signature. Early on, this probably just means we don't
