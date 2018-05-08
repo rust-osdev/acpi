@@ -11,5 +11,13 @@ matrix:
     - rust: beta
   fast_finish: true
 
+before_script:
+  - rustup component add rustfmt-preview
+
+script:
+  - cargo fmt --all -- --write-mode=check
+  - cargo build
+  - cargo test
+
 notifications:
   email: change
