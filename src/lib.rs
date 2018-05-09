@@ -12,6 +12,7 @@ mod constructed_tables_test;
 mod fadt;
 mod rsdp;
 mod sdt;
+mod madt;
 
 use core::mem;
 use core::ops::Deref;
