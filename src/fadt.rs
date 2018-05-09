@@ -103,12 +103,12 @@ impl Fadt {
         creator_id: u32,
         creator_revision: u32,
     ) -> Fadt {
-        Fadt {
+        let mut test = Fadt {
             header: SdtHeader::make_testcase(
                 *b"FADT",
                 mem::size_of::<Fadt>() as u32,
                 6,
-                5, //checksum
+                0, //checksum
                 oem_id,
                 oem_table_id,
                 oem_revision,
@@ -173,7 +173,9 @@ impl Fadt {
             sleep_control_reg: GenericAddress::make_testcase(),
             sleep_status_reg: GenericAddress::make_testcase(),
             hypervisor_vendor_id: 0 as u64,
-        }
+        };
+        test.header.set_right_checksum();
+        test
     }
 }
 

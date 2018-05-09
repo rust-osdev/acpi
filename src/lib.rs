@@ -7,9 +7,12 @@ extern crate std;
 #[macro_use]
 extern crate log;
 
+extern crate bit_field;
+
 #[cfg(test)]
 mod constructed_tables_test;
 mod fadt;
+mod madt;
 mod rsdp;
 mod sdt;
 
@@ -31,6 +34,8 @@ pub enum AcpiError {
     SdtInvalidChecksum,
 
     FadtIncorrectSignature,
+
+    Error,
 }
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by

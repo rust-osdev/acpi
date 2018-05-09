@@ -1,4 +1,6 @@
-use super::{fadt::Fadt, parse_rsdp, rsdp::Rsdp, sdt::SdtHeader, AcpiHandler, PhysicalMapping};
+use super::{
+    fadt::Fadt, madt::*, parse_rsdp, rsdp::Rsdp, sdt::SdtHeader, AcpiHandler, PhysicalMapping,
+};
 use std::boxed::Box;
 /// These tests cover ideal sets of ACPI tables, which we construct on the fly. Eventually, this
 /// should cover all compliant implementations, but does not guarantee we'll be able to parse a
@@ -16,11 +18,13 @@ const OEM_ID: &[u8; 6] = b"RUST  ";
 const RSDP_ADDRESS: usize = 0x0;
 const RSDT_ADDRESS: usize = 0x1;
 const FADT_ADDRESS: usize = 0x2;
+const MADT_ADDRESS: usize = 0x3;
 
 #[repr(C, packed)]
 struct TestRsdt {
     header: SdtHeader,
     fadt: u32,
+    madt: u32,
     // TODO: We should probably actually add some SDTs
 }
 
@@ -53,13 +57,12 @@ impl AcpiHandler for TestHandler {
             }
 
             RSDT_ADDRESS => {
-                let checksum = 0; // TODO: calculate real checksum
-                let rsdt = Box::new(TestRsdt {
+                let mut rsdt = Box::new(TestRsdt {
                     header: SdtHeader::make_testcase(
                         *b"RSDT",
                         mem::size_of::<TestRsdt>() as u32,
                         0,
-                        checksum,
+                        0,
                         *OEM_ID,
                         *b"OEMRSDT ",
                         0xDEADBEEF,
@@ -67,7 +70,9 @@ impl AcpiHandler for TestHandler {
                         0xDEADBEEF,
                     ),
                     fadt: FADT_ADDRESS as u32,
+                    madt: MADT_ADDRESS as u32,
                 });
+                rsdt.header.set_right_checksum();
 
                 PhysicalMapping {
                     physical_start: RSDT_ADDRESS,
@@ -86,6 +91,7 @@ impl AcpiHandler for TestHandler {
                     0xDEADBEEF,
                     0xDEADBEEF,
                 ));
+
                 PhysicalMapping {
                     physical_start: FADT_ADDRESS,
                     virtual_start: unsafe {
@@ -93,6 +99,17 @@ impl AcpiHandler for TestHandler {
                     },
                     region_length: mem::size_of::<Fadt>(),
                     mapped_length: mem::size_of::<Fadt>(),
+                }
+            }
+            MADT_ADDRESS => {
+                let madt = Box::new(TestMadt::make_testcase(OEM_ID));
+                PhysicalMapping {
+                    physical_start: MADT_ADDRESS,
+                    virtual_start: unsafe {
+                        NonNull::<T>::new_unchecked(Box::into_raw(madt) as *mut T)
+                    },
+                    region_length: mem::size_of::<Madt>(),
+                    mapped_length: mem::size_of::<Madt>(),
                 }
             }
 
@@ -105,7 +122,7 @@ impl AcpiHandler for TestHandler {
 
     fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>) {
         match region.physical_start {
-            RSDP_ADDRESS | RSDT_ADDRESS | FADT_ADDRESS => {
+            RSDP_ADDRESS | RSDT_ADDRESS | FADT_ADDRESS | MADT_ADDRESS => {
                 let _ = unsafe { Box::from_raw(region.virtual_start.as_ptr()) };
             }
 

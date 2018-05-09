@@ -1,5 +1,6 @@
 use core::str;
 use fadt::{parse_fadt, Fadt};
+use madt::{parse_madt, Madt};
 use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -46,7 +47,7 @@ impl SdtHeader {
         }
 
         // Check that the lowest byte is 0
-        if sum % 0b1111_1111 != 0 {
+        if sum % 0xFF != 0 {
             return Err(AcpiError::SdtInvalidChecksum);
         }
 
@@ -74,6 +75,15 @@ impl SdtHeader {
     pub fn oem_table_id<'a>(&'a self) -> &'a str {
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_table_id).unwrap()
+    }
+
+    #[cfg(test)]
+    pub fn set_right_checksum(&mut self) {
+        let mut sum: usize = 0;
+        for i in 0..self.length {
+            sum += unsafe { *(self as *const SdtHeader as *const u8).offset(i as isize) } as usize;
+        }
+        self.checksum = (0xFF - (sum % 0xFF)) as u8;
     }
 
     #[cfg(test)]
@@ -122,6 +132,11 @@ where
                 let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
                 parse_fadt(&fadt_mapping)?;
                 handler.unmap_physical_region(fadt_mapping);
+            }
+            "APIC" => {
+                let madt_mapping = handler.map_physical_region::<Madt>(physical_address);
+                parse_madt(&madt_mapping)?;
+                handler.unmap_physical_region(madt_mapping);
             }
             _ => {
                 /*
