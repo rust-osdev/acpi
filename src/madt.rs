@@ -1,3 +1,4 @@
+use bit_field::BitField;
 use core::mem;
 use sdt::SdtHeader;
 use {AcpiError, PhysicalMapping};
@@ -22,7 +23,7 @@ impl Madt {
     }
 
     #[cfg(test)]
-    pub(crate) fn make_testcase(
+    fn make_testcase(
         size: u32,
         checksum: u8,
         oem_id: [u8; 6],
@@ -59,18 +60,31 @@ pub fn parse_madt(mapping: &PhysicalMapping<Madt>) -> Result<(), AcpiError> {
         let length: u8 = unsafe {
             *((mapping.virtual_start.as_ptr() as *const u8).add(i + 1) as *const u8)
         } as u8;
-
         match struct_type {
-            0 => unsafe {
+            MADT_PROCESSOR_LOCAL_APIC => unsafe {
                 (*((mapping.virtual_start.as_ptr() as *const u8).add(i)
                     as *const MadtProcessorLocalAPIC))
                     .validate()?;
             },
-            1 => {}
-            2 => {}
-            3 => {}
-            4 => {}
-            _ => {}
+            MADT_IO_APIC => unsafe {
+                (*((mapping.virtual_start.as_ptr() as *const u8).add(i) as *const MadtIOAPIC))
+                    .validate()?;
+            },
+            MADT_INTERRUPT_SOURCE_OVERRIDE => unsafe {
+                (*((mapping.virtual_start.as_ptr() as *const u8).add(i)
+                    as *const MadtInterruptSourceOverride))
+                    .validate()?;
+            },
+
+            MADT_LOCAL_APIC_NMI => unsafe {
+                (*((mapping.virtual_start.as_ptr() as *const u8).add(i)
+                    as *const MadtLocalAPICNMI))
+                    .validate()?;
+            },
+
+            _ => {
+                unimplemented!();
+            }
         }
         i = i + (length as usize);
     }
@@ -78,8 +92,11 @@ pub fn parse_madt(mapping: &PhysicalMapping<Madt>) -> Result<(), AcpiError> {
     Ok(())
 }
 
+const MADT_PROCESSOR_LOCAL_APIC: u8 = 0;
+const MADT_PROCESSOR_LOCAL_APIC_LENGTH: u8 = 8;
+
 #[repr(C, packed)]
-pub struct MadtProcessorLocalAPIC {
+struct MadtProcessorLocalAPIC {
     struct_type: u8, // 0
     length: u8,      // 8
     acpi_processor_uid: u8,
@@ -91,38 +108,40 @@ impl MadtProcessorLocalAPIC {
     fn validate(&self) -> Result<(), AcpiError> {
         // TODO change the errors
         // Also is it also needed to check struct type and length ??
-        if self.struct_type != (0 as u8) {
+        if self.struct_type != 0 {
             return Err(AcpiError::Error);
         }
-
-        if self.length != (8 as u8) {
+        if self.length != 8 {
             return Err(AcpiError::Error);
         }
-
-        if self.flags & 0b111_1111_1111_1111_1111_1111_1111_1111 != 0 {
-            // TODO maybe a more elegant way :)
+        if self.flags.get_bits(1..31) != 0 {
             return Err(AcpiError::Error);
         }
         Ok(())
     }
 
-    pub fn length() -> u32 {
+    fn length() -> u32 {
         8 as u32
     }
     #[cfg(test)]
-    pub(crate) fn make_proc_local_apic_testcase() -> MadtProcessorLocalAPIC {
-        MadtProcessorLocalAPIC {
-            struct_type: 0 as u8,
-            length: 8 as u8,
-            acpi_processor_uid: 0 as u8,
-            apic_id: 0 as u8,
-            flags: 0 as u32,
-        }
+    fn make_testcase(proc_uid: u8, apic_id: u8) -> MadtProcessorLocalAPIC {
+        let mut test = MadtProcessorLocalAPIC {
+            struct_type: MADT_PROCESSOR_LOCAL_APIC,
+            length: MADT_PROCESSOR_LOCAL_APIC_LENGTH,
+            acpi_processor_uid: proc_uid,
+            apic_id: apic_id,
+            flags: 0,
+        };
+        test.flags.set_bit(0, true);
+        test
     }
 }
 
+const MADT_IO_APIC: u8 = 1;
+const MADT_IO_APIC_LENGTH: u8 = 12;
+
 #[repr(C, packed)]
-struct MadtIOApic {
+struct MadtIOAPIC {
     struct_type: u8, // 1
     length: u8,      // 12
     io_apic_id: u8,
@@ -130,6 +149,43 @@ struct MadtIOApic {
     io_apic_address: u32,
     global_system_interrupt_base: u32,
 }
+
+impl MadtIOAPIC {
+    fn validate(&self) -> Result<(), AcpiError> {
+        if self.struct_type != 1 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.length != 12 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.reserved != 0 {
+            return Err(AcpiError::Error);
+        }
+
+        Ok(())
+    }
+
+    fn length() -> u32 {
+        12 as u32
+    }
+
+    #[cfg(test)]
+    fn make_testcase(apic_id: u8, global_base: u32) -> MadtIOAPIC {
+        MadtIOAPIC {
+            struct_type: MADT_IO_APIC,
+            length: MADT_IO_APIC_LENGTH,
+            io_apic_id: apic_id,
+            reserved: 0,
+            io_apic_address: 0xDEADBEEF,
+            global_system_interrupt_base: global_base,
+        }
+    }
+}
+
+const MADT_INTERRUPT_SOURCE_OVERRIDE: u8 = 2;
+const MADT_INTERRUPT_SOURCE_OVERRIDE_LENGTH: u8 = 10;
 
 #[repr(C, packed)]
 struct MadtInterruptSourceOverride {
@@ -141,6 +197,44 @@ struct MadtInterruptSourceOverride {
     flags: u16,
 }
 
+impl MadtInterruptSourceOverride {
+    fn validate(&self) -> Result<(), AcpiError> {
+        if self.struct_type != 2 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.length != 10 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.bus != 0 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.flags.get_bits(4..15) != 0 {
+            return Err(AcpiError::Error);
+        }
+
+        Ok(())
+    }
+
+    fn length() -> u32 {
+        10 as u32
+    }
+
+    #[cfg(test)]
+    fn make_testcase(irq: u8) -> MadtInterruptSourceOverride {
+        MadtInterruptSourceOverride {
+            struct_type: MADT_INTERRUPT_SOURCE_OVERRIDE,
+            length: MADT_INTERRUPT_SOURCE_OVERRIDE_LENGTH,
+            bus: 0,
+            source: irq,
+            global_system_interrupt: 0xDEADBEEF,
+            flags: 0,
+        }
+    }
+}
+
 #[repr(C, packed)]
 struct MadtNMISource {
     struct_type: u8, // 3
@@ -149,6 +243,9 @@ struct MadtNMISource {
     global_system_interrupt: u32,
 }
 
+const MADT_LOCAL_APIC_NMI: u8 = 4;
+const MADT_LOCAL_APIC_NMI_LENGTH: u8 = 6;
+
 #[repr(C, packed)]
 struct MadtLocalAPICNMI {
     struct_type: u8, // 4
@@ -156,6 +253,39 @@ struct MadtLocalAPICNMI {
     acpi_processor_uid: u8,
     flags: u16,
     local_apic_lint: u8,
+}
+
+impl MadtLocalAPICNMI {
+    fn validate(&self) -> Result<(), AcpiError> {
+        if self.struct_type != 4 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.length != 6 {
+            return Err(AcpiError::Error);
+        }
+
+        if self.flags.get_bits(4..15) != 0 {
+            return Err(AcpiError::Error);
+        }
+
+        Ok(())
+    }
+
+    fn length() -> u32 {
+        6 as u32
+    }
+
+    #[cfg(test)]
+    fn make_testcase(uid: u8) -> MadtLocalAPICNMI {
+        MadtLocalAPICNMI {
+            struct_type: MADT_LOCAL_APIC_NMI,
+            length: MADT_LOCAL_APIC_NMI_LENGTH,
+            acpi_processor_uid: uid,
+            flags: 0,
+            local_apic_lint: 0,
+        }
+    }
 }
 
 #[repr(C, packed)]
@@ -294,4 +424,46 @@ struct MadtGICITS {
     gic_its_id: u32,
     physical_base_address: u64,
     reserved2: u32, // 0
+}
+
+#[cfg(test)]
+#[repr(C, packed)]
+pub struct TestMadt {
+    madt: Madt,
+    proc_local_apic_0: MadtProcessorLocalAPIC,
+    proc_local_apic_1: MadtProcessorLocalAPIC,
+    io_apic: MadtIOAPIC,
+    int_source_override_0: MadtInterruptSourceOverride,
+    int_source_override_1: MadtInterruptSourceOverride,
+    int_source_override_2: MadtInterruptSourceOverride,
+    nmi: MadtLocalAPICNMI,
+}
+#[cfg(test)]
+impl TestMadt {
+    pub(crate) fn make_testcase(oem_id: &[u8; 6]) -> TestMadt {
+        let mut test = TestMadt {
+            madt: Madt::make_testcase(
+                mem::size_of::<TestMadt>() as u32,
+                0,
+                *oem_id,
+                *b"OEMMADT ",
+                0xDEADBEEF,
+                0xDEADBEEF,
+                0xDEADBEEF,
+            ),
+            proc_local_apic_0: MadtProcessorLocalAPIC::make_testcase(0, 0),
+            proc_local_apic_1: MadtProcessorLocalAPIC::make_testcase(1, 1),
+            io_apic: MadtIOAPIC::make_testcase(0, 0),
+            int_source_override_0: MadtInterruptSourceOverride::make_testcase(3),
+            int_source_override_1: MadtInterruptSourceOverride::make_testcase(6),
+            int_source_override_2: MadtInterruptSourceOverride::make_testcase(9),
+            nmi: MadtLocalAPICNMI::make_testcase(0xFF),
+        };
+        let mut sum: usize = 0;
+        for i in 0..test.madt.header.length() {
+            sum += unsafe { *(&test as *const TestMadt as *const u8).offset(i as isize) } as usize;
+        }
+        test.madt.header.set_right_checksum();
+        test
+    }
 }

@@ -28,12 +28,6 @@ struct TestRsdt {
     // TODO: We should probably actually add some SDTs
 }
 
-#[repr(C, packed)]
-struct TestMadt {
-    madt: Madt,
-    proc_local_apic: MadtProcessorLocalAPIC,
-}
-
 struct TestHandler;
 
 impl AcpiHandler for TestHandler {
@@ -63,13 +57,12 @@ impl AcpiHandler for TestHandler {
             }
 
             RSDT_ADDRESS => {
-                let checksum = 0; // TODO: calculate real checksum
-                let rsdt = Box::new(TestRsdt {
+                let mut rsdt = Box::new(TestRsdt {
                     header: SdtHeader::make_testcase(
                         *b"RSDT",
                         mem::size_of::<TestRsdt>() as u32,
                         0,
-                        checksum,
+                        0,
                         *OEM_ID,
                         *b"OEMRSDT ",
                         0xDEADBEEF,
@@ -79,6 +72,7 @@ impl AcpiHandler for TestHandler {
                     fadt: FADT_ADDRESS as u32,
                     madt: MADT_ADDRESS as u32,
                 });
+                rsdt.header.set_right_checksum();
 
                 PhysicalMapping {
                     physical_start: RSDT_ADDRESS,
@@ -97,6 +91,7 @@ impl AcpiHandler for TestHandler {
                     0xDEADBEEF,
                     0xDEADBEEF,
                 ));
+
                 PhysicalMapping {
                     physical_start: FADT_ADDRESS,
                     virtual_start: unsafe {
@@ -107,18 +102,7 @@ impl AcpiHandler for TestHandler {
                 }
             }
             MADT_ADDRESS => {
-                let madt = Box::new(TestMadt {
-                    madt: Madt::make_testcase(
-                        mem::size_of::<Madt>() as u32 + MadtProcessorLocalAPIC::length(),
-                        210,
-                        *OEM_ID,
-                        *b"OEMMADT ",
-                        0xDEADBEEF,
-                        0xDEADBEEF,
-                        0xDEADBEEF,
-                    ),
-                    proc_local_apic: MadtProcessorLocalAPIC::make_proc_local_apic_testcase(),
-                });
+                let madt = Box::new(TestMadt::make_testcase(OEM_ID));
                 PhysicalMapping {
                     physical_start: MADT_ADDRESS,
                     virtual_start: unsafe {

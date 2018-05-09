@@ -7,6 +7,8 @@ extern crate std;
 #[macro_use]
 extern crate log;
 
+extern crate bit_field;
+
 #[cfg(test)]
 mod constructed_tables_test;
 mod fadt;

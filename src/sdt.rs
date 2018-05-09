@@ -47,7 +47,7 @@ impl SdtHeader {
         }
 
         // Check that the lowest byte is 0
-        if sum % 0b1111_1111 != 0 {
+        if sum % 0xFF != 0 {
             return Err(AcpiError::SdtInvalidChecksum);
         }
 
@@ -75,6 +75,15 @@ impl SdtHeader {
     pub fn oem_table_id<'a>(&'a self) -> &'a str {
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_table_id).unwrap()
+    }
+
+    #[cfg(test)]
+    pub fn set_right_checksum(&mut self) {
+        let mut sum: usize = 0;
+        for i in 0..self.length {
+            sum += unsafe { *(self as *const SdtHeader as *const u8).offset(i as isize) } as usize;
+        }
+        self.checksum = (0xFF - (sum % 0xFF)) as u8;
     }
 
     #[cfg(test)]
