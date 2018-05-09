@@ -35,7 +35,7 @@ impl Madt {
             header: SdtHeader::make_testcase(
                 *b"APIC",
                 size,
-                6,
+                45,
                 checksum, // checksum
                 oem_id,
                 oem_table_id,
@@ -61,7 +61,11 @@ pub fn parse_madt(mapping: &PhysicalMapping<Madt>) -> Result<(), AcpiError> {
         } as u8;
 
         match struct_type {
-            0 => {}
+            0 => unsafe {
+                (*((mapping.virtual_start.as_ptr() as *const u8).add(i)
+                    as *const MadtProcessorLocalAPIC))
+                    .validate()?;
+            },
             1 => {}
             2 => {}
             3 => {}
@@ -84,6 +88,24 @@ pub struct MadtProcessorLocalAPIC {
 }
 
 impl MadtProcessorLocalAPIC {
+    fn validate(&self) -> Result<(), AcpiError> {
+        // TODO change the errors
+        // Also is it also needed to check struct type and length ??
+        if self.struct_type != (0 as u8) {
+            return Err(AcpiError::Error);
+        }
+
+        if self.length != (8 as u8) {
+            return Err(AcpiError::Error);
+        }
+
+        if self.flags & 0b111_1111_1111_1111_1111_1111_1111_1111 != 0 {
+            // TODO maybe a more elegant way :)
+            return Err(AcpiError::Error);
+        }
+        Ok(())
+    }
+
     pub fn length() -> u32 {
         8 as u32
     }

@@ -110,7 +110,7 @@ impl AcpiHandler for TestHandler {
                 let madt = Box::new(TestMadt {
                     madt: Madt::make_testcase(
                         mem::size_of::<Madt>() as u32 + MadtProcessorLocalAPIC::length(),
-                        249,
+                        210,
                         *OEM_ID,
                         *b"OEMMADT ",
                         0xDEADBEEF,
