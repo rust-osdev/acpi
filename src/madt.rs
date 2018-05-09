@@ -1,4 +1,5 @@
 use sdt::SdtHeader;
+use AcpiError;
 
 #[repr(C, packed)]
 struct Madt {
@@ -8,6 +9,12 @@ struct Madt {
     local_interrupt_controller_address: u32,
     flags: u32,
     // TODO ?
+}
+
+impl Madt {
+    pub fn validate(&self) -> Result<(), AcpiError> {
+        self.header.validate(b"APIC")
+    }
 }
 
 #[repr(C, packed)]
