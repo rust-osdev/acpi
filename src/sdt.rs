@@ -1,5 +1,6 @@
 use core::str;
 use fadt::{parse_fadt, Fadt};
+use madt::{parse_madt, Madt};
 use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -122,6 +123,11 @@ where
                 let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
                 parse_fadt(&fadt_mapping)?;
                 handler.unmap_physical_region(fadt_mapping);
+            }
+            "APIC" => {
+                let madt_mapping = handler.map_physical_region::<Madt>(physical_address);
+                parse_madt(&madt_mapping)?;
+                handler.unmap_physical_region(madt_mapping);
             }
             _ => {
                 /*

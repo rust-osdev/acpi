@@ -1,8 +1,9 @@
+use core::mem;
 use sdt::SdtHeader;
-use AcpiError;
+use {AcpiError, PhysicalMapping};
 
 #[repr(C, packed)]
-struct Madt {
+pub struct Madt {
     // header
     header: SdtHeader,
 
@@ -15,15 +16,87 @@ impl Madt {
     pub fn validate(&self) -> Result<(), AcpiError> {
         self.header.validate(b"APIC")
     }
+
+    pub fn length(&self) -> u32 {
+        self.header.length()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn make_testcase(
+        size: u32,
+        checksum: u8,
+        oem_id: [u8; 6],
+        oem_table_id: [u8; 8],
+        oem_revision: u32,
+        creator_id: u32,
+        creator_revision: u32,
+    ) -> Madt {
+        Madt {
+            header: SdtHeader::make_testcase(
+                *b"APIC",
+                size,
+                6,
+                checksum, // checksum
+                oem_id,
+                oem_table_id,
+                oem_revision,
+                creator_id,
+                creator_revision,
+            ),
+            local_interrupt_controller_address: 0xDEADBEEF as u32,
+            flags: 0 as u32,
+        }
+    }
+}
+
+pub fn parse_madt(mapping: &PhysicalMapping<Madt>) -> Result<(), AcpiError> {
+    (*mapping).validate()?;
+
+    let mut i: usize = mem::size_of::<Madt>();
+    while i < (*mapping).length() as usize {
+        let struct_type: u8 =
+            unsafe { *((mapping.virtual_start.as_ptr() as *const u8).add(i) as *const u8) } as u8;
+        let length: u8 = unsafe {
+            *((mapping.virtual_start.as_ptr() as *const u8).add(i + 1) as *const u8)
+        } as u8;
+
+        match struct_type {
+            0 => {}
+            1 => {}
+            2 => {}
+            3 => {}
+            4 => {}
+            _ => {}
+        }
+        i = i + (length as usize);
+    }
+
+    Ok(())
 }
 
 #[repr(C, packed)]
-struct MadtProcessorLocalAPIC {
+pub struct MadtProcessorLocalAPIC {
     struct_type: u8, // 0
     length: u8,      // 8
     acpi_processor_uid: u8,
     apic_id: u8,
     flags: u32,
+}
+
+impl MadtProcessorLocalAPIC {
+    pub fn length() -> u32 {
+        8 as u32
+    }
+    #[cfg(test)]
+    pub(crate) fn make_proc_local_apic_testcase() -> MadtProcessorLocalAPIC {
+        MadtProcessorLocalAPIC {
+            struct_type: 0 as u8,
+            length: 8 as u8,
+            acpi_processor_uid: 0 as u8,
+            apic_id: 0 as u8,
+            flags: 0 as u32,
+        }
+    }
 }
 
 #[repr(C, packed)]
