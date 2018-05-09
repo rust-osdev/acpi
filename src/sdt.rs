@@ -121,7 +121,7 @@ where
         match signature {
             "FACP" => {
                 let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
-                ::fadt::parse_fadt(&fadt_mapping)?;
+                ::fadt::parse_fadt(handler, &fadt_mapping)?;
                 handler.unmap_physical_region(fadt_mapping);
             }
             "HPET" => {

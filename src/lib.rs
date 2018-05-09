@@ -7,6 +7,7 @@ extern crate std;
 #[macro_use]
 extern crate log;
 
+mod dsdt;
 mod fadt;
 mod hpet;
 mod rsdp;
