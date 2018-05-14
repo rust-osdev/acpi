@@ -92,7 +92,7 @@ pub struct Fadt {
 
 impl Fadt {
     pub fn validate(&self) -> Result<(), AcpiError> {
-        self.header.validate(b"FADT")
+        self.header.validate(b"FACP")
     }
 
     #[cfg(test)]
@@ -105,7 +105,7 @@ impl Fadt {
     ) -> Fadt {
         Fadt {
             header: SdtHeader::make_testcase(
-                *b"FADT",
+                *b"FACP",
                 mem::size_of::<Fadt>() as u32,
                 6,
                 5, //checksum
@@ -178,5 +178,7 @@ impl Fadt {
 }
 
 pub fn parse_fadt(mapping: &PhysicalMapping<Fadt>) -> Result<(), AcpiError> {
-    (*mapping).validate()
+    (*mapping).validate()?;
+
+    Ok(())
 }
