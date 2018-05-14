@@ -1,5 +1,5 @@
 use core::str;
-use fadt::{parse_fadt, Fadt};
+use fadt::Fadt;
 use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -118,11 +118,12 @@ where
          * and length, and then the dispatched to the correct function to actually parse the table.
          */
         match signature {
-            "FADT" => {
+            "FACP" => {
                 let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
-                parse_fadt(&fadt_mapping)?;
+                ::fadt::parse_fadt(&fadt_mapping)?;
                 handler.unmap_physical_region(fadt_mapping);
             }
+
             _ => {
                 /*
                  * We don't recognise this signature. Early on, this probably just means we don't
