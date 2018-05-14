@@ -122,6 +122,8 @@ where
         /*
          * ACPI Version 1.0. It's a RSDT!
          */
+        (*mapping).validate(b"RSDT")?;
+
         let num_tables =
             ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
         let tables_base =
@@ -134,6 +136,8 @@ where
         /*
          * ACPI Version 2.0+. It's a XSDT!
          */
+        (*mapping).validate(b"XSDT")?;
+
         let num_tables =
             ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
         let tables_base =

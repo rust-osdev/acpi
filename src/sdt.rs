@@ -39,14 +39,14 @@ impl SdtHeader {
             return Err(AcpiError::SdtInvalidTableId);
         }
 
-        // Sum all bytes in the SDT (not just the header)
-        let mut sum: usize = 0;
+        // Validate the checksum
+        let self_ptr = self as *const SdtHeader as *const u8;
+        let mut sum: u8 = 0;
         for i in 0..self.length {
-            sum += unsafe { *(self as *const SdtHeader as *const u8).offset(i as isize) } as usize;
+            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) } as u8);
         }
 
-        // Check that the lowest byte is 0
-        if sum % 0b1111_1111 != 0 {
+        if sum > 0 {
             return Err(AcpiError::SdtInvalidChecksum);
         }
 
