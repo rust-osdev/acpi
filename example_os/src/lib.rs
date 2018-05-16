@@ -27,10 +27,9 @@ extern crate lazy_static;
 extern crate bit_field;
 
 #[macro_use]
-mod vga_buffer;
+mod serial;
 mod interrupts;
 mod memory;
-mod serial;
 
 use linked_list_allocator::LockedHeap;
 use serial::SerialPort;
@@ -43,11 +42,7 @@ static HEAP_ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 #[no_mangle]
 pub extern "C" fn rust_main(multiboot_address: usize) {
-    vga_buffer::clear_screen();
-    println!("Hello World{}", "!");
-
     SerialPort::init();
-    SerialPort::send_str("Hello from QEMU");
 
     let boot_info = unsafe { multiboot2::load(multiboot_address) };
     let mut memory_controller = memory::init(boot_info);
@@ -58,10 +53,17 @@ pub extern "C" fn rust_main(multiboot_address: usize) {
 
     interrupts::init(&mut memory_controller);
 
-    println!("It did not crash!");
-    // We now tell QEMU to quit
-    unsafe { asm!("out 0xf4, al" : : "{al}"(0x00) : : "intel", "volatile"); }
-    loop {}
+    // TODO: parse ACPI
+
+    SerialPort::write("Passed");
+    qemu_quit();
+}
+
+pub fn qemu_quit() -> ! {
+    unsafe {
+        asm!("out 0xf4, al" : : "{al}"(0x00) : : "intel", "volatile");
+    }
+    unreachable!();
 }
 
 #[cfg(not(test))]
@@ -73,13 +75,14 @@ pub extern "C" fn eh_personality() {}
 #[lang = "panic_fmt"]
 #[no_mangle]
 pub extern "C" fn panic_fmt(fmt: core::fmt::Arguments, file: &'static str, line: u32) -> ! {
-    println!("\n\nPANIC in {} at line {}:", file, line);
-    println!("    {}", fmt);
+    SerialPort::write(&format!("\n\nPANIC in {} at line {}:", file, line));
+    SerialPort::write(&format!("    {}", fmt));
     loop {}
 }
 
 #[lang = "oom"]
-fn oom() -> ! {
+#[no_mangle]
+pub extern "C" fn rust_oom() -> ! {
     panic!("OOM");
 }
 

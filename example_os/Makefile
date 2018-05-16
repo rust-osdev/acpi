@@ -20,6 +20,8 @@ test: $(iso)
 					    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
 					    -cdrom build/os-$(arch).iso \
 	| tail -n +16 > serial.txt || true
+	@# Now we test whether the output file has the string "Passed" in it
+	grep -Fxq "Passed" serial.txt
 
 $(iso): $(kernel) $(grub_cfg)
 	@mkdir -p build/isofiles/boot/grub

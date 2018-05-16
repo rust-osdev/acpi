@@ -1,4 +1,5 @@
 use memory::MemoryController;
+use serial::SerialPort;
 use spin::Once;
 use x86_64::structures::idt::{ExceptionStackFrame, Idt, PageFaultErrorCode};
 use x86_64::structures::tss::TaskStateSegment;
@@ -67,23 +68,24 @@ pub fn init(memory_controller: &mut MemoryController) {
 }
 
 extern "x86-interrupt" fn divide_by_zero_handler(stack_frame: &mut ExceptionStackFrame) {
-    println!("\nEXCEPTION: DIVIDE BY ZERO\n{:#?}", stack_frame);
-    loop {}
+    SerialPort::write(&format!("\nEXCEPTION: DIVIDE BY ZERO\n{:#?}", stack_frame));
+    ::qemu_quit();
 }
 
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: &mut ExceptionStackFrame) {
-    println!(
+    SerialPort::write(&format!(
         "\nEXCEPTION: BREAKPOINT at {:#x}\n{:#?}",
         stack_frame.instruction_pointer, stack_frame
-    );
+    ));
+    ::qemu_quit();
 }
 
 extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: &mut ExceptionStackFrame) {
-    println!(
+    SerialPort::write(&format!(
         "\nEXCEPTION: INVALID OPCODE at {:#x}\n{:#?}",
         stack_frame.instruction_pointer, stack_frame
-    );
-    loop {}
+    ));
+    ::qemu_quit();
 }
 
 extern "x86-interrupt" fn page_fault_handler(
@@ -91,20 +93,20 @@ extern "x86-interrupt" fn page_fault_handler(
     error_code: PageFaultErrorCode,
 ) {
     use x86_64::registers::control_regs;
-    println!(
+    SerialPort::write(&format!(
         "\nEXCEPTION: PAGE FAULT while accessing {:#x}\nerror code: \
          {:?}\n{:#?}",
         control_regs::cr2(),
         error_code,
         stack_frame
-    );
-    loop {}
+    ));
+    ::qemu_quit();
 }
 
 extern "x86-interrupt" fn double_fault_handler(
     stack_frame: &mut ExceptionStackFrame,
     _error_code: u64,
 ) {
-    println!("\nEXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
-    loop {}
+    SerialPort::write(&format!("\nEXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame));
+    ::qemu_quit();
 }
