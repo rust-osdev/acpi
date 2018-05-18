@@ -1,10 +1,42 @@
-use core::str;
+use core::{mem, str};
 use fadt::Fadt;
 use hpet::Hpet;
 use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
 /// this is.
+///
+/// The ACPI Spec (Version 6.2) defines the following SDT signatures:
+///     "APIC" - Multiple APIC Descriptor Table (MADT)
+///     "BGRT" - Boot Graphics Resource Table
+///     "BERT" - Boot Error Record Table
+///     "CPEP" - Corrected Platform Error Polling Table
+///     "DSDT" - Differentiated System Descriptor Table
+///     "ECDT" - Embedded Controller Boot Resources Table
+///     "EINJ" - Error Injection Table
+///     "ERST" - Error Record Serialization Table
+///     "FACP" - Fixed ACPI Description Table (FADT)
+///     "FACS" - Firmware ACPI Control Structure
+///     "FPDT" - Firmware Performance Data Table
+///     "GTDT" - Generic Timer Description Table
+///     "HEST" - Hardware Error Source Table
+///     "HMAT" - Heterogeneous Memory Attributes Table
+///     "MSCT" - Maximum System Characteristics Table
+///     "MPST" - Memory Power State Table
+///     "NFIT" - NVDIMM Firmware Interface Table
+///     "OEMx" - Various OEM-specific tables
+///     "PDTT" - Platform Debug Trigger Table
+///     "PMTT" - Platform Memory Topology Table
+///     "PPTT" - Processor Properties Topology Table
+///     "PSDT" - Persistent System Description Table
+///     "RASF" - ACPI RAS Feature Table
+///     "RSDT" - Root System Descriptor Table
+///     "SBST" - Smart Battery Specification Table
+///     "SLIT" - System Locality Information Table
+///     "SRAT" - System Resource Affinity Table
+///     "SSDT" - Secondary System Description Table
+///     "XSDT" - eXtended System Descriptor Table
+#[derive(Clone)]
 #[repr(C, packed)]
 pub struct SdtHeader {
     signature: [u8; 4],
@@ -27,17 +59,17 @@ impl SdtHeader {
     pub fn validate(&self, signature: &[u8; 4]) -> Result<(), AcpiError> {
         // Check the signature
         if &self.signature != signature {
-            return Err(AcpiError::SdtInvalidSignature);
+            return Err(AcpiError::SdtInvalidSignature(*signature));
         }
 
         // Check the OEM id
         if str::from_utf8(&self.oem_id).is_err() {
-            return Err(AcpiError::SdtInvalidOemId);
+            return Err(AcpiError::SdtInvalidOemId(*signature));
         }
 
         // Check the OEM table id
         if str::from_utf8(&self.oem_table_id).is_err() {
-            return Err(AcpiError::SdtInvalidTableId);
+            return Err(AcpiError::SdtInvalidTableId(*signature));
         }
 
         // Validate the checksum
@@ -48,10 +80,15 @@ impl SdtHeader {
         }
 
         if sum > 0 {
-            return Err(AcpiError::SdtInvalidChecksum);
+            error!("Checksum wrong: {}", sum);
+            return Err(AcpiError::SdtInvalidChecksum(*signature));
         }
 
         Ok(())
+    }
+
+    pub fn raw_signature(&self) -> [u8; 4] {
+        self.signature
     }
 
     pub fn signature<'a>(&'a self) -> &'a str {

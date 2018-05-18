@@ -20,15 +20,16 @@ use rsdp::Rsdp;
 use sdt::SdtHeader;
 
 #[derive(Debug)]
+// TODO: manually implement Debug to print signatures correctly etc.
 pub enum AcpiError {
     RsdpIncorrectSignature,
     RsdpInvalidOemId,
     RsdpInvalidChecksum,
 
-    SdtInvalidSignature,
-    SdtInvalidOemId,
-    SdtInvalidTableId,
-    SdtInvalidChecksum,
+    SdtInvalidSignature([u8; 4]),
+    SdtInvalidOemId([u8; 4]),
+    SdtInvalidTableId([u8; 4]),
+    SdtInvalidChecksum([u8; 4]),
 
     FadtIncorrectSignature,
 }
