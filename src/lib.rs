@@ -66,11 +66,16 @@ impl<T> Deref for PhysicalMapping<T> {
 /// `acpi` to tell the kernel about the tables it's parsing, such as how the kernel should
 /// configure the APIC or PCI routing.
 pub trait AcpiHandler {
-    /// Given a starting physical address, map a region of physical memory that contains a `T`
-    /// somewhere in the virtual address space. The address doesn't have to be page-aligned, so
-    /// the implementation may have to add padding to either end. The supplied size must be large
-    /// enough to hold a `T`, but may also be larger.
-    fn map_physical_region<T>(&mut self, physical_address: usize) -> PhysicalMapping<T>;
+    /// Given a starting physical address and a size, map a region of physical memory that contains
+    /// a `T` (but may be bigger than `size_of::<T>()`). The address doesn't have to be page-aligned,
+    /// so the implementation may have to add padding to either end. The given size must be greater
+    /// or equal to the size of a `T`. The virtual address the memory is mapped to does not matter,
+    /// as long as it is accessibly by `acpi`.
+    fn map_physical_region<T>(
+        &mut self,
+        physical_address: usize,
+        size: usize,
+    ) -> PhysicalMapping<T>;
 
     /// Unmap the given physical mapping. Safe because we consume the mapping, and so it can't be
     /// used after being passed to this function.
@@ -84,7 +89,7 @@ pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<(), AcpiErr
 where
     H: AcpiHandler,
 {
-    let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address);
+    let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>());
     (*rsdp_mapping).validate()?;
     let revision = (*rsdp_mapping).revision();
 
@@ -122,8 +127,9 @@ pub fn parse_rsdt<H>(
 where
     H: AcpiHandler,
 {
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address);
-    // TODO: extend the mapping to header.length
+    let header = sdt::peek_at_sdt_header(handler, physical_address);
+    let mapping =
+        handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
 
     if revision == 0 {
         /*

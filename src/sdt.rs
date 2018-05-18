@@ -80,7 +80,6 @@ impl SdtHeader {
         }
 
         if sum > 0 {
-            error!("Checksum wrong: {}", sum);
             return Err(AcpiError::SdtInvalidChecksum(*signature));
         }
 
@@ -140,43 +139,59 @@ impl SdtHeader {
     }
 }
 
+/// Takes the physical address of an SDT, and maps, clones and unmaps its header. Useful for
+/// finding out how big it is to map it correctly later.
+pub(crate) fn peek_at_sdt_header<H>(handler: &mut H, physical_address: usize) -> SdtHeader
+where
+    H: AcpiHandler,
+{
+    let mapping =
+        handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>());
+    let header = (*mapping).clone();
+    handler.unmap_physical_region(mapping);
+
+    header
+}
+
 /// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
 /// function parses that table.
 pub(crate) fn dispatch_sdt<H>(handler: &mut H, physical_address: usize) -> Result<(), AcpiError>
 where
     H: AcpiHandler,
 {
-    let header_mapping = handler.map_physical_region::<SdtHeader>(physical_address);
-    {
-        let signature = (*header_mapping).signature();
-        let length = (*header_mapping).length();
+    let header = peek_at_sdt_header(handler, physical_address);
+    info!(
+        "Dispatching SDT with signature {:?} and length {:?}",
+        header.signature(),
+        header.length()
+    );
 
-        /*
-         * For a recognised signature, a new physical mapping should be created with the correct type
-         * and length, and then the dispatched to the correct function to actually parse the table.
-         */
-        match signature {
-            "FACP" => {
-                let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
-                ::fadt::parse_fadt(handler, &fadt_mapping)?;
-                handler.unmap_physical_region(fadt_mapping);
-            }
-            "HPET" => {
-                let hpet_mapping = handler.map_physical_region::<Hpet>(physical_address);
-                ::hpet::parse_hpet(&hpet_mapping)?;
-                handler.unmap_physical_region(hpet_mapping);
-            }
+    /*
+     * For a recognised signature, a new physical mapping should be created with the correct type
+     * and length, and then the dispatched to the correct function to actually parse the table.
+     */
+    match header.signature() {
+        "FACP" => {
+            let fadt_mapping =
+                handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
+            ::fadt::parse_fadt(handler, &fadt_mapping)?;
+            handler.unmap_physical_region(fadt_mapping);
+        }
 
-            _ => {
-                /*
-                 * We don't recognise this signature. Early on, this probably just means we don't
-                 * have support yet, but later on maybe this should become an actual error
-                 */
-                warn!("Unsupported SDT signature: {}. Skipping.", signature);
-            }
+        "HPET" => {
+            let hpet_mapping = handler.map_physical_region::<Hpet>(physical_address);
+            ::hpet::parse_hpet(&hpet_mapping)?;
+            handler.unmap_physical_region(hpet_mapping);
+        }
+
+        signature => {
+            /*
+             * We don't recognise this signature. Early on, this probably just means we don't
+             * have support yet, but later on maybe this should become an actual error
+             */
+            warn!("Unsupported SDT signature: {}. Skipping.", signature);
         }
     }
 
-    handler.unmap_physical_region(header_mapping);
     Ok(())
 }

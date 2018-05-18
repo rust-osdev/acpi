@@ -1,4 +1,5 @@
 use dsdt::{parse_dsdt, Dsdt};
+use sdt;
 use sdt::SdtHeader;
 use {AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
 
@@ -86,7 +87,9 @@ where
     };
 
     // Parse the DSDT
-    let dsdt_mapping = handler.map_physical_region::<Dsdt>(dsdt_physical_address);
+    let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_physical_address);
+    let dsdt_mapping =
+        handler.map_physical_region::<Dsdt>(dsdt_physical_address, dsdt_header.length() as usize);
     parse_dsdt(&dsdt_mapping)?;
     handler.unmap_physical_region(dsdt_mapping);
 

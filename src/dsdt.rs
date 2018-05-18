@@ -10,10 +10,6 @@ pub struct Dsdt {
 }
 
 impl Dsdt {
-    pub fn validate(&self) -> Result<(), AcpiError> {
-        self.header.validate(b"DSDT")
-    }
-
     /// Get the AML stream encoded in this table so it can be safely accessed
     pub fn stream(&self) -> &[u8] {
         assert!(self.header.length() as usize > mem::size_of::<SdtHeader>());
@@ -25,7 +21,7 @@ impl Dsdt {
 }
 
 pub fn parse_dsdt(mapping: &PhysicalMapping<Dsdt>) -> Result<(), AcpiError> {
-    (*mapping).validate()?;
+    (*mapping).header.validate(b"DSDT")?;
 
     let stream = (*mapping).stream();
     // TODO: pass off to the AML parser
