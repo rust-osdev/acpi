@@ -1,0 +1,46 @@
+use core::{mem, slice};
+use sdt::SdtHeader;
+use {Acpi, AcpiError, AcpiHandler, PhysicalMapping};
+
+/// Represents a table containing AML. For ACPI Version 2+, this is just the DSDT and SSDTs.
+/// Version 1.0 may also have a PSDT.
+#[repr(C, packed)]
+pub struct AmlTable {
+    header: SdtHeader,
+    // ...
+}
+
+pub struct AmlStream<'a> {
+    data: &'a [u8],
+    count: usize,
+}
+
+impl AmlTable {
+    /// Get the AML stream encoded in this table so it can be safely accessed
+    pub fn stream<'a>(&'a self) -> AmlStream<'a> {
+        assert!(self.header.length() as usize > mem::size_of::<SdtHeader>());
+        let stream_length = self.header.length() as usize - mem::size_of::<SdtHeader>();
+        let stream_ptr =
+            ((self as *const AmlTable as usize) + mem::size_of::<SdtHeader>()) as *const u8;
+
+        AmlStream {
+            data: unsafe { slice::from_raw_parts(stream_ptr, stream_length) },
+            count: 0,
+        }
+    }
+}
+
+pub(crate) fn parse_aml_table<'a, H>(
+    acpi: &mut Acpi<'a, H>,
+    mapping: &PhysicalMapping<AmlTable>,
+    signature: &[u8; 4],
+) -> Result<(), AcpiError>
+where
+    H: AcpiHandler + 'a,
+{
+    (*mapping).header.validate(signature)?;
+
+    let stream = (*mapping).stream();
+    // TODO: pass off to the AML parser
+    unimplemented!();
+}

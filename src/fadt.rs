@@ -1,7 +1,7 @@
-use dsdt::{parse_dsdt, Dsdt};
+use aml::{parse_aml_table, AmlTable};
 use sdt;
 use sdt::SdtHeader;
-use {AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
+use {Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
 
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
@@ -74,9 +74,12 @@ pub struct Fadt {
     hypervisor_vendor_id: u64,
 }
 
-pub fn parse_fadt<H>(handler: &mut H, mapping: &PhysicalMapping<Fadt>) -> Result<(), AcpiError>
+pub(crate) fn parse_fadt<'a, H>(
+    acpi: &mut Acpi<'a, H>,
+    mapping: &PhysicalMapping<Fadt>,
+) -> Result<(), AcpiError>
 where
-    H: AcpiHandler,
+    H: AcpiHandler + 'a,
 {
     (*mapping).header.validate(b"FACP")?;
 
@@ -87,11 +90,12 @@ where
     };
 
     // Parse the DSDT
-    let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_physical_address);
-    let dsdt_mapping =
-        handler.map_physical_region::<Dsdt>(dsdt_physical_address, dsdt_header.length() as usize);
-    parse_dsdt(&dsdt_mapping)?;
-    handler.unmap_physical_region(dsdt_mapping);
+    let dsdt_header = sdt::peek_at_sdt_header(acpi.handler, dsdt_physical_address);
+    let dsdt_mapping = acpi
+        .handler
+        .map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
+    parse_aml_table(acpi, &dsdt_mapping, b"DSDT")?;
+    acpi.handler.unmap_physical_region(dsdt_mapping);
 
     Ok(())
 }

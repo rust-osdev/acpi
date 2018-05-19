@@ -1,7 +1,7 @@
 use core::{mem, str};
 use fadt::Fadt;
 use hpet::Hpet;
-use {AcpiError, AcpiHandler};
+use {Acpi, AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
 /// this is.
@@ -155,11 +155,14 @@ where
 
 /// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
 /// function parses that table.
-pub(crate) fn dispatch_sdt<H>(handler: &mut H, physical_address: usize) -> Result<(), AcpiError>
+pub(crate) fn dispatch_sdt<'a, H>(
+    acpi: &mut Acpi<'a, H>,
+    physical_address: usize,
+) -> Result<(), AcpiError>
 where
-    H: AcpiHandler,
+    H: AcpiHandler + 'a,
 {
-    let header = peek_at_sdt_header(handler, physical_address);
+    let header = peek_at_sdt_header(acpi.handler, physical_address);
     info!(
         "Dispatching SDT with signature {:?} and length {:?}",
         header.signature(),
@@ -172,16 +175,17 @@ where
      */
     match header.signature() {
         "FACP" => {
-            let fadt_mapping =
-                handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
-            ::fadt::parse_fadt(handler, &fadt_mapping)?;
-            handler.unmap_physical_region(fadt_mapping);
+            let fadt_mapping = acpi
+                .handler
+                .map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
+            ::fadt::parse_fadt(acpi, &fadt_mapping)?;
+            acpi.handler.unmap_physical_region(fadt_mapping);
         }
 
         "HPET" => {
-            let hpet_mapping = handler.map_physical_region::<Hpet>(physical_address);
+            let hpet_mapping = acpi.handler.map_physical_region::<Hpet>(physical_address);
             ::hpet::parse_hpet(&hpet_mapping)?;
-            handler.unmap_physical_region(hpet_mapping);
+            acpi.handler.unmap_physical_region(hpet_mapping);
         }
 
         signature => {

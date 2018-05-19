@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(alloc)]
 
 #[cfg(test)]
 #[macro_use]
@@ -6,18 +7,22 @@ extern crate std;
 
 #[macro_use]
 extern crate log;
+extern crate alloc;
 
-mod dsdt;
+mod aml;
 mod fadt;
 mod hpet;
 mod rsdp;
 mod sdt;
 
+use alloc::{BTreeMap, String};
 use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use rsdp::Rsdp;
 use sdt::SdtHeader;
+
+pub struct AmlValue; // TODO: temp
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
@@ -30,8 +35,6 @@ pub enum AcpiError {
     SdtInvalidOemId([u8; 4]),
     SdtInvalidTableId([u8; 4]),
     SdtInvalidChecksum([u8; 4]),
-
-    FadtIncorrectSignature,
 }
 
 #[repr(C, packed)]
@@ -82,6 +85,16 @@ pub trait AcpiHandler {
     fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>);
 }
 
+/// This struct manages the internal state of `acpi`. It is not visible to the user of the library.
+pub(crate) struct Acpi<'a, H>
+where
+    H: AcpiHandler + 'a,
+{
+    handler: &'a mut H,
+    acpi_revision: u8,
+    namespace: BTreeMap<String, AmlValue>,
+}
+
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
 /// address of the RSDT/XSDT to `parse_rsdt`.
@@ -127,9 +140,16 @@ pub fn parse_rsdt<H>(
 where
     H: AcpiHandler,
 {
-    let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping =
-        handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
+    let mut acpi = Acpi {
+        handler,
+        acpi_revision: revision,
+        namespace: BTreeMap::new(),
+    };
+
+    let header = sdt::peek_at_sdt_header(acpi.handler, physical_address);
+    let mapping = acpi
+        .handler
+        .map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
 
     if revision == 0 {
         /*
@@ -143,7 +163,8 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
+            sdt::dispatch_sdt(&mut acpi, unsafe { *tables_base.offset(i as isize) }
+                as usize)?;
         }
     } else {
         /*
@@ -157,11 +178,12 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
+            sdt::dispatch_sdt(&mut acpi, unsafe { *tables_base.offset(i as isize) }
+                as usize)?;
         }
     }
 
-    handler.unmap_physical_region(mapping);
+    acpi.handler.unmap_physical_region(mapping);
     Ok(())
 }
 
