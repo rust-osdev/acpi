@@ -8,8 +8,8 @@ extern crate std;
 extern crate log;
 
 mod fadt;
-mod rsdp;
 mod hpet;
+mod rsdp;
 mod sdt;
 
 use core::mem;

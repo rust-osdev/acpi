@@ -75,8 +75,8 @@ pub fn parse_fadt(mapping: &PhysicalMapping<Fadt>) -> Result<(), AcpiError> {
 mod tests {
     use fadt::Fadt;
     use sdt::SdtHeader;
-    use GenericAddress;
     use std::mem;
+    use GenericAddress;
 
     impl Fadt {
         fn make_testcase(

@@ -21,9 +21,9 @@ pub fn parse_hpet(mapping: &PhysicalMapping<Hpet>) -> Result<(), AcpiError> {
 #[cfg(test)]
 mod tests {
     use hpet::Hpet;
-    use GenericAddress;
     use sdt::SdtHeader;
     use std::mem;
+    use GenericAddress;
 
     impl Hpet {
         fn make_testcase(

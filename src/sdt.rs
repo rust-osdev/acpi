@@ -123,7 +123,7 @@ where
                 let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
                 ::fadt::parse_fadt(&fadt_mapping)?;
                 handler.unmap_physical_region(fadt_mapping);
-            },
+            }
             "HPET" => {
                 let hpet_mapping = handler.map_physical_region::<Hpet>(physical_address);
                 ::hpet::parse_hpet(&hpet_mapping)?;
