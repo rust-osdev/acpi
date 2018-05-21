@@ -1,3 +1,10 @@
+mod opcodes;
+mod parser;
+mod value;
+
+pub use self::value::AmlValue;
+
+use self::parser::{AmlParser, AmlStream};
 use core::{mem, slice};
 use sdt::SdtHeader;
 use {Acpi, AcpiError, AcpiHandler, PhysicalMapping};
@@ -10,9 +17,10 @@ pub struct AmlTable {
     // ...
 }
 
-pub struct AmlStream<'a> {
-    data: &'a [u8],
-    count: usize,
+#[derive(Debug)]
+pub enum AmlError {
+    EndOfStream,
+    UnexpectedByte(u8),
 }
 
 impl AmlTable {
@@ -23,24 +31,23 @@ impl AmlTable {
         let stream_ptr =
             ((self as *const AmlTable as usize) + mem::size_of::<SdtHeader>()) as *const u8;
 
-        AmlStream {
-            data: unsafe { slice::from_raw_parts(stream_ptr, stream_length) },
-            count: 0,
-        }
+        unsafe { AmlStream::new(slice::from_raw_parts(stream_ptr, stream_length)) }
     }
 }
 
-pub(crate) fn parse_aml_table<'a, H>(
-    acpi: &mut Acpi<'a, H>,
+pub(crate) fn parse_aml_table<'a, 'h, H>(
+    acpi: &'a mut Acpi<'h, H>,
     mapping: &PhysicalMapping<AmlTable>,
     signature: &[u8; 4],
 ) -> Result<(), AcpiError>
 where
+    'h: 'a,
     H: AcpiHandler + 'a,
 {
     (*mapping).header.validate(signature)?;
 
-    let stream = (*mapping).stream();
-    // TODO: pass off to the AML parser
-    unimplemented!();
+    match AmlParser::parse(acpi, "\\", (*mapping).stream()) {
+        Ok(_) => Ok(()),
+        Err(error) => Err(AcpiError::InvalidAmlTable(*signature, error)),
+    }
 }

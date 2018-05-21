@@ -155,11 +155,12 @@ where
 
 /// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
 /// function parses that table.
-pub(crate) fn dispatch_sdt<'a, H>(
-    acpi: &mut Acpi<'a, H>,
+pub(crate) fn dispatch_sdt<'a, 'h, H>(
+    acpi: &'a mut Acpi<'h, H>,
     physical_address: usize,
 ) -> Result<(), AcpiError>
 where
+    'h: 'a,
     H: AcpiHandler + 'a,
 {
     let header = peek_at_sdt_header(acpi.handler, physical_address);

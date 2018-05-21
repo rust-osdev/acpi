@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(nll)]
 #![feature(alloc)]
 
 #[cfg(test)]
@@ -8,6 +9,7 @@ extern crate std;
 #[macro_use]
 extern crate log;
 extern crate alloc;
+extern crate bit_field;
 
 mod aml;
 mod fadt;
@@ -16,13 +18,12 @@ mod rsdp;
 mod sdt;
 
 use alloc::{BTreeMap, String};
+use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use rsdp::Rsdp;
 use sdt::SdtHeader;
-
-pub struct AmlValue; // TODO: temp
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
@@ -35,6 +36,8 @@ pub enum AcpiError {
     SdtInvalidOemId([u8; 4]),
     SdtInvalidTableId([u8; 4]),
     SdtInvalidChecksum([u8; 4]),
+
+    InvalidAmlTable([u8; 4], AmlError),
 }
 
 #[repr(C, packed)]

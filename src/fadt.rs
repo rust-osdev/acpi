@@ -74,11 +74,12 @@ pub struct Fadt {
     hypervisor_vendor_id: u64,
 }
 
-pub(crate) fn parse_fadt<'a, H>(
-    acpi: &mut Acpi<'a, H>,
+pub(crate) fn parse_fadt<'a, 'h, H>(
+    acpi: &'a mut Acpi<'h, H>,
     mapping: &PhysicalMapping<Fadt>,
 ) -> Result<(), AcpiError>
 where
+    'h: 'a,
     H: AcpiHandler + 'a,
 {
     (*mapping).header.validate(b"FACP")?;
