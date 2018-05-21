@@ -37,8 +37,8 @@ mod tests {
                 header: SdtHeader::make_testcase(
                     *b"HPET",
                     mem::size_of::<Hpet>() as u32,
-                    6,
-                    5, //checksum
+                    1,
+                    3, //checksum
                     oem_id,
                     oem_table_id,
                     oem_revision,
