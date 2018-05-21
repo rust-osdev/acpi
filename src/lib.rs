@@ -9,6 +9,7 @@ extern crate log;
 
 mod fadt;
 mod rsdp;
+mod hpet;
 mod sdt;
 
 use core::mem;
@@ -29,6 +30,15 @@ pub enum AcpiError {
     SdtInvalidChecksum,
 
     FadtIncorrectSignature,
+}
+
+#[repr(C, packed)]
+pub struct GenericAddress {
+    address_space: u8,
+    bit_width: u8,
+    bit_offset: u8,
+    access_size: u8,
+    address: u64,
 }
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
@@ -145,4 +155,21 @@ where
 
     handler.unmap_physical_region(mapping);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use GenericAddress;
+
+    impl GenericAddress {
+        pub(crate) fn make_testcase() -> GenericAddress {
+            GenericAddress {
+                address_space: 0 as u8,
+                bit_width: 0 as u8,
+                bit_offset: 0 as u8,
+                access_size: 0 as u8,
+                address: 0 as u64,
+            }
+        }
+    }
 }

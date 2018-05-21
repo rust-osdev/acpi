@@ -1,14 +1,5 @@
 use sdt::SdtHeader;
-use {AcpiError, PhysicalMapping};
-
-#[repr(C, packed)]
-struct GenericAddress {
-    address_space: u8,
-    bit_width: u8,
-    bit_offset: u8,
-    access_size: u8,
-    address: u64,
-}
+use {AcpiError, GenericAddress, PhysicalMapping};
 
 #[repr(C, packed)]
 pub struct Fadt {
@@ -82,21 +73,10 @@ pub fn parse_fadt(mapping: &PhysicalMapping<Fadt>) -> Result<(), AcpiError> {
 
 #[cfg(test)]
 mod tests {
-    use fadt::{Fadt, GenericAddress};
+    use fadt::Fadt;
     use sdt::SdtHeader;
+    use GenericAddress;
     use std::mem;
-
-    impl GenericAddress {
-        fn make_testcase() -> GenericAddress {
-            GenericAddress {
-                address_space: 0 as u8,
-                bit_width: 0 as u8,
-                bit_offset: 0 as u8,
-                access_size: 0 as u8,
-                address: 0 as u64,
-            }
-        }
-    }
 
     impl Fadt {
         fn make_testcase(

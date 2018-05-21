@@ -1,5 +1,6 @@
 use core::str;
 use fadt::Fadt;
+use hpet::Hpet;
 use {AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -122,6 +123,11 @@ where
                 let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address);
                 ::fadt::parse_fadt(&fadt_mapping)?;
                 handler.unmap_physical_region(fadt_mapping);
+            },
+            "HPET" => {
+                let hpet_mapping = handler.map_physical_region::<Hpet>(physical_address);
+                ::hpet::parse_hpet(&hpet_mapping)?;
+                handler.unmap_physical_region(hpet_mapping);
             }
 
             _ => {
