@@ -6,3 +6,4 @@
 *.bin
 Cargo.lock
 serial.txt
+serial_tail.txt

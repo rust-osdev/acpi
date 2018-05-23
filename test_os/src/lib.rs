@@ -38,7 +38,7 @@ use core::mem;
 use core::ptr::NonNull;
 use linked_list_allocator::LockedHeap;
 use memory::{
-    paging::{EntryFlags, Page}, Frame, MemoryController,
+    paging::{EntryFlags, Page}, Frame, MemoryController, PAGE_SIZE,
 };
 use serial::SerialPort;
 
@@ -78,7 +78,6 @@ impl<'a> AcpiHandler for ExampleAcpiHandler<'a> {
         let layout = Layout::from_size_align(region_size, PAGE_SIZE).unwrap();
         let ptr = unsafe { HEAP_ALLOCATOR.alloc(layout.clone()) };
         let start_page = Page::containing_address(ptr as usize);
-        let end_page = Page::containing_address(ptr as usize + region_size - 1);
 
         for i in 0..(region_size / PAGE_SIZE + 1) {
             active_table.unmap(start_page + i, frame_allocator);
@@ -110,6 +109,7 @@ impl<'a> AcpiHandler for ExampleAcpiHandler<'a> {
 #[no_mangle]
 pub extern "C" fn rust_main(multiboot_address: usize) {
     SerialPort::init();
+    SerialPort::write("Kernel booted successfully\n");
 
     let boot_info = unsafe { multiboot2::load(multiboot_address) };
     let mut memory_controller = memory::init(&boot_info);
@@ -136,7 +136,7 @@ pub extern "C" fn rust_main(multiboot_address: usize) {
         }
     }
 
-    SerialPort::write("Passed");
+    SerialPort::write("Passed\n");
     qemu_quit();
 }
 

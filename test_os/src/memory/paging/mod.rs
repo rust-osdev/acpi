@@ -36,10 +36,6 @@ impl Page {
         self.number * PAGE_SIZE
     }
 
-    pub fn end_address(&self) -> usize {
-        self.number * PAGE_SIZE + PAGE_SIZE - 1
-    }
-
     fn p4_index(&self) -> usize {
         (self.number >> 27) & 0o777
     }

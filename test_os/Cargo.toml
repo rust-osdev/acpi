@@ -1,5 +1,5 @@
 [package]
-name = "example_os"
+name = "test_os"
 version = "0.1.0"
 authors = ["Philipp Oppermann <dev@phil-opp.com>",
            "Isaac Woods <isaacwoods.home@gmail.com>"]
