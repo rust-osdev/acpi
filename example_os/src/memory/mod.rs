@@ -2,10 +2,11 @@ pub use self::area_frame_allocator::AreaFrameAllocator;
 pub use self::paging::remap_the_kernel;
 use self::paging::PhysicalAddress;
 pub use self::stack_allocator::Stack;
+use core::ops::Add;
 use multiboot2::BootInformation;
 
 mod area_frame_allocator;
-mod paging;
+pub mod paging;
 mod stack_allocator;
 
 pub const PAGE_SIZE: usize = 4096;
@@ -24,13 +25,13 @@ pub fn init(boot_info: &BootInformation) -> MemoryController {
     let kernel_start = elf_sections_tag
         .sections()
         .filter(|s| s.is_allocated())
-        .map(|s| s.addr)
+        .map(|s| s.start_address())
         .min()
         .unwrap();
     let kernel_end = elf_sections_tag
         .sections()
         .filter(|s| s.is_allocated())
-        .map(|s| s.addr + s.size)
+        .map(|s| s.start_address() + s.size())
         .max()
         .unwrap();
 
@@ -51,7 +52,7 @@ pub fn init(boot_info: &BootInformation) -> MemoryController {
     let heap_end_page = Page::containing_address(HEAP_START + HEAP_SIZE - 1);
 
     for page in Page::range_inclusive(heap_start_page, heap_end_page) {
-        active_table.map(page, paging::WRITABLE, &mut frame_allocator);
+        active_table.map(page, paging::EntryFlags::WRITABLE, &mut frame_allocator);
     }
 
     let stack_allocator = {
@@ -69,9 +70,9 @@ pub fn init(boot_info: &BootInformation) -> MemoryController {
 }
 
 pub struct MemoryController {
-    active_table: paging::ActivePageTable,
-    frame_allocator: AreaFrameAllocator,
-    stack_allocator: stack_allocator::StackAllocator,
+    pub active_table: paging::ActivePageTable,
+    pub frame_allocator: AreaFrameAllocator,
+    pub stack_allocator: stack_allocator::StackAllocator,
 }
 
 impl MemoryController {
@@ -85,20 +86,24 @@ impl MemoryController {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Frame {
     number: usize,
 }
 
 impl Frame {
-    fn containing_address(address: usize) -> Frame {
+    pub fn containing_address(address: usize) -> Frame {
         Frame {
             number: address / PAGE_SIZE,
         }
     }
 
-    fn start_address(&self) -> PhysicalAddress {
+    pub fn start_address(&self) -> PhysicalAddress {
         self.number * PAGE_SIZE
+    }
+
+    pub fn end_address(&self) -> PhysicalAddress {
+        self.number * PAGE_SIZE + PAGE_SIZE - 1
     }
 
     fn clone(&self) -> Frame {
@@ -107,7 +112,7 @@ impl Frame {
         }
     }
 
-    fn range_inclusive(start: Frame, end: Frame) -> FrameIter {
+    pub fn range_inclusive(start: Frame, end: Frame) -> FrameIter {
         FrameIter {
             start: start,
             end: end,
@@ -115,7 +120,17 @@ impl Frame {
     }
 }
 
-struct FrameIter {
+impl Add<usize> for Frame {
+    type Output = Frame;
+
+    fn add(self, rhs: usize) -> Frame {
+        Frame {
+            number: self.number + rhs,
+        }
+    }
+}
+
+pub struct FrameIter {
     start: Frame,
     end: Frame,
 }

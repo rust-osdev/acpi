@@ -45,7 +45,7 @@ pub extern "C" fn rust_main(multiboot_address: usize) {
     SerialPort::init();
 
     let boot_info = unsafe { multiboot2::load(multiboot_address) };
-    let mut memory_controller = memory::init(boot_info);
+    let mut memory_controller = memory::init(&boot_info);
 
     unsafe {
         HEAP_ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
@@ -77,7 +77,7 @@ pub extern "C" fn eh_personality() {}
 pub extern "C" fn panic_fmt(fmt: core::fmt::Arguments, file: &'static str, line: u32) -> ! {
     SerialPort::write(&format!("\n\nPANIC in {} at line {}:", file, line));
     SerialPort::write(&format!("    {}", fmt));
-    loop {}
+    qemu_quit();
 }
 
 #[lang = "oom"]
@@ -88,5 +88,5 @@ pub extern "C" fn rust_oom() -> ! {
 
 #[no_mangle]
 pub extern "C" fn _Unwind_Resume() -> ! {
-    loop {}
+    qemu_quit();
 }

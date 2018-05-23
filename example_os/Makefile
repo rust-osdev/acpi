@@ -14,14 +14,17 @@ asm_objs := $(patsubst src/$(arch)/%.asm, build/$(arch)/%.o, $(asm_sources))
 test: $(iso)
 	@# Debug exit on QEMU gives exit code 1, so we override it
 	@# We also cut the first 16 lines of the serial output, as it's just BIOS stuff
-	@qemu-system-x86_64 --no-reboot \
+	qemu-system-x86_64 --no-reboot \
 					    -nographic \
 					    -display none \
 					    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
 					    -cdrom build/os-$(arch).iso \
 	| tail -n +16 > serial.txt || true
+	@echo BEGIN SERIAL OUTPUT
+	@cat serial.txt
+	@echo END SERIAL OUTPUT
 	@# Now we test whether the output file has the string "Passed" in it
-	grep -Fxq "Passed" serial.txt
+	@grep -Fxq "Passed" serial.txt
 
 $(iso): $(kernel) $(grub_cfg)
 	@mkdir -p build/isofiles/boot/grub

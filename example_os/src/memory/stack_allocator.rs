@@ -43,7 +43,7 @@ impl StackAllocator {
 
                 // map stack pages to physical frames
                 for page in Page::range_inclusive(start, end) {
-                    active_table.map(page, paging::WRITABLE, frame_allocator);
+                    active_table.map(page, paging::EntryFlags::WRITABLE, frame_allocator);
                 }
 
                 // create a new stack

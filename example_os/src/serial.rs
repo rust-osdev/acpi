@@ -1,5 +1,9 @@
 pub struct SerialPort;
 
+/*
+ * NOTE: This isn't particularly good code. If you want a serial implementation, I don't recommend
+ * using this.
+ */
 impl SerialPort {
     pub fn init() {
         /*

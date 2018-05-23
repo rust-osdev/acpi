@@ -1,8 +1,8 @@
 [package]
 name = "example_os"
 version = "0.1.0"
-authors = ["Isaac Woods <isaacwoods.home@gmail.com>",
-           "Philipp Oppermann <dev@phil-opp.com>"]
+authors = ["Philipp Oppermann <dev@phil-opp.com>",
+           "Isaac Woods <isaacwoods.home@gmail.com>"]
 
 [dependencies]
 bit_field = "0.7.0"

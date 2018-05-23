@@ -36,6 +36,10 @@ impl Page {
         self.number * PAGE_SIZE
     }
 
+    pub fn end_address(&self) -> usize {
+        self.number * PAGE_SIZE + PAGE_SIZE - 1
+    }
+
     fn p4_index(&self) -> usize {
         (self.number >> 27) & 0o777
     }
@@ -130,14 +134,17 @@ impl ActivePageTable {
             let p4_table = temporary_page.map_table_frame(backup.clone(), self);
 
             // overwrite recursive mapping
-            self.p4_mut()[511].set(table.p4_frame.clone(), PRESENT | WRITABLE);
+            self.p4_mut()[511].set(
+                table.p4_frame.clone(),
+                EntryFlags::PRESENT | EntryFlags::WRITABLE,
+            );
             tlb::flush_all();
 
             // execute f in the new context
             f(self);
 
             // restore recursive mapping to original p4 table
-            p4_table[511].set(backup, PRESENT | WRITABLE);
+            p4_table[511].set(backup, EntryFlags::PRESENT | EntryFlags::WRITABLE);
             tlb::flush_all();
         }
 
@@ -171,7 +178,7 @@ impl InactivePageTable {
         {
             let table = temporary_page.map_table_frame(frame.clone(), active_table);
             table.zero();
-            table[511].set(frame.clone(), PRESENT | WRITABLE);
+            table[511].set(frame.clone(), EntryFlags::PRESENT | EntryFlags::WRITABLE);
         }
         temporary_page.unmap(active_table);
 
@@ -204,14 +211,14 @@ where
             }
 
             assert!(
-                section.addr as usize % PAGE_SIZE == 0,
+                section.start_address() as usize % PAGE_SIZE == 0,
                 "sections need to be page aligned"
             );
 
-            let flags = EntryFlags::from_elf_section_flags(section);
+            let flags = EntryFlags::from_elf_section_flags(&section);
 
-            let start_frame = Frame::containing_address(section.start_address());
-            let end_frame = Frame::containing_address(section.end_address() - 1);
+            let start_frame = Frame::containing_address(section.start_address() as usize);
+            let end_frame = Frame::containing_address(section.end_address() as usize - 1);
             for frame in Frame::range_inclusive(start_frame, end_frame) {
                 mapper.identity_map(frame, flags, allocator);
             }
@@ -219,13 +226,13 @@ where
 
         // identity map the VGA text buffer
         let vga_buffer_frame = Frame::containing_address(0xb8000);
-        mapper.identity_map(vga_buffer_frame, WRITABLE, allocator);
+        mapper.identity_map(vga_buffer_frame, EntryFlags::WRITABLE, allocator);
 
         // identity map the multiboot info structure
         let multiboot_start = Frame::containing_address(boot_info.start_address());
         let multiboot_end = Frame::containing_address(boot_info.end_address() - 1);
         for frame in Frame::range_inclusive(multiboot_start, multiboot_end) {
-            mapper.identity_map(frame, PRESENT, allocator);
+            mapper.identity_map(frame, EntryFlags::PRESENT, allocator);
         }
     });
 
