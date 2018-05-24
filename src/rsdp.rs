@@ -49,7 +49,8 @@ impl Rsdp {
 
         // Check the fields present in all versions against `checksum`
         let mut sum: usize = 0;
-        sum += self.signature
+        sum += self
+            .signature
             .iter()
             .map(|&b| usize::from(b))
             .sum::<usize>();
@@ -119,14 +120,17 @@ mod tests {
             reserved: [u8; 3],
         ) -> Rsdp {
             let checksum = checksum.unwrap_or(
-                ((0isize - signature.iter().map(|&b| isize::from(b)).sum::<isize>()
+                ((0isize
+                    - signature.iter().map(|&b| isize::from(b)).sum::<isize>()
                     - oem_id.iter().map(|&b| isize::from(b)).sum::<isize>()
-                    - revision as isize - rsdt_address as isize) & 0b1111_1111)
-                    as u8,
+                    - revision as isize
+                    - rsdt_address as isize) & 0b1111_1111) as u8,
             );
 
             let ext_checksum = ext_checksum.unwrap_or(
-                ((0isize - length as isize - xsdt_address as isize
+                ((0isize
+                    - length as isize
+                    - xsdt_address as isize
                     - reserved.iter().map(|&b| isize::from(b)).sum::<isize>())
                     & 0b1111_1111) as u8,
             );
