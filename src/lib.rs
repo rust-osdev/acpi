@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(nll)]
 #![feature(alloc)]
+#![feature(exclusive_range_pattern)]
 
 #[cfg(test)]
 #[macro_use]
