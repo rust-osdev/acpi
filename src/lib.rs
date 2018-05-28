@@ -187,6 +187,8 @@ where
         }
     }
 
+    info!("Parsed namespace: {:#?}", acpi.namespace);
+
     acpi.handler.unmap_physical_region(mapping);
     Ok(())
 }

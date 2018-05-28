@@ -1,9 +1,9 @@
+use super::value::{AmlValue, RegionSpace};
 use super::{opcodes, AmlError};
-use alloc::String;
+use alloc::{string::ToString, String};
 use bit_field::BitField;
 use core::str;
 use {Acpi, AcpiHandler};
-use super::value::{RegionSpace, AmlValue};
 
 #[derive(Clone)]
 pub struct AmlStream<'a> {
@@ -40,8 +40,7 @@ impl<'a> AmlStream<'a> {
         let first_byte = self.next()?;
         let second_byte = self.next()?;
         let third_byte = self.next()?;
-        Ok(first_byte as u32 + ((second_byte as u32) << 8)
-                             + ((third_byte as u32) << 16))
+        Ok(first_byte as u32 + ((second_byte as u32) << 8) + ((third_byte as u32) << 16))
     }
 
     pub fn next_u64(&mut self) -> Result<u64, AmlError> {
@@ -49,9 +48,21 @@ impl<'a> AmlStream<'a> {
         let second_byte = self.next()?;
         let third_byte = self.next()?;
         let forth_byte = self.next()?;
-        Ok(first_byte as u64 + ((second_byte as u64) << 8)
-                             + ((third_byte as u64) << 16)
-                             + ((forth_byte as u64) << 24))
+        Ok(first_byte as u64
+            + ((second_byte as u64) << 8)
+            + ((third_byte as u64) << 16)
+            + ((forth_byte as u64) << 24))
+    }
+
+    pub fn backtrack(&mut self, amount: u32) -> Result<(), AmlError> {
+        match self.offset.checked_sub(amount) {
+            Some(new_offset) => {
+                self.offset = new_offset;
+                Ok(())
+            }
+
+            None => Err(AmlError::BacktrackedFromStart),
+        }
     }
 
     pub fn len(&self) -> u32 {
@@ -135,7 +146,9 @@ where
             return Ok(false);
         }
 
-        if self.match_byte(matches_byte(ext_opcode))? {
+        self.stream.next()?;
+        if !self.match_byte(matches_byte(ext_opcode))? {
+            self.stream.backtrack(1)?;
             return Ok(false);
         }
 
@@ -155,6 +168,12 @@ where
         match parsing_function(self) {
             Ok(result) => Ok(Some(result)),
 
+            /*
+             * TODO: What about two separate error types here, one to say "this is not an 'x'"
+             * (Return Ok(None)) and
+             * one to say "this is an 'x' but I didn't expect this byte!" (Return
+             * Err(UnexpectedByte))
+             */
             Err(AmlError::UnexpectedByte(_)) => {
                 self.stream = stream;
                 Ok(None)
@@ -191,15 +210,23 @@ where
          *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
          *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone
          */
+
+        /*
+         * TODO: we could get rid of all the matching functions and backtracking entirely and just
+         * use `try_parse` for all of these? Probably simplifies parser-complexity-understanding a
+         * little?
+         */
         if self.match_opcode(opcodes::SCOPE_OP)? {
             return self.parse_def_scope();
-        }
-
-        if self.match_ext_opcode(opcodes::EXT_OP_REGION_OP)? {
+        } else if self.match_ext_opcode(opcodes::EXT_OP_REGION_OP)? {
             return self.parse_def_op_region();
+        } else if let Some(_) = self.try_parse(AmlParser::parse_def_field)? {
+            Ok(())
+        } else if let Some(_) = self.try_parse(AmlParser::parse_type1_opcode)? {
+            Ok(())
+        } else {
+            Err(AmlError::UnexpectedByte(self.stream.peek()?))
         }
-
-        Err(AmlError::UnexpectedByte(self.stream.peek()?))
     }
 
     fn parse_def_scope(&mut self) -> Result<(), AmlError> {
@@ -211,7 +238,12 @@ where
         let scope_end_offset = self.parse_pkg_length()?;
 
         let name_string = self.parse_name_string()?;
+        let containing_scope = self.scope.clone();
+
+        self.scope = name_string;
         let term_list = self.parse_term_list(scope_end_offset)?;
+        self.scope = containing_scope;
+
         Ok(())
     }
 
@@ -253,17 +285,65 @@ where
             byte => return Err(AmlError::UnexpectedByte(byte)),
         };
         info!("region space: {:?}", region_space);
-        let region_offset = self.parse_term_arg()?;
-        info!("region offset: {:?}", region_offset);
-        let region_len = self.parse_term_arg()?;
-        info!("region len: {:?}", region_len);
+        let offset = self.parse_term_arg()?.as_integer()?;
+        info!("region offset: {}", offset);
+        let length = self.parse_term_arg()?.as_integer()?;
+        info!("region len: {}", length);
 
-        // TODO: register in the namespace
+        // Insert it into the namespace
+        let namespace_path = self.resolve_path(name)?;
+        self.acpi.namespace.insert(
+            // self.resolve_path(name)?, TODO: I thought this would work with nll?
+            namespace_path,
+            AmlValue::OpRegion {
+                region: region_space,
+                offset,
+                length,
+            },
+        );
+
         Ok(())
     }
 
+    fn parse_def_field(&mut self) -> Result<(), AmlError> {
+        /*
+         * DefField = ExtOpPrefix 0x81 PkgLength NameString FieldFlags FieldList
+         */
+        self.consume_ext_opcode(opcodes::EXT_FIELD_OP)?;
+        let end_offset = self.parse_pkg_length()?;
+        let name = self.parse_name_string()?;
+        let field_flags = self.stream.next()?;
+        let field_list = self.parse_field_list(end_offset)?;
+        Ok(())
+    }
+
+    fn parse_field_list(&mut self, end_offset: u32) -> Result<(), AmlError> {
+        /*
+         * FieldList := Nothing | <FieldElement FieldList>
+         */
+        while self.stream.offset() < end_offset {
+            self.parse_field_element()?;
+        }
+
+        Ok(())
+    }
+
+    fn parse_field_element(&mut self) -> Result<(), AmlError> {
+        /*
+         * FieldElement := NamedField | ReservedField | AccessField | ExtendedAccessField |
+         *                 ConnectField
+         * NamedField := NameSeg PkgLength
+         * ReservedField := 0x00 PkgLength
+         * AccessField := 0x01 AccessType AccessAttrib
+         * AccessType := ByteData
+         * AccessAttrib := ByteData
+         * ConnectField := <0x02 NameString> | <0x02 BufferData>
+         */
+        unimplemented!();
+    }
+
     fn parse_def_buffer(&mut self) -> Result<AmlValue, AmlError> {
-        unimplemented!();   // TODO
+        unimplemented!(); // TODO
     }
 
     fn parse_term_arg(&mut self) -> Result<AmlValue, AmlError> {
@@ -304,7 +384,7 @@ where
             self.consume_opcode(opcodes::QWORD_CONST)?;
             Ok(AmlValue::Integer(self.stream.next_u64()? as u64))
         } else if self.match_opcode(opcodes::STRING_PREFIX)? {
-            unimplemented!();   // TODO
+            unimplemented!(); // TODO
         } else if self.match_opcode(opcodes::ZERO_OP)? {
             self.stream.next()?;
             Ok(AmlValue::Integer(0))
@@ -315,10 +395,19 @@ where
             self.stream.next()?;
             Ok(AmlValue::Integer(u64::max_value()))
         } else if self.match_ext_opcode(opcodes::EXT_REVISION_OP)? {
-            unimplemented!();   // TODO
+            unimplemented!(); // TODO
         } else {
             self.parse_def_buffer()
         }
+    }
+
+    fn parse_type1_opcode(&mut self) -> Result<(), AmlError> {
+        /*
+         * Type1Opcode := DefBreak | DefBreakPoint | DefContinue | DefFatal | DefIfElse | DefLoad |
+         *                DefNoop | DefNotify | DefRelease | DefReset | DefReturn | DefSignal |
+         *                DefSleep | DefStall | DefUnload | DefWhile
+         */
+        unimplemented!(); // TODO
     }
 
     /// Parse a PkgLength. Returns the offset into the stream to stop parsing whatever object the
@@ -419,6 +508,33 @@ where
             self.consume_byte(is_name_char)?,
             self.consume_byte(is_name_char)?,
         ])
+    }
+
+    /// Resolve a given path and the current scope to an absolute path in the namespace.
+    fn resolve_path(&mut self, mut path: String) -> Result<String, AmlError> {
+        /*
+         * TODO: how should we handle '.' as they appear in paths?
+         */
+        let original_path = path.clone();
+
+        // If the scope to resolve is from the root of the namespace, or the current scope is
+        // nothing, just return the given scope
+        if self.scope == "" || path.starts_with("\\") {
+            return Ok(path);
+        }
+
+        // "^"s at the start of a path specify to go up one level from the current scope, to its
+        // parent object
+        let mut namespace_object = self.scope.clone();
+        while path.starts_with("^") {
+            path = path[1..].to_string();
+
+            if namespace_object.pop() == None {
+                return Err(AmlError::InvalidPath(original_path));
+            }
+        }
+
+        Ok(namespace_object + &path)
     }
 }
 

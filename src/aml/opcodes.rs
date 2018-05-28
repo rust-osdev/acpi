@@ -14,5 +14,6 @@ pub const QWORD_CONST: u8 = 0x0e;
 pub const SCOPE_OP: u8 = 0x10;
 pub const EXT_OP_REGION_OP: u8 = 0x80;
 pub const EXT_REVISION_OP: u8 = 0x30;
+pub const EXT_FIELD_OP: u8 = 0x81;
 
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
