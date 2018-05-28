@@ -1,10 +1,12 @@
 mod opcodes;
 mod parser;
+mod stream;
 mod value;
 
 pub use self::value::AmlValue;
 
-use self::parser::{AmlParser, AmlStream};
+use self::parser::AmlParser;
+use self::stream::AmlStream;
 use alloc::String;
 use core::{mem, slice};
 use sdt::SdtHeader;
@@ -21,7 +23,6 @@ pub struct AmlTable {
 #[derive(Debug)]
 pub enum AmlError {
     EndOfStream,
-    BacktrackedFromStart,
     UnexpectedByte(u8),
     IncompatibleValueConversion,
     InvalidPath(String),

@@ -1,79 +1,10 @@
+use super::stream::AmlStream;
 use super::value::{AmlValue, RegionSpace};
 use super::{opcodes, AmlError};
 use alloc::{string::ToString, String};
 use bit_field::BitField;
 use core::str;
 use {Acpi, AcpiHandler};
-
-#[derive(Clone)]
-pub struct AmlStream<'a> {
-    data: &'a [u8],
-    offset: u32, // TODO: PkgLength can't be longer than u32, but can a whole AML stream?
-}
-
-impl<'a> AmlStream<'a> {
-    pub unsafe fn new(data: &'a [u8]) -> AmlStream<'a> {
-        AmlStream { data, offset: 0 }
-    }
-
-    pub fn peek(&mut self) -> Result<u8, AmlError> {
-        if (self.offset + 1) >= self.len() {
-            Err(AmlError::EndOfStream)
-        } else {
-            Ok(self.data[self.offset as usize])
-        }
-    }
-
-    pub fn next(&mut self) -> Result<u8, AmlError> {
-        let byte = self.peek()?;
-        self.offset += 1;
-        Ok(byte)
-    }
-
-    pub fn next_u16(&mut self) -> Result<u16, AmlError> {
-        let first_byte = self.next()?;
-        let second_byte = self.next()?;
-        Ok(first_byte as u16 + ((second_byte as u16) << 8))
-    }
-
-    pub fn next_u32(&mut self) -> Result<u32, AmlError> {
-        let first_byte = self.next()?;
-        let second_byte = self.next()?;
-        let third_byte = self.next()?;
-        Ok(first_byte as u32 + ((second_byte as u32) << 8) + ((third_byte as u32) << 16))
-    }
-
-    pub fn next_u64(&mut self) -> Result<u64, AmlError> {
-        let first_byte = self.next()?;
-        let second_byte = self.next()?;
-        let third_byte = self.next()?;
-        let forth_byte = self.next()?;
-        Ok(first_byte as u64
-            + ((second_byte as u64) << 8)
-            + ((third_byte as u64) << 16)
-            + ((forth_byte as u64) << 24))
-    }
-
-    pub fn backtrack(&mut self, amount: u32) -> Result<(), AmlError> {
-        match self.offset.checked_sub(amount) {
-            Some(new_offset) => {
-                self.offset = new_offset;
-                Ok(())
-            }
-
-            None => Err(AmlError::BacktrackedFromStart),
-        }
-    }
-
-    pub fn len(&self) -> u32 {
-        self.data.len() as u32
-    }
-
-    /// This gets the current offset into the stream
-    pub fn offset(&self) -> u32 {
-        self.offset
-    }
-}
 
 pub(crate) struct AmlParser<'s, 'a, 'h, H>
 where
@@ -117,13 +48,6 @@ where
         }
     }
 
-    fn match_byte<F>(&mut self, predicate: F) -> Result<bool, AmlError>
-    where
-        F: Fn(u8) -> bool,
-    {
-        Ok(predicate(self.stream.peek()?))
-    }
-
     fn consume_opcode(&mut self, opcode: u8) -> Result<(), AmlError> {
         self.consume_byte(matches_byte(opcode))?;
         Ok(())
@@ -133,26 +57,6 @@ where
         self.consume_byte(matches_byte(opcodes::EXT_OPCODE_PREFIX))?;
         self.consume_byte(matches_byte(ext_opcode))?;
         Ok(())
-    }
-
-    /// See if the next byte in the stream is the specified opcode, but without advancing the
-    /// stream or producing an error if the byte doesn't match.
-    fn match_opcode(&mut self, opcode: u8) -> Result<bool, AmlError> {
-        self.match_byte(matches_byte(opcode))
-    }
-
-    fn match_ext_opcode(&mut self, ext_opcode: u8) -> Result<bool, AmlError> {
-        if !self.match_byte(matches_byte(opcodes::EXT_OPCODE_PREFIX))? {
-            return Ok(false);
-        }
-
-        self.stream.next()?;
-        if !self.match_byte(matches_byte(ext_opcode))? {
-            self.stream.backtrack(1)?;
-            return Ok(false);
-        }
-
-        Ok(true)
     }
 
     /// Try to parse the next part of the stream with the given parsing function. This returns any
@@ -211,15 +115,10 @@ where
          *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone
          */
 
-        /*
-         * TODO: we could get rid of all the matching functions and backtracking entirely and just
-         * use `try_parse` for all of these? Probably simplifies parser-complexity-understanding a
-         * little?
-         */
-        if self.match_opcode(opcodes::SCOPE_OP)? {
-            return self.parse_def_scope();
-        } else if self.match_ext_opcode(opcodes::EXT_OP_REGION_OP)? {
-            return self.parse_def_op_region();
+        if let Some(_) = self.try_parse(AmlParser::parse_def_scope)? {
+            Ok(())
+        } else if let Some(_) = self.try_parse(AmlParser::parse_def_op_region)? {
+            Ok(())
         } else if let Some(_) = self.try_parse(AmlParser::parse_def_field)? {
             Ok(())
         } else if let Some(_) = self.try_parse(AmlParser::parse_type1_opcode)? {
@@ -233,8 +132,8 @@ where
         /*
          * DefScope := 0x10 PkgLength NameString TermList
          */
-        trace!("Parsing scope op");
         self.consume_opcode(opcodes::SCOPE_OP)?;
+        trace!("Parsing scope op");
         let scope_end_offset = self.parse_pkg_length()?;
 
         let name_string = self.parse_name_string()?;
@@ -265,8 +164,8 @@ where
          * RegionOffset := TermArg => Integer
          * RegionLen := TermArg => Integer
          */
-        trace!("Parsing def op region");
-        self.consume_ext_opcode(opcodes::EXT_OPCODE_PREFIX);
+        self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP)?;
+        info!("Parsing op region");
 
         let name = self.parse_name_string()?;
         info!("name: {}", name);
@@ -370,34 +269,52 @@ where
          * ConstObj := ZeroOp(0x00) | OneOp(0x01) | OnesOp(0xff)
          * RevisionOp := ExtOpPrefix(0x5B) 0x30
          */
-        // TODO: can this be rewritten as a cleaner match?
-        if self.match_opcode(opcodes::BYTE_CONST)? {
-            self.consume_opcode(opcodes::BYTE_CONST)?;
-            Ok(AmlValue::Integer(self.stream.next()? as u64))
-        } else if self.match_opcode(opcodes::WORD_CONST)? {
-            self.consume_opcode(opcodes::WORD_CONST)?;
-            Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
-        } else if self.match_opcode(opcodes::DWORD_CONST)? {
-            self.consume_opcode(opcodes::DWORD_CONST)?;
-            Ok(AmlValue::Integer(self.stream.next_u32()? as u64))
-        } else if self.match_opcode(opcodes::QWORD_CONST)? {
-            self.consume_opcode(opcodes::QWORD_CONST)?;
-            Ok(AmlValue::Integer(self.stream.next_u64()? as u64))
-        } else if self.match_opcode(opcodes::STRING_PREFIX)? {
-            unimplemented!(); // TODO
-        } else if self.match_opcode(opcodes::ZERO_OP)? {
-            self.stream.next()?;
-            Ok(AmlValue::Integer(0))
-        } else if self.match_opcode(opcodes::ONE_OP)? {
-            self.stream.next()?;
-            Ok(AmlValue::Integer(1))
-        } else if self.match_opcode(opcodes::ONES_OP)? {
-            self.stream.next()?;
-            Ok(AmlValue::Integer(u64::max_value()))
-        } else if self.match_ext_opcode(opcodes::EXT_REVISION_OP)? {
-            unimplemented!(); // TODO
-        } else {
-            self.parse_def_buffer()
+        match self.stream.peek()? {
+            opcodes::BYTE_CONST => {
+                self.consume_opcode(opcodes::BYTE_CONST)?;
+                Ok(AmlValue::Integer(self.stream.next()? as u64))
+            }
+
+            opcodes::WORD_CONST => {
+                self.consume_opcode(opcodes::WORD_CONST)?;
+                Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
+            }
+
+            opcodes::DWORD_CONST => {
+                self.consume_opcode(opcodes::DWORD_CONST)?;
+                Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
+            }
+
+            opcodes::QWORD_CONST => {
+                self.consume_opcode(opcodes::QWORD_CONST)?;
+                Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
+            }
+
+            opcodes::STRING_PREFIX => {
+                self.consume_opcode(opcodes::STRING_PREFIX)?;
+                unimplemented!(); // TODO
+            }
+
+            opcodes::ZERO_OP => {
+                self.consume_opcode(opcodes::ZERO_OP)?;
+                Ok(AmlValue::Integer(0))
+            }
+
+            opcodes::ONE_OP => {
+                self.consume_opcode(opcodes::ONE_OP)?;
+                Ok(AmlValue::Integer(1))
+            }
+
+            opcodes::ONES_OP => {
+                self.consume_opcode(opcodes::ONES_OP)?;
+                Ok(AmlValue::Integer(u64::max_value()))
+            }
+
+            opcodes::EXT_OPCODE_PREFIX if self.stream.lookahead(1)? == opcodes::EXT_REVISION_OP => {
+                unimplemented!(); // TODO
+            }
+
+            _ => self.parse_def_buffer(),
         }
     }
 
