@@ -23,6 +23,7 @@ pub struct AmlTable {
 #[derive(Debug)]
 pub enum AmlError {
     EndOfStream,
+    NotAnX,
     UnexpectedByte(u8),
     IncompatibleValueConversion,
     InvalidPath(String),
