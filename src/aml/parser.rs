@@ -1,10 +1,19 @@
 use super::stream::AmlStream;
-use super::value::{AmlValue, RegionSpace};
+use super::value::{AmlValue, FieldFlags, RegionSpace};
 use super::{opcodes, AmlError};
 use alloc::{string::ToString, String};
 use bit_field::BitField;
 use core::str;
 use {Acpi, AcpiHandler};
+
+/// This is used internally by the parser. Often, we're only interested in the end offset, so we
+/// know when to stop parsing the current explicit-length structure. However, various constants
+/// (e.g. the size of fields) are encoded as PkgLengths, and so sometimes we want to access the raw
+/// data as well.
+struct PkgLength {
+    pub raw_length: u32,
+    pub end_offset: u32,
+}
 
 pub(crate) struct AmlParser<'s, 'a, 'h, H>
 where
@@ -20,6 +29,7 @@ where
 /// the stream with each one. If a parsing function fails, it rolls back the stream and tries the
 /// next one. If none of the functions can parse the next part of the stream, we error on the
 /// unexpected byte.
+// TODO: rewrite to not use try_parse, and just `match` the errors manually. Might be much cleaner
 macro_rules! try_parse {
     ($parser: expr, $($function: path),+) => {
         if false {
@@ -29,7 +39,7 @@ macro_rules! try_parse {
         })+ else {
             Err(AmlError::UnexpectedByte($parser.stream.peek()?))
         }
-    };
+    }
 }
 
 impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
@@ -52,11 +62,11 @@ where
         parser.parse_term_list(end_offset)
     }
 
-    /// This consumes the next byte in the stream, checking if it fulfils the given predicate. If
-    /// it does, this returns `Ok(the consumed char)`. If it doesn't and we are `checking` if we are
-    /// parsing an 'x', we return `Err(AmlError::NotAnX)`, while if we expect the char to pass the
-    /// predicate, we return `Err(AmlError::UnexpectedByte(the consumed char))`.
-    fn consume_byte<F>(&mut self, predicate: F, checking: bool) -> Result<u8, AmlError>
+    /// Consume the next byte in the stream and check if it fulfils the given predicate. If it
+    /// does, returns `Ok(the consumed char)`. If it doesn't, returns
+    /// `Err(AmlError::UnexpectedByte(the consumed char)`. If there's an error consuming the char,
+    /// it will forward the error on from that.
+    fn consume_byte<F>(&mut self, predicate: F) -> Result<u8, AmlError>
     where
         F: Fn(u8) -> bool,
     {
@@ -64,22 +74,18 @@ where
 
         match predicate(byte) {
             true => Ok(byte),
-            false => if checking {
-                Err(AmlError::NotAnX)
-            } else {
-                Err(AmlError::UnexpectedByte(byte))
-            },
+            false => Err(AmlError::UnexpectedByte(byte)),
         }
     }
 
-    fn consume_opcode(&mut self, opcode: u8, checking: bool) -> Result<(), AmlError> {
-        self.consume_byte(matches_byte(opcode), checking)?;
+    fn consume_opcode(&mut self, opcode: u8) -> Result<(), AmlError> {
+        self.consume_byte(matches_byte(opcode))?;
         Ok(())
     }
 
-    fn consume_ext_opcode(&mut self, ext_opcode: u8, checking: bool) -> Result<(), AmlError> {
-        self.consume_byte(matches_byte(opcodes::EXT_OPCODE_PREFIX), checking)?;
-        self.consume_byte(matches_byte(ext_opcode), checking)?;
+    fn consume_ext_opcode(&mut self, ext_opcode: u8) -> Result<(), AmlError> {
+        self.consume_byte(matches_byte(opcodes::EXT_OPCODE_PREFIX))?;
+        self.consume_byte(matches_byte(ext_opcode))?;
         Ok(())
     }
 
@@ -96,7 +102,7 @@ where
         match parsing_function(self) {
             Ok(result) => Ok(Some(result)),
 
-            Err(AmlError::NotAnX) => {
+            Err(AmlError::UnexpectedByte(_)) => {
                 self.stream = stream;
                 Ok(None)
             }
@@ -140,9 +146,9 @@ where
         /*
          * DefScope := 0x10 PkgLength NameString TermList
          */
-        self.consume_opcode(opcodes::SCOPE_OP, true)?;
+        self.consume_opcode(opcodes::SCOPE_OP)?;
         trace!("Parsing scope op");
-        let scope_end_offset = self.parse_pkg_length()?;
+        let scope_end_offset = self.parse_pkg_length()?.end_offset;
 
         let name_string = self.parse_name_string()?;
         let containing_scope = self.scope.clone();
@@ -172,7 +178,7 @@ where
          * RegionOffset := TermArg => Integer
          * RegionLen := TermArg => Integer
          */
-        self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP, true)?;
+        self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP)?;
         info!("Parsing op region");
 
         let name = self.parse_name_string()?;
@@ -215,38 +221,48 @@ where
     fn parse_def_field(&mut self) -> Result<(), AmlError> {
         /*
          * DefField = ExtOpPrefix 0x81 PkgLength NameString FieldFlags FieldList
-         */
-        self.consume_ext_opcode(opcodes::EXT_FIELD_OP, true)?;
-        let end_offset = self.parse_pkg_length()?;
-        let name = self.parse_name_string()?;
-        let field_flags = self.stream.next()?;
-        let field_list = self.parse_field_list(end_offset)?;
-        Ok(())
-    }
-
-    fn parse_field_list(&mut self, end_offset: u32) -> Result<(), AmlError> {
-        /*
          * FieldList := Nothing | <FieldElement FieldList>
-         */
-        while self.stream.offset() < end_offset {
-            self.parse_field_element()?;
-        }
-
-        Ok(())
-    }
-
-    fn parse_field_element(&mut self) -> Result<(), AmlError> {
-        /*
          * FieldElement := NamedField | ReservedField | AccessField | ExtendedAccessField |
          *                 ConnectField
-         * NamedField := NameSeg PkgLength
          * ReservedField := 0x00 PkgLength
          * AccessField := 0x01 AccessType AccessAttrib
          * AccessType := ByteData
          * AccessAttrib := ByteData
          * ConnectField := <0x02 NameString> | <0x02 BufferData>
          */
-        unimplemented!();
+        self.consume_ext_opcode(opcodes::EXT_FIELD_OP)?;
+        trace!("Parsing DefField");
+        let end_offset = self.parse_pkg_length()?.end_offset;
+        trace!("end offset: {}", end_offset);
+        let name = self.parse_name_string()?;
+        trace!("name: {}", name);
+        let field_flags = FieldFlags::new(self.stream.next()?);
+        trace!("Field flags: {:?}", field_flags);
+
+        while self.stream.offset() < end_offset {
+            // TODO: parse other field types
+            try_parse!(self, AmlParser::parse_named_field)?;
+        }
+
+        Ok(())
+    }
+
+    fn parse_named_field(&mut self) -> Result<(), AmlError> {
+        /*
+         * NamedField := NameSeg PkgLength
+         *
+         * This encodes the size of the field using a PkgLength - it doesn't mark the length of an
+         * explicit-length structure!
+         */
+        let name_seg = self.parse_name_seg()?;
+        let size = self.parse_pkg_length()?.raw_length;
+        info!(
+            "Adding named field called {:?} with size {}",
+            name_seg, size
+        );
+
+        // TODO: add field to namespace
+        Ok(())
     }
 
     fn parse_def_buffer(&mut self) -> Result<AmlValue, AmlError> {
@@ -279,42 +295,42 @@ where
          */
         match self.stream.peek()? {
             opcodes::BYTE_CONST => {
-                self.consume_opcode(opcodes::BYTE_CONST, false)?;
+                self.consume_opcode(opcodes::BYTE_CONST)?;
                 Ok(AmlValue::Integer(self.stream.next()? as u64))
             }
 
             opcodes::WORD_CONST => {
-                self.consume_opcode(opcodes::WORD_CONST, false)?;
+                self.consume_opcode(opcodes::WORD_CONST)?;
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::DWORD_CONST => {
-                self.consume_opcode(opcodes::DWORD_CONST, false)?;
+                self.consume_opcode(opcodes::DWORD_CONST)?;
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::QWORD_CONST => {
-                self.consume_opcode(opcodes::QWORD_CONST, false)?;
+                self.consume_opcode(opcodes::QWORD_CONST)?;
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::STRING_PREFIX => {
-                self.consume_opcode(opcodes::STRING_PREFIX, false)?;
+                self.consume_opcode(opcodes::STRING_PREFIX)?;
                 unimplemented!(); // TODO
             }
 
             opcodes::ZERO_OP => {
-                self.consume_opcode(opcodes::ZERO_OP, false)?;
+                self.consume_opcode(opcodes::ZERO_OP)?;
                 Ok(AmlValue::Integer(0))
             }
 
             opcodes::ONE_OP => {
-                self.consume_opcode(opcodes::ONE_OP, false)?;
+                self.consume_opcode(opcodes::ONE_OP)?;
                 Ok(AmlValue::Integer(1))
             }
 
             opcodes::ONES_OP => {
-                self.consume_opcode(opcodes::ONES_OP, false)?;
+                self.consume_opcode(opcodes::ONES_OP)?;
                 Ok(AmlValue::Integer(u64::max_value()))
             }
 
@@ -337,7 +353,9 @@ where
 
     /// Parse a PkgLength. Returns the offset into the stream to stop parsing whatever object the
     /// PkgLength describes at.
-    fn parse_pkg_length(&mut self) -> Result<u32, AmlError> {
+    // TODO: think hard about whether we actually need to minus the length now because we use
+    // `next()`? Isn't this already handled?
+    fn parse_pkg_length(&mut self) -> Result<PkgLength, AmlError> {
         /*
          * PkgLength := PkgLeadByte |
          *              <PkgLeadByte ByteData> |
@@ -348,7 +366,18 @@ where
         let byte_data_count = lead_byte.get_bits(6..8);
 
         if byte_data_count == 0 {
-            return Ok(u32::from(lead_byte.get_bits(0..6)));
+            let length = u32::from(lead_byte.get_bits(0..6));
+            let end_offset = self.stream.offset() + length - 1; // Minus 1 to remove the PkgLength byte
+            trace!(
+                "Parsed 1-byte PkgLength with length {}, so ends at {}(current offset={}",
+                length,
+                end_offset,
+                self.stream.offset()
+            );
+            return Ok(PkgLength {
+                raw_length: length,
+                end_offset,
+            });
         }
 
         let mut length = u32::from(lead_byte.get_bits(0..4));
@@ -364,7 +393,10 @@ where
             end_offset,
             self.stream.offset()
         );
-        Ok(end_offset)
+        Ok(PkgLength {
+            raw_length: length,
+            end_offset,
+        })
     }
 
     fn parse_name_string(&mut self) -> Result<String, AmlError> {
@@ -428,10 +460,10 @@ where
          * NameSeg := <LeadNameChar NameChar NameChar NameChar>
          */
         Ok([
-            self.consume_byte(is_lead_name_char, false)?,
-            self.consume_byte(is_name_char, false)?,
-            self.consume_byte(is_name_char, false)?,
-            self.consume_byte(is_name_char, false)?,
+            self.consume_byte(is_lead_name_char)?,
+            self.consume_byte(is_name_char)?,
+            self.consume_byte(is_name_char)?,
+            self.consume_byte(is_name_char)?,
         ])
     }
 
