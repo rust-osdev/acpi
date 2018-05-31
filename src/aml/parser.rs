@@ -29,17 +29,14 @@ where
 /// the stream with each one. If a parsing function fails, it rolls back the stream and tries the
 /// next one. If none of the functions can parse the next part of the stream, we error on the
 /// unexpected byte.
-// TODO: rewrite to not use try_parse, and just `match` the errors manually. Might be much cleaner
 macro_rules! try_parse {
-    ($parser: expr, $($function: path),+) => {
-        if false {
-            unreachable!();
-        } $(else if let Some(value) = $parser.try_parse($function)? {
-                Ok(value)
-        })+ else {
+    ($parser: expr, $($function: path),+) => {{
+        $(if let Some(value) = $parser.try_parse($function)? {
+            Ok(value)
+        } else)+ {
             Err(AmlError::UnexpectedByte($parser.stream.peek()?))
         }
-    }
+    }}
 }
 
 impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
