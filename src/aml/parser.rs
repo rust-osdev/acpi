@@ -6,10 +6,17 @@ use bit_field::BitField;
 use core::str;
 use {Acpi, AcpiHandler};
 
-/// This is used internally by the parser. Often, we're only interested in the end offset, so we
-/// know when to stop parsing the current explicit-length structure. However, various constants
-/// (e.g. the size of fields) are encoded as PkgLengths, and so sometimes we want to access the raw
-/// data as well.
+/// This is used internally by the parser to keep track of what we know about a field before we can
+/// add it to the namespace.
+struct FieldInfo {
+    pub name: String,
+    pub length: u64,
+}
+
+/// This is used internally by the parser. Often, we're only interested in offset of the end of the
+/// current explicit-length structure, so we know when to stop parsing it. However, various constants
+/// (e.g. the size of fields) are also encoded as PkgLengths, and so sometimes we want to access
+/// the raw data as well.
 struct PkgLength {
     pub raw_length: u32,
     pub end_offset: u32,
@@ -201,7 +208,7 @@ where
         info!("region len: {}", length);
 
         // Insert it into the namespace
-        let namespace_path = self.resolve_path(name)?;
+        let namespace_path = self.resolve_path(&name)?;
         self.acpi.namespace.insert(
             // self.resolve_path(name)?, TODO: I thought this would work with nll?
             namespace_path,
@@ -233,33 +240,40 @@ where
         trace!("end offset: {}", end_offset);
         let name = self.parse_name_string()?;
         trace!("name: {}", name);
-        let field_flags = FieldFlags::new(self.stream.next()?);
-        trace!("Field flags: {:?}", field_flags);
+        let flags = FieldFlags::new(self.stream.next()?);
+        trace!("Field flags: {:?}", flags);
 
         while self.stream.offset() < end_offset {
             // TODO: parse other field types
-            try_parse!(self, AmlParser::parse_named_field)?;
+            let info = try_parse!(self, AmlParser::parse_named_field)?;
+
+            // TODO: add field name to this (info.name)?
+            let namespace_path = self.resolve_path(&name)?;
+            self.acpi.namespace.insert(
+                namespace_path,
+                AmlValue::Field {
+                    flags,
+                    offset: 0, // TODO: calculate offset
+                    length: info.length,
+                },
+            );
         }
 
         Ok(())
     }
 
-    fn parse_named_field(&mut self) -> Result<(), AmlError> {
+    fn parse_named_field(&mut self) -> Result<FieldInfo, AmlError> {
         /*
          * NamedField := NameSeg PkgLength
          *
          * This encodes the size of the field using a PkgLength - it doesn't mark the length of an
          * explicit-length structure!
          */
-        let name_seg = self.parse_name_seg()?;
-        let size = self.parse_pkg_length()?.raw_length;
-        info!(
-            "Adding named field called {:?} with size {}",
-            name_seg, size
-        );
+        let name = String::from(name_seg_to_string(&self.parse_name_seg()?)?);
+        let length = self.parse_pkg_length()?.raw_length as u64;
+        info!("Adding named field called {:?} with size {}", name, length);
 
-        // TODO: add field to namespace
-        Ok(())
+        Ok(FieldInfo { name, length })
     }
 
     fn parse_def_buffer(&mut self) -> Result<AmlValue, AmlError> {
@@ -465,7 +479,7 @@ where
     }
 
     /// Resolve a given path and the current scope to an absolute path in the namespace.
-    fn resolve_path(&mut self, mut path: String) -> Result<String, AmlError> {
+    fn resolve_path(&mut self, mut path: &str) -> Result<String, AmlError> {
         /*
          * TODO: how should we handle '.' as they appear in paths?
          */
@@ -474,17 +488,17 @@ where
         // If the scope to resolve is from the root of the namespace, or the current scope is
         // nothing, just return the given scope
         if self.scope == "" || path.starts_with("\\") {
-            return Ok(path);
+            return Ok(String::from(path));
         }
 
         // "^"s at the start of a path specify to go up one level from the current scope, to its
         // parent object
         let mut namespace_object = self.scope.clone();
         while path.starts_with("^") {
-            path = path[1..].to_string();
+            path = &path[1..];
 
             if namespace_object.pop() == None {
-                return Err(AmlError::InvalidPath(original_path));
+                return Err(AmlError::InvalidPath(String::from(original_path)));
             }
         }
 
@@ -506,4 +520,11 @@ fn is_digit_char(byte: u8) -> bool {
 
 fn is_name_char(byte: u8) -> bool {
     is_lead_name_char(byte) || is_digit_char(byte)
+}
+
+fn name_seg_to_string<'a>(seg: &'a [u8; 4]) -> Result<&'a str, AmlError> {
+    match str::from_utf8(seg) {
+        Ok(seg_str) => Ok(seg_str),
+        Err(_) => Err(AmlError::InvalidNameSeg(*seg)),
+    }
 }

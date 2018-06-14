@@ -27,6 +27,7 @@ pub enum AmlError {
     IncompatibleValueConversion,
     InvalidPath(String),
     InvalidFieldFlags,
+    InvalidNameSeg([u8; 4]),
 }
 
 impl AmlTable {

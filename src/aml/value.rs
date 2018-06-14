@@ -32,7 +32,7 @@ pub enum FieldUpdateRule {
     WriteAsZeros,
 }
 
-#[derive(Debug)] // TODO: custom debug / get rid of completely
+#[derive(Clone, Copy, Debug)] // TODO: custom debug / get rid of completely
 pub struct FieldFlags(u8);
 
 impl FieldFlags {
@@ -72,6 +72,12 @@ pub enum AmlValue {
 
     OpRegion {
         region: RegionSpace,
+        offset: u64,
+        length: u64,
+    },
+
+    Field {
+        flags: FieldFlags,
         offset: u64,
         length: u64,
     },

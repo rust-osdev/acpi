@@ -184,7 +184,9 @@ where
         }
 
         "HPET" => {
-            let hpet_mapping = acpi.handler.map_physical_region::<Hpet>(physical_address);
+            let hpet_mapping = acpi
+                .handler
+                .map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
             ::hpet::parse_hpet(&hpet_mapping)?;
             acpi.handler.unmap_physical_region(hpet_mapping);
         }
