@@ -1,6 +1,15 @@
+use aml::{parse_aml_table, AmlTable};
+use sdt;
 use sdt::SdtHeader;
-use {AcpiError, GenericAddress, PhysicalMapping};
+use {Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
 
+/// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
+/// details, such as the addresses of the hardware register blocks. It also contains a pointer to
+/// the Differentiated Definition Block (DSDT).
+///
+/// In cases where the FADT contains both a 32-bit and 64-bit field for the same address, we should
+/// always prefer the 64-bit one. Only if it's zero or the CPU will not allow us to access that
+/// address should the 32-bit one be used.
 #[repr(C, packed)]
 pub struct Fadt {
     header: SdtHeader,
@@ -65,8 +74,29 @@ pub struct Fadt {
     hypervisor_vendor_id: u64,
 }
 
-pub fn parse_fadt(mapping: &PhysicalMapping<Fadt>) -> Result<(), AcpiError> {
+pub(crate) fn parse_fadt<'a, 'h, H>(
+    acpi: &'a mut Acpi<'h, H>,
+    mapping: &PhysicalMapping<Fadt>,
+) -> Result<(), AcpiError>
+where
+    'h: 'a,
+    H: AcpiHandler + 'a,
+{
     (*mapping).header.validate(b"FACP")?;
+
+    let dsdt_physical_address: usize = if (*mapping).x_dsdt_address != 0 {
+        (*mapping).x_dsdt_address as usize
+    } else {
+        (*mapping).dsdt_address as usize
+    };
+
+    // Parse the DSDT
+    let dsdt_header = sdt::peek_at_sdt_header(acpi.handler, dsdt_physical_address);
+    let dsdt_mapping = acpi
+        .handler
+        .map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
+    parse_aml_table(acpi, &dsdt_mapping, b"DSDT")?;
+    acpi.handler.unmap_physical_region(dsdt_mapping);
 
     Ok(())
 }
