@@ -18,7 +18,7 @@ mod hpet;
 mod rsdp;
 mod sdt;
 
-use alloc::{BTreeMap, String};
+use alloc::{collections::BTreeMap, string::String};
 use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;

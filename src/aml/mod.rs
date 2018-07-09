@@ -7,7 +7,7 @@ pub use self::value::AmlValue;
 
 use self::parser::AmlParser;
 use self::stream::AmlStream;
-use alloc::String;
+use alloc::string::String;
 use core::{mem, slice};
 use sdt::SdtHeader;
 use {Acpi, AcpiError, AcpiHandler, PhysicalMapping};
