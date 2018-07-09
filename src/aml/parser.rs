@@ -1,7 +1,7 @@
 use super::stream::AmlStream;
 use super::value::{AmlValue, FieldFlags, RegionSpace};
 use super::{opcodes, AmlError};
-use alloc::{string::ToString, String};
+use alloc::string::String;
 use bit_field::BitField;
 use core::str;
 use {Acpi, AcpiHandler};

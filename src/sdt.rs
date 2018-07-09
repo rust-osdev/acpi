@@ -36,7 +36,7 @@ use {Acpi, AcpiError, AcpiHandler};
 ///     "SRAT" - System Resource Affinity Table
 ///     "SSDT" - Secondary System Description Table
 ///     "XSDT" - eXtended System Descriptor Table
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
     signature: [u8; 4],
