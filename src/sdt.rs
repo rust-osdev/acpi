@@ -1,6 +1,7 @@
 use core::{mem, str};
 use fadt::Fadt;
 use hpet::Hpet;
+use madt::Madt;
 use {Acpi, AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -189,6 +190,14 @@ where
                 .map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
             ::hpet::parse_hpet(&hpet_mapping)?;
             acpi.handler.unmap_physical_region(hpet_mapping);
+        }
+
+        "APIC" => {
+            let madt_mapping = acpi
+                .handler
+                .map_physical_region::<Madt>(physical_address, header.length() as usize);
+            ::madt::parse_madt(acpi, &madt_mapping)?;
+            acpi.handler.unmap_physical_region(madt_mapping);
         }
 
         signature => {

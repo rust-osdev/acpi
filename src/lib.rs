@@ -15,6 +15,7 @@ extern crate bit_field;
 mod aml;
 mod fadt;
 mod hpet;
+mod madt;
 mod rsdp;
 mod rsdp_search;
 mod sdt;
