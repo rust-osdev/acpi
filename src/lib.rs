@@ -77,7 +77,7 @@ pub trait AcpiHandler {
     /// a `T` (but may be bigger than `size_of::<T>()`). The address doesn't have to be page-aligned,
     /// so the implementation may have to add padding to either end. The given size must be greater
     /// or equal to the size of a `T`. The virtual address the memory is mapped to does not matter,
-    /// as long as it is accessibly by `acpi`.
+    /// as long as it is accessible to the `acpi` crate.
     fn map_physical_region<T>(
         &mut self,
         physical_address: usize,
