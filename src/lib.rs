@@ -22,7 +22,7 @@ use alloc::{collections::BTreeMap, string::String};
 use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;
-use core::ptr::{self, NonNull};
+use core::ptr::NonNull;
 use rsdp::Rsdp;
 use sdt::SdtHeader;
 
@@ -117,10 +117,17 @@ const RSDP_SIGNATURE: &'static [u8; 8] = b"RSD PTR ";
 
 /// Find the begining of the EBDA (Extended Bios Data Area) and return `None` if the ptr at
 /// `0x40e` is invalid.
-fn find_ebda_start() -> Option<usize> {
+fn find_ebda_start<H>(handler: &mut H) -> Option<usize>
+where
+    H: AcpiHandler,
+{
     // Read base segment from BIOS area. This is not always given by the bios, so it needs to be
     // checked. We left shift 4 because it is a segment.
-    let base = (unsafe { ptr::read(EBDA_START_SEGMENT_PTR as *const u16) } as usize) << 4;
+    let base_mapping = handler.map_physical_region::<u16>(
+        EBDA_START_SEGMENT_PTR, mem::size_of::<u16>()
+    );
+    let base = (*base_mapping as usize) << 4;
+    handler.unmap_physical_region(base_mapping);
 
     // Check if base segment ptr is in valid range valid
     if (EBDA_EARLIEST_START..EBDA_END).contains(&base) {
@@ -141,11 +148,16 @@ fn find_ebda_start() -> Option<usize> {
 /// This is the entry point of `acpi` if you have no information except that the machine is running
 /// BIOS and not UEFI. It maps the RSDP, works out what version of ACPI the hardware supports, and
 /// passes the physical address of the RSDT/XSDT to `parse_rsdt`.
-pub fn search_for_rsdp_bios<H>(handler: &mut H, rsdp_address: usize) -> Result<(), AcpiError>
+///
+/// # Unsafety
+///
+/// This function is unsafe because it may read from protected memory if the computer is using UEFI.
+/// Only use this function if you are sure the computer is using BIOS.
+pub unsafe fn search_for_rsdp_bios<H>(handler: &mut H) -> Result<(), AcpiError>
 where
     H: AcpiHandler,
 {
-    let ebda_start = find_ebda_start();
+    let ebda_start = find_ebda_start(handler);
 
     // The areas that will be searched for the RSDP
     let areas = [
@@ -165,7 +177,11 @@ where
 
     // Signature is always on a 16 byte boundary so only search there
     for address in areas.into_iter().flat_map(|i| i.clone()).step_by(16) {
-        let signature: [u8; 8] = unsafe { ptr::read(address as *const _) };
+        let signature_mapping = handler.map_physical_region::<[u8; 8]>(
+            address, mem::size_of::<[u8; 8]>()
+        );
+        let signature = *signature_mapping;
+        handler.unmap_physical_region(signature_mapping);
 
         if signature != *RSDP_SIGNATURE {
             continue;
