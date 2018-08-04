@@ -1,7 +1,7 @@
 #![no_std]
 #![feature(nll)]
 #![feature(alloc)]
-#![feature(exclusive_range_pattern)]
+#![feature(exclusive_range_pattern, range_contains)]
 
 #[cfg(test)]
 #[macro_use]
@@ -22,7 +22,7 @@ use alloc::{collections::BTreeMap, string::String};
 use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;
-use core::ptr::NonNull;
+use core::ptr::{self, NonNull};
 use rsdp::Rsdp;
 use sdt::SdtHeader;
 
@@ -32,6 +32,7 @@ pub enum AcpiError {
     RsdpIncorrectSignature,
     RsdpInvalidOemId,
     RsdpInvalidChecksum,
+    NoValidRsdp,
 
     SdtInvalidSignature([u8; 4]),
     SdtInvalidOemId([u8; 4]),
@@ -98,6 +99,93 @@ where
     acpi_revision: u8,
     namespace: BTreeMap<String, AmlValue>,
 }
+
+/// The pointer to the EBDA (Extended Bios Data Area) start segment pointer
+const EBDA_START_SEGMENT_PTR: usize = 0x40e;
+/// The earliest (lowest) memory address an EBDA (Extended Bios Data Area) can start
+const EBDA_EARLIEST_START: usize = 0x80000;
+/// The end of the EBDA (Extended Bios Data Area)
+const EBDA_END: usize = 0x9ffff;
+/// The start of the main bios area below 1mb in which to search for the RSDP
+/// (Root System Description Pointer)
+const RSDP_BIOS_AREA_START: usize = 0xe0000;
+/// The end of the main bios area below 1mb in which to search for the RSDP
+/// (Root System Description Pointer)
+const RSDP_BIOS_AREA_END: usize = 0xfffff;
+/// The RSDP (Root System Description Pointer)'s signature, "RSD PTR " (note trailing space)
+const RSDP_SIGNATURE: &'static [u8; 8] = b"RSD PTR ";
+
+/// Find the begining of the EBDA (Extended Bios Data Area) and return `None` if the ptr at
+/// `0x40e` is invalid.
+fn find_ebda_start() -> Option<usize> {
+    // Read base segment from BIOS area. This is not always given by the bios, so it needs to be
+    // checked. We left shift 4 because it is a segment.
+    let base = (unsafe { ptr::read(EBDA_START_SEGMENT_PTR as *const u16) } as usize) << 4;
+
+    // Check if base segment ptr is in valid range valid
+    if (EBDA_EARLIEST_START..EBDA_END).contains(&base) {
+        debug!("EBDA address is {:#x}", base);
+        Some(base)
+    } else {
+        warn!(
+            "EBDA address at {:#x} out of range ({:#x}), falling back to {:#x}",
+            EBDA_START_SEGMENT_PTR,
+            base,
+            EBDA_EARLIEST_START
+        );
+
+        None
+    }
+}
+
+/// This is the entry point of `acpi` if you have no information except that the machine is running
+/// BIOS and not UEFI. It maps the RSDP, works out what version of ACPI the hardware supports, and
+/// passes the physical address of the RSDT/XSDT to `parse_rsdt`.
+pub fn search_for_rsdp_bios<H>(handler: &mut H, rsdp_address: usize) -> Result<(), AcpiError>
+where
+    H: AcpiHandler,
+{
+    let ebda_start = find_ebda_start();
+
+    // The areas that will be searched for the RSDP
+    let areas = [
+        // Main bios area below 1 mb
+        // In practice (from my [Restioson's] testing, at least), the RSDP is more often here than
+        // the in EBDA
+        RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
+
+        if let Some(ebda_start) = ebda_start {
+            // First kb of EBDA
+            ebda_start..=ebda_start + 1024
+        } else {
+            // We don't know where the EBDA starts, so just search the largest possible EBDA
+            EBDA_EARLIEST_START..=EBDA_END
+        }
+    ];
+
+    // Signature is always on a 16 byte boundary so only search there
+    for address in areas.into_iter().flat_map(|i| i.clone()).step_by(16) {
+        let signature: [u8; 8] = unsafe { ptr::read(address as *const _) };
+
+        if signature != *RSDP_SIGNATURE {
+            continue;
+        }
+
+        let parse_result = parse_rsdp(handler, address);
+
+        // This will need to be updated if any more RSDP errors are added (but I doubt more will)
+        match parse_result {
+            Ok(()) => return Ok(()),
+            Err(AcpiError::RsdpIncorrectSignature)
+            | Err(AcpiError::RsdpInvalidOemId)
+            | Err(AcpiError::RsdpInvalidChecksum) => warn!("Invalid RSDP found at {:?}", address),
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(AcpiError::NoValidRsdp)
+}
+
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
