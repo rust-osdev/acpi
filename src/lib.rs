@@ -122,7 +122,7 @@ where
     H: AcpiHandler,
 {
     // Read base segment from BIOS area. This is not always given by the bios, so it needs to be
-    // checked. We left shift 4 because it is a segment.
+    // checked. We left shift 4 because it is a segment ptr.
     let base_mapping = handler.map_physical_region::<u16>(
         EBDA_START_SEGMENT_PTR, mem::size_of::<u16>()
     );
@@ -163,7 +163,8 @@ where
     let areas = [
         // Main bios area below 1 mb
         // In practice (from my [Restioson's] testing, at least), the RSDP is more often here than
-        // the in EBDA
+        // the in EBDA. Also, if we cannot find the EBDA, then we don't want to search the largest
+        // possible EBDA first.
         RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
 
         if let Some(ebda_start) = ebda_start {
@@ -192,9 +193,11 @@ where
         // This will need to be updated if any more RSDP errors are added (but I doubt more will)
         match parse_result {
             Ok(()) => return Ok(()),
-            Err(AcpiError::RsdpIncorrectSignature)
-            | Err(AcpiError::RsdpInvalidOemId)
-            | Err(AcpiError::RsdpInvalidChecksum) => warn!("Invalid RSDP found at {:?}", address),
+            Err(e @ AcpiError::RsdpIncorrectSignature)
+            | Err(e @AcpiError::RsdpInvalidOemId)
+            | Err(e @AcpiError::RsdpInvalidChecksum) => {
+                warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e)
+            },
             Err(error) => return Err(error),
         }
     }
