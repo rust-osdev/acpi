@@ -134,7 +134,7 @@ where
     ];
 
     // Signature is always on a 16 byte boundary so only search there
-    for address in areas.into_iter().flat_map(|i| i.clone()).step_by(16) {
+    for address in areas.iter().flat_map(|i| i.clone()).step_by(16) {
         let signature_mapping = handler.map_physical_region::<[u8; 8]>(
             address, mem::size_of::<[u8; 8]>()
         );
@@ -149,10 +149,10 @@ where
 
         // This will need to be updated if any more RSDP errors are added (but I doubt more will)
         match parse_result {
-            Ok(()) => return Ok(()),
+            Ok(_) => return Ok(()),
             Err(e @ AcpiError::RsdpIncorrectSignature)
-            | Err(e @AcpiError::RsdpInvalidOemId)
-            | Err(e @AcpiError::RsdpInvalidChecksum) => {
+            | Err(e @ AcpiError::RsdpInvalidOemId)
+            | Err(e @ AcpiError::RsdpInvalidChecksum) => {
                 warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e)
             },
             Err(error) => return Err(error),
