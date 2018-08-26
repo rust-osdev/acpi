@@ -145,23 +145,29 @@ where
             continue;
         }
 
-        let parse_result = parse_rsdp(handler, address);
+        let rsdp_mapping = handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>());
+        match (*rsdp_mapping).validate() {
+            Ok(_) => (),
+            Err(e @ AcpiError::RsdpIncorrectSignature)
+            | Err(e @ AcpiError::RsdpInvalidOemId)
+            | Err(e @ AcpiError::RsdpInvalidChecksum) => {
+                warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
+                continue;
+            },
+            Err(_) => unreachable!(),
+        }
+
+        let parse_result = parse_validated_rsdp(handler, rsdp_mapping);
 
         // This will need to be updated if any more RSDP errors are added (but I doubt more will)
         match parse_result {
             Ok(_) => return Ok(()),
-            Err(e @ AcpiError::RsdpIncorrectSignature)
-            | Err(e @ AcpiError::RsdpInvalidOemId)
-            | Err(e @ AcpiError::RsdpInvalidChecksum) => {
-                warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e)
-            },
             Err(error) => return Err(error),
         }
     }
 
     Err(AcpiError::NoValidRsdp)
 }
-
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
@@ -172,6 +178,17 @@ where
 {
     let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>());
     (*rsdp_mapping).validate()?;
+
+    parse_validated_rsdp(handler, rsdp_mapping)
+}
+
+fn parse_validated_rsdp<H>(
+    handler: &mut H,
+    rsdp_mapping: PhysicalMapping<Rsdp>
+) -> Result<(), AcpiError>
+    where
+        H: AcpiHandler,
+{
     let revision = (*rsdp_mapping).revision();
 
     if revision == 0 {
@@ -180,7 +197,7 @@ where
          */
         let rsdt_address = (*rsdp_mapping).rsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, rsdt_address as usize)?;
+        parse_rsdt(handler, revision, rsdt_address as usize)
     } else {
         /*
          * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
@@ -188,10 +205,8 @@ where
          */
         let xsdt_address = (*rsdp_mapping).xsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, xsdt_address as usize)?;
+        parse_rsdt(handler, revision, xsdt_address as usize)
     }
-
-    Ok(())
 }
 
 /// This is the entry point of `acpi` if you already have the **physical** address of the
