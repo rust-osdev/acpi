@@ -95,7 +95,9 @@ where
     let dsdt_mapping = acpi
         .handler
         .map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
-    parse_aml_table(acpi, &dsdt_mapping, b"DSDT")?;
+    if let Err(error) = parse_aml_table(acpi, &dsdt_mapping, b"DSDT") {
+        error!("Failed to parse DSDT: {:?}. At this stage, this is expected, but should be fatal in the future", error);
+    }
     acpi.handler.unmap_physical_region(dsdt_mapping);
 
     Ok(())
