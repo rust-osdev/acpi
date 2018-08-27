@@ -124,7 +124,8 @@ mod tests {
                     - signature.iter().map(|&b| isize::from(b)).sum::<isize>()
                     - oem_id.iter().map(|&b| isize::from(b)).sum::<isize>()
                     - revision as isize
-                    - rsdt_address as isize) & 0b1111_1111) as u8,
+                    - rsdt_address as isize)
+                    & 0b1111_1111) as u8,
             );
 
             let ext_checksum = ext_checksum.unwrap_or(
