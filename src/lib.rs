@@ -94,12 +94,8 @@ pub trait AcpiHandler {
     fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>);
 }
 
-/// This struct manages the internal state of `acpi`. It is not visible to the user of the library.
-pub(crate) struct Acpi<'a, H>
-where
-    H: AcpiHandler + 'a,
+pub struct Acpi
 {
-    handler: &'a mut H,
     acpi_revision: u8,
     namespace: BTreeMap<String, AmlValue>,
 }
@@ -107,7 +103,7 @@ where
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
 /// address of the RSDT/XSDT to `parse_rsdt`.
-pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<(), AcpiError>
+pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -154,20 +150,17 @@ pub fn parse_rsdt<H>(
     handler: &mut H,
     revision: u8,
     physical_address: usize,
-) -> Result<(), AcpiError>
+) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
     let mut acpi = Acpi {
-        handler,
         acpi_revision: revision,
         namespace: BTreeMap::new(),
     };
 
-    let header = sdt::peek_at_sdt_header(acpi.handler, physical_address);
-    let mapping = acpi
-        .handler
-        .map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
+    let header = sdt::peek_at_sdt_header(handler, physical_address);
+    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
 
     if revision == 0 {
         /*
@@ -181,7 +174,7 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, unsafe { *tables_base.offset(i as isize) }
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
                 as usize)?;
         }
     } else {
@@ -196,15 +189,15 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, unsafe { *tables_base.offset(i as isize) }
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
                 as usize)?;
         }
     }
 
     info!("Parsed namespace: {:#?}", acpi.namespace);
 
-    acpi.handler.unmap_physical_region(mapping);
-    Ok(())
+    handler.unmap_physical_region(mapping);
+    Ok(acpi)
 }
 
 #[cfg(test)]

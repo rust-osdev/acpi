@@ -42,18 +42,18 @@ impl AmlTable {
     }
 }
 
-pub(crate) fn parse_aml_table<'a, 'h, H>(
-    acpi: &'a mut Acpi<'h, H>,
+pub(crate) fn parse_aml_table<H>(
+    acpi: &mut Acpi,
+    handler: &mut H,
     mapping: &PhysicalMapping<AmlTable>,
     signature: &[u8; 4],
 ) -> Result<(), AcpiError>
 where
-    'h: 'a,
-    H: AcpiHandler + 'a,
+    H: AcpiHandler,
 {
     (*mapping).header.validate(signature)?;
 
-    match AmlParser::parse(acpi, "\\", (*mapping).stream()) {
+    match AmlParser::parse(acpi, handler, "\\", (*mapping).stream()) {
         Ok(_) => Ok(()),
         Err(error) => Err(AcpiError::InvalidAmlTable(*signature, error)),
     }
