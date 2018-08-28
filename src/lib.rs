@@ -133,19 +133,39 @@ where
         }
     ];
 
+
+    // On x86 it is more efficient to map 4096 bytes at a time because of how paging works
+    let mut area_mapping = handler.map_physical_region::<[[u8; 8]; 4096 / 8]>(
+        areas[0].clone().next().unwrap(),
+        4096,
+    );
+
     // Signature is always on a 16 byte boundary so only search there
     for address in areas.iter().flat_map(|i| i.clone()).step_by(16) {
-        let signature_mapping = handler.map_physical_region::<[u8; 8]>(
-            address, mem::size_of::<[u8; 8]>()
-        );
-        let signature = *signature_mapping;
-        handler.unmap_physical_region(signature_mapping);
+
+        let mapping_start = area_mapping.physical_start as usize;
+        if !(mapping_start..mapping_start + 4096).contains(&address) {
+            let mut new_mapping = handler.map_physical_region::<[[u8; 8]; 4096 / 8]>(
+                address,
+                4096,
+            );
+
+            // Avoid "variable moved in previous iteration of loop"
+            let old_mapping = mem::replace(&mut area_mapping, new_mapping);
+            handler.unmap_physical_region(old_mapping);
+        }
+
+        let index = (address - area_mapping.physical_start as usize) / 8;
+        let signature = (*area_mapping)[index];
 
         if signature != *RSDP_SIGNATURE {
             continue;
         }
 
         let rsdp_mapping = handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>());
+
+        // This would need to be updated if any more RSDP parsing errors are added
+        // (but I [Restioson <restiosondev@gmail.com>] doubt any more will).
         match (*rsdp_mapping).validate() {
             Ok(_) => (),
             Err(e @ AcpiError::RsdpIncorrectSignature)
@@ -154,16 +174,13 @@ where
                 warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
                 continue;
             },
+            // TODO perhaps use a custom error type for the RSDP validation
+            // (RsdpValidationError for example) to make this type safe
             Err(_) => unreachable!(),
         }
 
-        let parse_result = parse_validated_rsdp(handler, rsdp_mapping);
-
-        // This will need to be updated if any more RSDP errors are added (but I doubt more will)
-        match parse_result {
-            Ok(_) => return Ok(()),
-            Err(error) => return Err(error),
-        }
+        handler.unmap_physical_region(area_mapping);
+        return parse_validated_rsdp(handler, rsdp_mapping);
     }
 
     Err(AcpiError::NoValidRsdp)
