@@ -1,10 +1,19 @@
+use alloc::vec::Vec;
+use bit_field::BitField;
 use core::marker::PhantomData;
 use core::mem;
+use interrupt::{InterruptModel, IoApic};
 use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, PhysicalMapping};
+use {Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
 
 /// Represents the MADT - this contains the MADT header fields. You can then iterate over a `Madt`
 /// to read each entry from it.
+///
+/// In modern versions of ACPI, the MADT can detail one of four interrupt models:
+///     * The ancient dual-i8259 legacy PIC model
+///     * The Advanced Programmable Interrupt Controller (APIC) model
+///     * The Streamlined Advanced Programmable Interrupt Controller (SAPIC) model
+///     * The Generic Interrupt Controller (GIC) model (ARM systems only)
 #[repr(C, packed)]
 pub(crate) struct Madt {
     header: SdtHeader,
@@ -21,6 +30,10 @@ impl Madt {
             remaining_length: self.header.length() - mem::size_of::<Madt>() as u32,
             _phantom: PhantomData,
         }
+    }
+
+    fn supports_8259(&self) -> bool {
+        unsafe { self.flags.get_bit(0) }
     }
 }
 
@@ -59,10 +72,6 @@ impl<'a> Iterator for MadtEntryIter<'a> {
 
             self.pointer = unsafe { self.pointer.offset(header.length as isize) };
             self.remaining_length -= header.length as u32;
-            info!(
-                "Found MADT entry of {} bytes (id={}), {} bytes remaining",
-                header.length, header.entry_type, self.remaining_length
-            );
 
             match header.entry_type {
                 0x0 => {
@@ -174,6 +183,7 @@ impl<'a> Iterator for MadtEntryIter<'a> {
                 0x80..0xff => {}
 
                 // TODO: remove when support for exhaustive integer patterns is merged
+                // (rust-lang/rust#50912)
                 _ => unreachable!(),
             }
         }
@@ -363,20 +373,144 @@ struct GicInterruptTranslationServiceEntry {
     _reserved2: u32,
 }
 
-pub(crate) fn parse_madt<'a, 'h, H>(
-    acpi: &'a mut Acpi<'h, H>,
+pub(crate) fn parse_madt<H>(
+    acpi: &mut Acpi,
+    handler: &mut H,
     mapping: &PhysicalMapping<Madt>,
 ) -> Result<(), AcpiError>
 where
-    'h: 'a,
-    H: AcpiHandler + 'a,
+    H: AcpiHandler,
 {
     (*mapping).header.validate(b"APIC")?;
 
+    /*
+     * If the MADT doesn't contain another supported interrupt model (either APIC, SAPIC, X2APIC or
+     * GIC), and the system supports the legacy i8259 PIC, recommend that.
+     * TODO: It's not clear how trustworthy this field is - should we be relying on it in any way?
+     */
+    if (*mapping).supports_8259() {
+        acpi.interrupt_model = Some(InterruptModel::Pic);
+    }
+
+    /*
+     * We first do a pass through the MADT to determine which interrupt model is being used.
+     */
     for entry in (*mapping).entries() {
-        info!("Found MADT entry");
-        // TODO: parse entries
+        match entry {
+            MadtEntry::LocalApic(_) |
+            MadtEntry::IoApic(_) |
+            MadtEntry::InterruptSourceOverride(_) |
+            MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
+            MadtEntry::LocalApicNmi(_) |
+            MadtEntry::LocalApicAddressOverride(_) => {
+                acpi.interrupt_model = Some(parse_apic_model(acpi, mapping)?);
+                break;
+            }
+
+            MadtEntry::IoSapic(_) |
+            MadtEntry::LocalSapic(_) |
+            MadtEntry::PlatformInterruptSource(_) => {
+                unimplemented!();
+            }
+
+            MadtEntry::LocalX2Apic(_) |
+            MadtEntry::X2ApicNmi(_) => {
+                unimplemented!();
+            }
+
+            MadtEntry::Gicc(_) |
+            MadtEntry::Gicd(_) |
+            MadtEntry::GicMsiFrame(_) |
+            MadtEntry::GicRedistributor(_) |
+            MadtEntry::GicInterruptTranslationService(_) => {
+                unimplemented!();
+            }
+        }
     }
 
     Ok(())
+}
+
+/// This parses the MADT and gathers information about a APIC interrupt model. We error if we
+/// encounter an entry that doesn't configure the APIC.
+fn parse_apic_model(
+    acpi: &mut Acpi,
+    mapping: &PhysicalMapping<Madt>,
+) -> Result<InterruptModel, AcpiError> {
+    use interrupt::LocalInterruptLine;
+
+    let mut local_apic_address = (*mapping).local_apic_address as u64;
+    let mut io_apics = Vec::new();
+    let mut local_apic_nmi_line = None;
+
+    for entry in (*mapping).entries() {
+        match entry {
+            MadtEntry::LocalApic(ref entry) => {
+                /*
+                 * The first processor is the BSP. Subsequent ones are APs. If we haven't found the
+                 * BSP yet, this must be it.
+                 */
+                let is_ap = acpi.boot_processor.is_some();
+                let is_disabled = !unsafe { entry.flags.get_bit(0) };
+
+                let state = match (is_ap, is_disabled) {
+                    (_, true) => ProcessorState::Disabled,
+                    (true, false) => ProcessorState::WaitingForSipi,
+                    (false, false) => ProcessorState::Running,
+                };
+
+                let processor = Processor::new(
+                    entry.processor_id,
+                    entry.apic_id,
+                    state,
+                    is_ap,
+                );
+
+                if is_ap {
+                    acpi.application_processors.push(processor);
+                } else {
+                    acpi.boot_processor = Some(processor);
+                }
+            }
+
+            MadtEntry::IoApic(ref entry) => {
+                io_apics.push(IoApic {
+                    id: entry.io_apic_id,
+                    address: entry.io_apic_address,
+                    global_system_interrupt_base: entry.global_system_interrupt_base,
+                });
+            }
+
+            MadtEntry::InterruptSourceOverride(ref entry) => {
+                // TODO
+            }
+
+            MadtEntry::NmiSource(ref entry) => {
+                // TODO
+            }
+
+            MadtEntry::LocalApicNmi(ref entry) => {
+                local_apic_nmi_line = Some(match entry.nmi_line {
+                    0 => LocalInterruptLine::Lint0,
+                    1 => LocalInterruptLine::Lint1,
+                    _ => return Err(AcpiError::MalformedMadt("APIC: invalid local NMI line")),
+                })
+            }
+
+            MadtEntry::LocalApicAddressOverride(ref entry) => {
+                local_apic_address = entry.local_apic_address;
+            }
+
+            _ => {
+                return Err(AcpiError::MalformedMadt("APIC: unexpected entry"));
+            }
+        }
+    }
+
+    Ok(InterruptModel::Apic {
+        local_apic_address,
+        io_apics,
+        local_apic_nmi_line: local_apic_nmi_line.ok_or(AcpiError::MalformedMadt("APIC: no local NMI line specified"))?,
+        also_has_legacy_pics: (*mapping).supports_8259(),
+    })
 }

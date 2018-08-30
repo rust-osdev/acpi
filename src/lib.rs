@@ -15,6 +15,7 @@ extern crate bit_field;
 mod aml;
 mod fadt;
 mod hpet;
+pub mod interrupt;
 mod madt;
 mod rsdp;
 mod rsdp_search;
@@ -22,11 +23,12 @@ mod sdt;
 
 pub use rsdp_search::search_for_rsdp_bios;
 
-use alloc::{collections::BTreeMap, string::String};
+use alloc::{collections::BTreeMap, vec::Vec, string::String};
 use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
+use interrupt::InterruptModel;
 use rsdp::Rsdp;
 use sdt::SdtHeader;
 
@@ -44,15 +46,61 @@ pub enum AcpiError {
     SdtInvalidChecksum([u8; 4]),
 
     InvalidAmlTable([u8; 4], AmlError),
+
+    MalformedMadt(&'static str),
 }
 
 #[repr(C, packed)]
-pub struct GenericAddress {
+pub(crate) struct GenericAddress {
     address_space: u8,
     bit_width: u8,
     bit_offset: u8,
     access_size: u8,
     address: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ProcessorState {
+    /// A processor in this state is unusable, and you must not attempt to bring it up.
+    Disabled,
+
+    /// A processor waiting for a SIPI (Startup Inter-processor Interrupt) is currently not active,
+    /// but may be brought up.
+    WaitingForSipi,
+
+    /// A Running processor is currently brought up and running code.
+    Running,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Processor {
+    processor_uid: u8,
+    local_apic_id: u8,
+
+    /// The state of this processor. Always check that the processor is not `Disabled` before
+    /// attempting to bring it up!
+    state: ProcessorState,
+
+    /// Whether this processor is the Bootstrap Processor (BSP), or an Application Processor (AP).
+    /// When the bootloader is entered, the BSP is the only processor running code. To run code on
+    /// more than one processor, you need to "bring up" the APs.
+    is_ap: bool,
+}
+
+impl Processor {
+    pub(crate) fn new(
+        processor_uid: u8,
+        local_apic_id: u8,
+        state: ProcessorState,
+        is_ap: bool,
+    ) -> Processor {
+        Processor {
+            processor_uid,
+            local_apic_id,
+            state,
+            is_ap,
+        }
+    }
 }
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
@@ -73,10 +121,9 @@ impl<T> Deref for PhysicalMapping<T> {
     }
 }
 
-/// The kernel must provide an implementation of this trait for `acpi` to interface with. It has
-/// utility methods `acpi` uses to for e.g. mapping physical memory, but also an interface for
-/// `acpi` to tell the kernel about the tables it's parsing, such as how the kernel should
-/// configure the APIC or PCI routing.
+/// An implementation of this trait must be provided to allow `acpi` to access platform-specific
+/// functionality, such as mapping regions of physical memory. You are free to implement these
+/// however you please, as long as they conform to the documentation of each function.
 pub trait AcpiHandler {
     /// Given a starting physical address and a size, map a region of physical memory that contains
     /// a `T` (but may be bigger than `size_of::<T>()`). The address doesn't have to be page-aligned,
@@ -94,10 +141,38 @@ pub trait AcpiHandler {
     fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>);
 }
 
+#[derive(Debug)]
 pub struct Acpi
 {
     acpi_revision: u8,
     namespace: BTreeMap<String, AmlValue>,
+    boot_processor: Option<Processor>,
+    application_processors: Vec<Processor>,
+
+    /// ACPI theoretically allows for more than one interrupt model to be supported by the same
+    /// hardware. For simplicity and because hardware practically will only support one model, we
+    /// just error in cases that the tables detail more than one.
+    interrupt_model: Option<InterruptModel>,
+}
+
+impl Acpi {
+    /// A description of the boot processor. Until you bring any more up, this is the only processor
+    /// running code, even on SMP systems.
+    pub fn boot_processor<'a>(&'a self) -> &'a Option<Processor> {
+        &self.boot_processor
+    }
+
+    /// Descriptions of each of the application processors. These are not brought up until you do
+    /// so. The application processors must be brought up in the order that they appear in this
+    /// list.
+    pub fn application_processors<'a>(&'a self) -> &'a Vec<Processor> {
+        &self.application_processors
+    }
+
+    /// The interrupt model supported by this system.
+    pub fn interrupt_model<'a>(&'a self) -> &'a Option<InterruptModel> {
+        &self.interrupt_model
+    }
 }
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
@@ -116,7 +191,7 @@ where
 fn parse_validated_rsdp<H>(
     handler: &mut H,
     rsdp_mapping: PhysicalMapping<Rsdp>,
-) -> Result<(), AcpiError>
+) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -157,6 +232,9 @@ where
     let mut acpi = Acpi {
         acpi_revision: revision,
         namespace: BTreeMap::new(),
+        boot_processor: None,
+        application_processors: Vec::new(),
+        interrupt_model: None,
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
