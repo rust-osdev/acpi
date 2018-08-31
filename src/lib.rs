@@ -135,27 +135,27 @@ where
 
 
     // On x86 it is more efficient to map 4096 bytes at a time because of how paging works
-    let mut area_mapping = handler.map_physical_region::<[[u8; 8]; 4096 / 8]>(
-        areas[0].clone().next().unwrap(),
-        4096,
+    let mut area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
+        areas[0].clone().next().unwrap() & !0xfff, // Get frame addr
+        0x1000,
     );
 
     // Signature is always on a 16 byte boundary so only search there
     for address in areas.iter().flat_map(|i| i.clone()).step_by(16) {
 
-        let mapping_start = area_mapping.physical_start as usize;
-        if !(mapping_start..mapping_start + 4096).contains(&address) {
-            let mut new_mapping = handler.map_physical_region::<[[u8; 8]; 4096 / 8]>(
-                address,
-                4096,
+        let mut mapping_start = area_mapping.physical_start as usize;
+        if !(mapping_start..mapping_start + 0x1000).contains(&address) {
+            handler.unmap_physical_region(area_mapping);
+            area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
+                address & !0xfff, // Get frame addr
+                0x1000,
             );
 
-            // Avoid "variable moved in previous iteration of loop"
-            let old_mapping = mem::replace(&mut area_mapping, new_mapping);
-            handler.unmap_physical_region(old_mapping);
+            // Update if mapping remapped
+            mapping_start = area_mapping.physical_start as usize;
         }
 
-        let index = (address - area_mapping.physical_start as usize) / 8;
+        let index = (address - mapping_start) / 8;
         let signature = (*area_mapping)[index];
 
         if signature != *RSDP_SIGNATURE {
