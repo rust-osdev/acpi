@@ -19,13 +19,14 @@ mod rsdp;
 mod rsdp_search;
 mod sdt;
 
+pub use rsdp_search::search_for_rsdp_bios;
+
 use alloc::{collections::BTreeMap, string::String};
 use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use rsdp::Rsdp;
-use rsdp_search::*;
 use sdt::SdtHeader;
 
 #[derive(Debug)]
@@ -100,87 +101,6 @@ where
     handler: &'a mut H,
     acpi_revision: u8,
     namespace: BTreeMap<String, AmlValue>,
-}
-
-/// This is the entry point of `acpi` if you have no information except that the machine is running
-/// BIOS and not UEFI. It maps the RSDP, works out what version of ACPI the hardware supports, and
-/// passes the physical address of the RSDT/XSDT to `parse_rsdt`.
-///
-/// # Unsafety
-///
-/// This function is unsafe because it may read from protected memory if the computer is using UEFI.
-/// Only use this function if you are sure the computer is using BIOS.
-pub unsafe fn search_for_rsdp_bios<H>(handler: &mut H) -> Result<(), AcpiError>
-where
-    H: AcpiHandler,
-{
-    let ebda_start = find_ebda_start(handler);
-
-    // The areas that will be searched for the RSDP
-    let areas = [
-        // Main bios area below 1 mb
-        // In practice (from my [Restioson's] testing, at least), the RSDP is more often here than
-        // the in EBDA. Also, if we cannot find the EBDA, then we don't want to search the largest
-        // possible EBDA first.
-        RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
-        if let Some(ebda_start) = ebda_start {
-            // First kb of EBDA
-            ebda_start..=ebda_start + 1024
-        } else {
-            // We don't know where the EBDA starts, so just search the largest possible EBDA
-            EBDA_EARLIEST_START..=EBDA_END
-        },
-    ];
-
-    // On x86 it is more efficient to map 4096 bytes at a time because of how paging works
-    let mut area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
-        areas[0].clone().next().unwrap() & !0xfff, // Get frame addr
-        0x1000,
-    );
-
-    // Signature is always on a 16 byte boundary so only search there
-    for address in areas.iter().flat_map(|i| i.clone()).step_by(16) {
-        let mut mapping_start = area_mapping.physical_start as usize;
-        if !(mapping_start..mapping_start + 0x1000).contains(&address) {
-            handler.unmap_physical_region(area_mapping);
-            area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
-                address & !0xfff, // Get frame addr
-                0x1000,
-            );
-
-            // Update if mapping remapped
-            mapping_start = area_mapping.physical_start as usize;
-        }
-
-        let index = (address - mapping_start) / 8;
-        let signature = (*area_mapping)[index];
-
-        if signature != *RSDP_SIGNATURE {
-            continue;
-        }
-
-        let rsdp_mapping = handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>());
-
-        // This would need to be updated if any more RSDP parsing errors are added
-        // (but I [Restioson <restiosondev@gmail.com>] doubt any more will).
-        match (*rsdp_mapping).validate() {
-            Ok(_) => (),
-            Err(e @ AcpiError::RsdpIncorrectSignature)
-            | Err(e @ AcpiError::RsdpInvalidOemId)
-            | Err(e @ AcpiError::RsdpInvalidChecksum) => {
-                warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
-                continue;
-            }
-            // TODO perhaps use a custom error type for the RSDP validation
-            // (RsdpValidationError for example) to make this type safe
-            Err(_) => unreachable!(),
-        }
-
-        handler.unmap_physical_region(area_mapping);
-        return parse_validated_rsdp(handler, rsdp_mapping);
-    }
-
-    Err(AcpiError::NoValidRsdp)
 }
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
