@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 use bit_field::BitField;
 use core::marker::PhantomData;
 use core::mem;
-use interrupt::{InterruptModel, IoApic};
+use interrupt::{InterruptModel, IoApic, Polarity, TriggerMode, InterruptSourceOverride, NmiSource};
 use sdt::SdtHeader;
 use {Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
 
@@ -442,6 +442,8 @@ fn parse_apic_model(
     let mut local_apic_address = (*mapping).local_apic_address as u64;
     let mut io_apics = Vec::new();
     let mut local_apic_nmi_line = None;
+    let mut interrupt_source_overrides = Vec::new();
+    let mut nmi_sources = Vec::new();
 
     for entry in (*mapping).entries() {
         match entry {
@@ -482,11 +484,28 @@ fn parse_apic_model(
             }
 
             MadtEntry::InterruptSourceOverride(ref entry) => {
-                // TODO
+                if entry.bus != 0 {
+                    return Err(AcpiError::MalformedMadt("APIC: interrupt override on unsupported bus"));
+                }
+
+                let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
+
+                interrupt_source_overrides.push(InterruptSourceOverride {
+                    isa_source: entry.irq,
+                    global_system_interrupt: entry.global_system_interrupt,
+                    polarity,
+                    trigger_mode,
+                });
             }
 
             MadtEntry::NmiSource(ref entry) => {
-                // TODO
+                let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
+
+                nmi_sources.push(NmiSource {
+                    global_system_interrupt: entry.global_system_interrupt,
+                    polarity,
+                    trigger_mode,
+                });
             }
 
             MadtEntry::LocalApicNmi(ref entry) => {
@@ -511,6 +530,26 @@ fn parse_apic_model(
         local_apic_address,
         io_apics,
         local_apic_nmi_line: local_apic_nmi_line.ok_or(AcpiError::MalformedMadt("APIC: no local NMI line specified"))?,
+        interrupt_source_overrides,
+        nmi_sources,
         also_has_legacy_pics: (*mapping).supports_8259(),
     })
+}
+
+fn parse_mps_inti_flags(flags: u16) -> Result<(Polarity, TriggerMode), AcpiError> {
+    let polarity = match flags.get_bits(0..2) {
+        0b00 => Polarity::SameAsBus,
+        0b01 => Polarity::ActiveHigh,
+        0b11 => Polarity::ActiveLow,
+        _ => return Err(AcpiError::MalformedMadt("APIC: invalid polarity")),
+    };
+
+    let trigger_mode = match flags.get_bits(2..4) {
+        0b00 => TriggerMode::SameAsBus,
+        0b01 => TriggerMode::Edge,
+        0b11 => TriggerMode::Level,
+        _ => return Err(AcpiError::MalformedMadt("APIC: invalid trigger mode")),
+    };
+
+    Ok((polarity, trigger_mode))
 }
