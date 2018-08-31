@@ -36,7 +36,6 @@ where
         // the in EBDA. Also, if we cannot find the EBDA, then we don't want to search the largest
         // possible EBDA first.
         RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
-
         // Check if base segment ptr is in valid range for EBDA base
         if (EBDA_EARLIEST_START..EBDA_END).contains(&base) {
             // First kb of EBDA
