@@ -23,7 +23,7 @@ mod sdt;
 
 pub use rsdp_search::search_for_rsdp_bios;
 
-use alloc::{collections::BTreeMap, vec::Vec, string::String};
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use aml::{AmlError, AmlValue};
 use core::mem;
 use core::ops::Deref;
@@ -142,8 +142,7 @@ pub trait AcpiHandler {
 }
 
 #[derive(Debug)]
-pub struct Acpi
-{
+pub struct Acpi {
     acpi_revision: u8,
     namespace: BTreeMap<String, AmlValue>,
     boot_processor: Option<Processor>,
@@ -238,7 +237,8 @@ where
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
+    let mapping =
+        handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
 
     if revision == 0 {
         /*
@@ -252,8 +252,11 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
-                as usize)?;
+            sdt::dispatch_sdt(
+                &mut acpi,
+                handler,
+                unsafe { *tables_base.offset(i as isize) } as usize,
+            )?;
         }
     } else {
         /*
@@ -267,8 +270,11 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
-                as usize)?;
+            sdt::dispatch_sdt(
+                &mut acpi,
+                handler,
+                unsafe { *tables_base.offset(i as isize) } as usize,
+            )?;
         }
     }
 

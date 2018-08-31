@@ -92,7 +92,8 @@ where
 
     // Parse the DSDT
     let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_physical_address);
-    let dsdt_mapping = handler.map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
+    let dsdt_mapping = handler
+        .map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
     if let Err(error) = parse_aml_table(acpi, handler, &dsdt_mapping, b"DSDT") {
         error!("Failed to parse DSDT: {:?}. At this stage, this is expected, but should be fatal in the future", error);
     }

@@ -177,19 +177,22 @@ where
      */
     match header.signature() {
         "FACP" => {
-            let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
+            let fadt_mapping =
+                handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
             ::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
             handler.unmap_physical_region(fadt_mapping);
         }
 
         "HPET" => {
-            let hpet_mapping = handler.map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
+            let hpet_mapping =
+                handler.map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
             ::hpet::parse_hpet(&hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }
 
         "APIC" => {
-            let madt_mapping = handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
+            let madt_mapping =
+                handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
             ::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }

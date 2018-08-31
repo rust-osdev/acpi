@@ -2,7 +2,9 @@ use alloc::vec::Vec;
 use bit_field::BitField;
 use core::marker::PhantomData;
 use core::mem;
-use interrupt::{InterruptModel, IoApic, Polarity, TriggerMode, InterruptSourceOverride, NmiSource};
+use interrupt::{
+    InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode,
+};
 use sdt::SdtHeader;
 use {Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
 
@@ -461,12 +463,7 @@ fn parse_apic_model(
                     (false, false) => ProcessorState::Running,
                 };
 
-                let processor = Processor::new(
-                    entry.processor_id,
-                    entry.apic_id,
-                    state,
-                    is_ap,
-                );
+                let processor = Processor::new(entry.processor_id, entry.apic_id, state, is_ap);
 
                 if is_ap {
                     acpi.application_processors.push(processor);
@@ -485,7 +482,9 @@ fn parse_apic_model(
 
             MadtEntry::InterruptSourceOverride(ref entry) => {
                 if entry.bus != 0 {
-                    return Err(AcpiError::MalformedMadt("APIC: interrupt override on unsupported bus"));
+                    return Err(AcpiError::MalformedMadt(
+                        "APIC: interrupt override on unsupported bus",
+                    ));
                 }
 
                 let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
@@ -529,7 +528,9 @@ fn parse_apic_model(
     Ok(InterruptModel::Apic {
         local_apic_address,
         io_apics,
-        local_apic_nmi_line: local_apic_nmi_line.ok_or(AcpiError::MalformedMadt("APIC: no local NMI line specified"))?,
+        local_apic_nmi_line: local_apic_nmi_line.ok_or(AcpiError::MalformedMadt(
+            "APIC: no local NMI line specified",
+        ))?,
         interrupt_source_overrides,
         nmi_sources,
         also_has_legacy_pics: (*mapping).supports_8259(),
