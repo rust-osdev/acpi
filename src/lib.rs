@@ -16,8 +16,8 @@ mod aml;
 mod fadt;
 mod hpet;
 mod rsdp;
-mod sdt;
 mod rsdp_search;
+mod sdt;
 
 use alloc::{collections::BTreeMap, string::String};
 use aml::{AmlError, AmlValue};
@@ -25,8 +25,8 @@ use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
 use rsdp::Rsdp;
-use sdt::SdtHeader;
 use rsdp_search::*;
+use sdt::SdtHeader;
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
@@ -123,16 +123,14 @@ where
         // the in EBDA. Also, if we cannot find the EBDA, then we don't want to search the largest
         // possible EBDA first.
         RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
-
         if let Some(ebda_start) = ebda_start {
             // First kb of EBDA
             ebda_start..=ebda_start + 1024
         } else {
             // We don't know where the EBDA starts, so just search the largest possible EBDA
             EBDA_EARLIEST_START..=EBDA_END
-        }
+        },
     ];
-
 
     // On x86 it is more efficient to map 4096 bytes at a time because of how paging works
     let mut area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
@@ -142,7 +140,6 @@ where
 
     // Signature is always on a 16 byte boundary so only search there
     for address in areas.iter().flat_map(|i| i.clone()).step_by(16) {
-
         let mut mapping_start = area_mapping.physical_start as usize;
         if !(mapping_start..mapping_start + 0x1000).contains(&address) {
             handler.unmap_physical_region(area_mapping);
@@ -173,7 +170,7 @@ where
             | Err(e @ AcpiError::RsdpInvalidChecksum) => {
                 warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
                 continue;
-            },
+            }
             // TODO perhaps use a custom error type for the RSDP validation
             // (RsdpValidationError for example) to make this type safe
             Err(_) => unreachable!(),
@@ -201,10 +198,10 @@ where
 
 fn parse_validated_rsdp<H>(
     handler: &mut H,
-    rsdp_mapping: PhysicalMapping<Rsdp>
+    rsdp_mapping: PhysicalMapping<Rsdp>,
 ) -> Result<(), AcpiError>
-    where
-        H: AcpiHandler,
+where
+    H: AcpiHandler,
 {
     let revision = (*rsdp_mapping).revision();
 

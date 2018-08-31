@@ -1,5 +1,5 @@
 use core::mem;
-use ::AcpiHandler;
+use AcpiHandler;
 
 /// The pointer to the EBDA (Extended Bios Data Area) start segment pointer
 pub const EBDA_START_SEGMENT_PTR: usize = 0x40e;
@@ -19,14 +19,13 @@ pub const RSDP_SIGNATURE: &'static [u8; 8] = b"RSD PTR ";
 /// Find the begining of the EBDA (Extended Bios Data Area) and return `None` if the ptr at
 /// `0x40e` is invalid.
 pub fn find_ebda_start<H>(handler: &mut H) -> Option<usize>
-    where
-        H: AcpiHandler,
+where
+    H: AcpiHandler,
 {
     // Read base segment from BIOS area. This is not always given by the bios, so it needs to be
     // checked. We left shift 4 because it is a segment ptr.
-    let base_mapping = handler.map_physical_region::<u16>(
-        EBDA_START_SEGMENT_PTR, mem::size_of::<u16>()
-    );
+    let base_mapping =
+        handler.map_physical_region::<u16>(EBDA_START_SEGMENT_PTR, mem::size_of::<u16>());
     let base = (*base_mapping as usize) << 4;
     handler.unmap_physical_region(base_mapping);
 
@@ -37,9 +36,7 @@ pub fn find_ebda_start<H>(handler: &mut H) -> Option<usize>
     } else {
         warn!(
             "EBDA address at {:#x} out of range ({:#x}), falling back to {:#x}",
-            EBDA_START_SEGMENT_PTR,
-            base,
-            EBDA_EARLIEST_START
+            EBDA_START_SEGMENT_PTR, base, EBDA_EARLIEST_START
         );
 
         None
