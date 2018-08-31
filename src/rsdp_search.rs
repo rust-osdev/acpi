@@ -1,6 +1,6 @@
 use core::{mem, ops::RangeInclusive};
-use ::{AcpiHandler, AcpiError, parse_validated_rsdp};
 use rsdp::Rsdp;
+use {parse_validated_rsdp, AcpiError, AcpiHandler};
 
 /// The pointer to the EBDA (Extended Bios Data Area) start segment pointer
 const EBDA_START_SEGMENT_PTR: usize = 0x40e;
@@ -59,7 +59,6 @@ where
     ]
 }
 
-
 /// This is the entry point of `acpi` if you have no information except that the machine is running
 /// BIOS and not UEFI. It maps the RSDP, works out what version of ACPI the hardware supports, and
 /// passes the physical address of the RSDT/XSDT to `parse_rsdt`.
@@ -69,8 +68,8 @@ where
 /// This function is unsafe because it may read from protected memory if the computer is using UEFI.
 /// Only use this function if you are sure the computer is using BIOS.
 pub unsafe fn search_for_rsdp_bios<H>(handler: &mut H) -> Result<(), AcpiError>
-    where
-        H: AcpiHandler,
+where
+    H: AcpiHandler,
 {
     // The areas that will be searched for the RSDP
     let areas = find_search_areas(handler);
