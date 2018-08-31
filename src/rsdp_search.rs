@@ -30,28 +30,17 @@ where
     let base = (*base_mapping as usize) << 4;
     handler.unmap_physical_region(base_mapping);
 
-    // Check if base segment ptr is in valid range valid
-    let ebda_start = if (EBDA_EARLIEST_START..EBDA_END).contains(&base) {
-        debug!("EBDA address is {:#x}", base);
-        Some(base)
-    } else {
-        warn!(
-            "EBDA address at {:#x} out of range ({:#x}), falling back to {:#x}",
-            EBDA_START_SEGMENT_PTR, base, EBDA_EARLIEST_START
-        );
-
-        None
-    };
-
     [
         // Main bios area below 1 mb
         // In practice (from my [Restioson's] testing, at least), the RSDP is more often here than
         // the in EBDA. Also, if we cannot find the EBDA, then we don't want to search the largest
         // possible EBDA first.
         RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
-        if let Some(ebda_start) = ebda_start {
+
+        // Check if base segment ptr is in valid range for EBDA base
+        if (EBDA_EARLIEST_START..EBDA_END).contains(&base) {
             // First kb of EBDA
-            ebda_start..=ebda_start + 1024
+            base..=base + 1024
         } else {
             // We don't know where the EBDA starts, so just search the largest possible EBDA
             EBDA_EARLIEST_START..=EBDA_END
@@ -103,19 +92,9 @@ where
 
         let rsdp_mapping = handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>());
 
-        // This would need to be updated if any more RSDP parsing errors are added
-        // (but I [Restioson <restiosondev@gmail.com>] doubt any more will).
-        match (*rsdp_mapping).validate() {
-            Ok(_) => (),
-            Err(e @ AcpiError::RsdpIncorrectSignature)
-            | Err(e @ AcpiError::RsdpInvalidOemId)
-            | Err(e @ AcpiError::RsdpInvalidChecksum) => {
-                warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
-                continue;
-            }
-            // TODO perhaps use a custom error type for the RSDP validation
-            // (RsdpValidationError for example) to make this type safe
-            Err(_) => unreachable!(),
+        if let Err(e) = (*rsdp_mapping).validate() {
+            warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
+            continue;
         }
 
         handler.unmap_physical_region(area_mapping);
