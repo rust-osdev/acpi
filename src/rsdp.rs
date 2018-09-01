@@ -1,5 +1,5 @@
 use super::AcpiError;
-use core::{str, mem};
+use core::{mem, str};
 
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
@@ -47,13 +47,14 @@ impl Rsdp {
             return Err(AcpiError::RsdpInvalidOemId);
         }
 
-
-        let sum = if self.revision > 0 { // For Version 2.0+, check ALL the fields
+        let sum = if self.revision > 0 {
+            // For Version 2.0+, check ALL the fields
             // Check the fields present in all versions against `checksum`
             let bytes: [u8; mem::size_of::<Self>()] = unsafe { mem::transmute_copy(&self) };
 
-             bytes.into_iter().map(|i| *i as u64).sum::<u64>() >> 48
-        } else { // For Version 1, only check fields up to length only
+            bytes.into_iter().map(|i| *i as u64).sum::<u64>() >> 48
+        } else {
+            // For Version 1, only check fields up to length only
             // Check the fields present in all versions against `checksum`
             let bytes: [u8; mem::size_of::<[u8; 20]>()] = unsafe { mem::transmute_copy(&self) };
 
@@ -63,7 +64,6 @@ impl Rsdp {
         if sum != 0 {
             return Err(AcpiError::RsdpInvalidChecksum);
         }
-
 
         Ok(())
     }
