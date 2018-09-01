@@ -1,6 +1,6 @@
 use core::{mem, ops::RangeInclusive};
-use Acpi;
 use rsdp::Rsdp;
+use Acpi;
 use {parse_validated_rsdp, AcpiError, AcpiHandler};
 
 /// The pointer to the EBDA (Extended Bios Data Area) start segment pointer

@@ -8,6 +8,16 @@ use interrupt::{
 use sdt::SdtHeader;
 use {Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
 
+#[derive(Debug)]
+pub enum MadtError {
+    UnexpectedEntry,
+    InterruptOverrideEntryHasInvalidBus,
+    InvalidLocalNmiLine,
+    NoLocalNmiLineSpecified,
+    MpsIntiInvalidPolarity,
+    MpsIntiInvalidTriggerMode,
+}
+
 /// Represents the MADT - this contains the MADT header fields. You can then iterate over a `Madt`
 /// to read each entry from it.
 ///
@@ -41,8 +51,12 @@ impl Madt {
 
 struct MadtEntryIter<'a> {
     pointer: *const u8,
+    /*
+     * The iterator can only have at most `u32::MAX` remaining bytes, because the length of the
+     * whole SDT can only be at most `u32::MAX`.
+     */
     remaining_length: u32,
-    _phantom: PhantomData<&'a u8>,
+    _phantom: PhantomData<&'a ()>,
 }
 
 enum MadtEntry<'a> {
@@ -75,119 +89,56 @@ impl<'a> Iterator for MadtEntryIter<'a> {
             self.pointer = unsafe { self.pointer.offset(header.length as isize) };
             self.remaining_length -= header.length as u32;
 
-            match header.entry_type {
-                0x0 => {
-                    return Some(MadtEntry::LocalApic(unsafe {
-                        &*(entry_pointer as *const LocalApicEntry)
-                    }))
+            macro_rules! construct_entry {
+                ($entry_type:expr,
+                 $entry_pointer:expr,
+                 $(($value:expr => $variant:path as $type:ty)),*
+                ) => {
+                    match $entry_type {
+                        $(
+                            $value => {
+                                return Some($variant(unsafe {
+                                    &*($entry_pointer as *const $type)
+                                }))
+                            }
+                         )*
+
+                        /*
+                         * These entry types are reserved by the ACPI standard. We should skip them
+                         * if they appear in a real MADT.
+                         */
+                        0x10..=0x7f => {}
+
+                        /*
+                         * These entry types are reserved for OEM use. Atm, we just skip them too.
+                         * TODO: work out if we should ever do anything else here
+                         */
+                        0x80..=0xff => {}
+                    }
                 }
-
-                0x1 => {
-                    return Some(MadtEntry::IoApic(unsafe {
-                        &*(entry_pointer as *const IoApicEntry)
-                    }))
-                }
-
-                0x2 => {
-                    return Some(MadtEntry::InterruptSourceOverride(unsafe {
-                        &*(entry_pointer as *const InterruptSourceOverrideEntry)
-                    }))
-                }
-
-                0x3 => {
-                    return Some(MadtEntry::NmiSource(unsafe {
-                        &*(entry_pointer as *const NmiSourceEntry)
-                    }))
-                }
-
-                0x4 => {
-                    return Some(MadtEntry::LocalApicNmi(unsafe {
-                        &*(entry_pointer as *const LocalApicNmiEntry)
-                    }))
-                }
-
-                0x5 => {
-                    return Some(MadtEntry::LocalApicAddressOverride(unsafe {
-                        &*(entry_pointer as *const LocalApicAddressOverrideEntry)
-                    }))
-                }
-
-                0x6 => {
-                    return Some(MadtEntry::IoSapic(unsafe {
-                        &*(entry_pointer as *const IoSapicEntry)
-                    }))
-                }
-
-                0x7 => {
-                    return Some(MadtEntry::LocalSapic(unsafe {
-                        &*(entry_pointer as *const LocalSapicEntry)
-                    }))
-                }
-
-                0x8 => {
-                    return Some(MadtEntry::PlatformInterruptSource(unsafe {
-                        &*(entry_pointer as *const PlatformInterruptSourceEntry)
-                    }))
-                }
-
-                0x9 => {
-                    return Some(MadtEntry::LocalX2Apic(unsafe {
-                        &*(entry_pointer as *const LocalX2ApicEntry)
-                    }))
-                }
-
-                0xa => {
-                    return Some(MadtEntry::X2ApicNmi(unsafe {
-                        &*(entry_pointer as *const X2ApicNmiEntry)
-                    }))
-                }
-
-                0xb => {
-                    return Some(MadtEntry::Gicc(unsafe {
-                        &*(entry_pointer as *const GiccEntry)
-                    }))
-                }
-
-                0xc => {
-                    return Some(MadtEntry::Gicd(unsafe {
-                        &*(entry_pointer as *const GicdEntry)
-                    }))
-                }
-
-                0xd => {
-                    return Some(MadtEntry::GicMsiFrame(unsafe {
-                        &*(entry_pointer as *const GicMsiFrameEntry)
-                    }))
-                }
-
-                0xe => {
-                    return Some(MadtEntry::GicRedistributor(unsafe {
-                        &*(entry_pointer as *const GicRedistributorEntry)
-                    }))
-                }
-
-                0xf => {
-                    return Some(MadtEntry::GicInterruptTranslationService(unsafe {
-                        &*(entry_pointer as *const GicInterruptTranslationServiceEntry)
-                    }))
-                }
-
-                /*
-                 * These entry types are reserved by the ACPI standard. We should skip them if they
-                 * appear in a real MADT.
-                 */
-                0x10..0x7f => {}
-
-                /*
-                 * These entry types are reserved for OEM use. Atm, we just skip them too.
-                 * TODO: work out if we should ever do anything else here
-                 */
-                0x80..0xff => {}
-
-                // TODO: remove when support for exhaustive integer patterns is merged
-                // (rust-lang/rust#50912)
-                _ => unreachable!(),
             }
+
+            #[rustfmt::skip]
+            construct_entry!(
+                header.entry_type,
+                entry_pointer,
+                (0x0 => MadtEntry::LocalApic as LocalApicEntry),
+                (0x1 => MadtEntry::IoApic as IoApicEntry),
+                (0x2 => MadtEntry::InterruptSourceOverride as InterruptSourceOverrideEntry),
+                (0x3 => MadtEntry::NmiSource as NmiSourceEntry),
+                (0x4 => MadtEntry::LocalApicNmi as LocalApicNmiEntry),
+                (0x5 => MadtEntry::LocalApicAddressOverride as LocalApicAddressOverrideEntry),
+                (0x6 => MadtEntry::IoSapic as IoSapicEntry),
+                (0x7 => MadtEntry::LocalSapic as LocalSapicEntry),
+                (0x8 => MadtEntry::PlatformInterruptSource as PlatformInterruptSourceEntry),
+                (0x9 => MadtEntry::LocalX2Apic as LocalX2ApicEntry),
+                (0xa => MadtEntry::X2ApicNmi as X2ApicNmiEntry),
+                (0xb => MadtEntry::Gicc as GiccEntry),
+                (0xc => MadtEntry::Gicd as GicdEntry),
+                (0xd => MadtEntry::GicMsiFrame as GicMsiFrameEntry),
+                (0xe => MadtEntry::GicRedistributor as GicRedistributorEntry),
+                (0xf => MadtEntry::GicInterruptTranslationService as GicInterruptTranslationServiceEntry)
+            );
         }
 
         None
@@ -482,8 +433,8 @@ fn parse_apic_model(
 
             MadtEntry::InterruptSourceOverride(ref entry) => {
                 if entry.bus != 0 {
-                    return Err(AcpiError::MalformedMadt(
-                        "APIC: interrupt override on unsupported bus",
+                    return Err(AcpiError::InvalidMadt(
+                        MadtError::InterruptOverrideEntryHasInvalidBus,
                     ));
                 }
 
@@ -511,7 +462,7 @@ fn parse_apic_model(
                 local_apic_nmi_line = Some(match entry.nmi_line {
                     0 => LocalInterruptLine::Lint0,
                     1 => LocalInterruptLine::Lint1,
-                    _ => return Err(AcpiError::MalformedMadt("APIC: invalid local NMI line")),
+                    _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
                 })
             }
 
@@ -520,7 +471,7 @@ fn parse_apic_model(
             }
 
             _ => {
-                return Err(AcpiError::MalformedMadt("APIC: unexpected entry"));
+                return Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry));
             }
         }
     }
@@ -528,9 +479,8 @@ fn parse_apic_model(
     Ok(InterruptModel::Apic {
         local_apic_address,
         io_apics,
-        local_apic_nmi_line: local_apic_nmi_line.ok_or(AcpiError::MalformedMadt(
-            "APIC: no local NMI line specified",
-        ))?,
+        local_apic_nmi_line: local_apic_nmi_line
+            .ok_or(AcpiError::InvalidMadt(MadtError::NoLocalNmiLineSpecified))?,
         interrupt_source_overrides,
         nmi_sources,
         also_has_legacy_pics: (*mapping).supports_8259(),
@@ -542,14 +492,14 @@ fn parse_mps_inti_flags(flags: u16) -> Result<(Polarity, TriggerMode), AcpiError
         0b00 => Polarity::SameAsBus,
         0b01 => Polarity::ActiveHigh,
         0b11 => Polarity::ActiveLow,
-        _ => return Err(AcpiError::MalformedMadt("APIC: invalid polarity")),
+        _ => return Err(AcpiError::InvalidMadt(MadtError::MpsIntiInvalidPolarity)),
     };
 
     let trigger_mode = match flags.get_bits(2..4) {
         0b00 => TriggerMode::SameAsBus,
         0b01 => TriggerMode::Edge,
         0b11 => TriggerMode::Level,
-        _ => return Err(AcpiError::MalformedMadt("APIC: invalid trigger mode")),
+        _ => return Err(AcpiError::InvalidMadt(MadtError::MpsIntiInvalidTriggerMode)),
     };
 
     Ok((polarity, trigger_mode))

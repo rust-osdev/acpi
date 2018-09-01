@@ -2,6 +2,7 @@
 #![feature(nll)]
 #![feature(alloc)]
 #![feature(exclusive_range_pattern, range_contains)]
+#![feature(exhaustive_integer_patterns)]
 
 #[cfg(test)]
 #[macro_use]
@@ -21,10 +22,12 @@ mod rsdp;
 mod rsdp_search;
 mod sdt;
 
+pub use aml::AmlError;
+pub use madt::MadtError;
 pub use rsdp_search::search_for_rsdp_bios;
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use aml::{AmlError, AmlValue};
+use aml::AmlValue;
 use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
@@ -47,7 +50,7 @@ pub enum AcpiError {
 
     InvalidAmlTable([u8; 4], AmlError),
 
-    MalformedMadt(&'static str),
+    InvalidMadt(MadtError),
 }
 
 #[repr(C, packed)]
