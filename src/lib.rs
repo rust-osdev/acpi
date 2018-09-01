@@ -1,7 +1,7 @@
 #![no_std]
 #![feature(nll)]
 #![feature(alloc)]
-#![feature(exclusive_range_pattern)]
+#![feature(exclusive_range_pattern, range_contains)]
 
 #[cfg(test)]
 #[macro_use]
@@ -16,7 +16,10 @@ mod aml;
 mod fadt;
 mod hpet;
 mod rsdp;
+mod rsdp_search;
 mod sdt;
+
+pub use rsdp_search::search_for_rsdp_bios;
 
 use alloc::{collections::BTreeMap, string::String};
 use aml::{AmlError, AmlValue};
@@ -32,6 +35,7 @@ pub enum AcpiError {
     RsdpIncorrectSignature,
     RsdpInvalidOemId,
     RsdpInvalidChecksum,
+    NoValidRsdp,
 
     SdtInvalidSignature([u8; 4]),
     SdtInvalidOemId([u8; 4]),
@@ -108,6 +112,17 @@ where
 {
     let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>());
     (*rsdp_mapping).validate()?;
+
+    parse_validated_rsdp(handler, rsdp_mapping)
+}
+
+fn parse_validated_rsdp<H>(
+    handler: &mut H,
+    rsdp_mapping: PhysicalMapping<Rsdp>,
+) -> Result<(), AcpiError>
+where
+    H: AcpiHandler,
+{
     let revision = (*rsdp_mapping).revision();
 
     if revision == 0 {
@@ -116,7 +131,7 @@ where
          */
         let rsdt_address = (*rsdp_mapping).rsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, rsdt_address as usize)?;
+        parse_rsdt(handler, revision, rsdt_address as usize)
     } else {
         /*
          * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
@@ -124,10 +139,8 @@ where
          */
         let xsdt_address = (*rsdp_mapping).xsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, xsdt_address as usize)?;
+        parse_rsdt(handler, revision, xsdt_address as usize)
     }
-
-    Ok(())
 }
 
 /// This is the entry point of `acpi` if you already have the **physical** address of the
