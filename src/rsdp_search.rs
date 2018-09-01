@@ -25,10 +25,10 @@ where
 {
     // Read base segment from BIOS area. This is not always given by the bios, so it needs to be
     // checked. We left shift 4 because it is a segment ptr.
-    let base_mapping =
+    let ebda_start_mapping =
         handler.map_physical_region::<u16>(EBDA_START_SEGMENT_PTR, mem::size_of::<u16>());
-    let base = (*base_mapping as usize) << 4;
-    handler.unmap_physical_region(base_mapping);
+    let ebda_start = (*ebda_start_mapping as usize) << 4;
+    handler.unmap_physical_region(ebda_start_mapping);
 
     [
         // Main bios area below 1 mb
@@ -37,9 +37,9 @@ where
         // possible EBDA first.
         RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
         // Check if base segment ptr is in valid range for EBDA base
-        if (EBDA_EARLIEST_START..EBDA_END).contains(&base) {
+        if (EBDA_EARLIEST_START..EBDA_END).contains(&ebda_start) {
             // First kb of EBDA
-            base..=base + 1024
+            ebda_start..=ebda_start + 1024
         } else {
             // We don't know where the EBDA starts, so just search the largest possible EBDA
             EBDA_EARLIEST_START..=EBDA_END
