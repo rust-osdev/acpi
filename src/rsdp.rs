@@ -1,5 +1,5 @@
 use super::AcpiError;
-use core::str;
+use core::{mem, str};
 
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
@@ -47,34 +47,22 @@ impl Rsdp {
             return Err(AcpiError::RsdpInvalidOemId);
         }
 
-        // Check the fields present in all versions against `checksum`
-        let mut sum: usize = 0;
-        sum += self
-            .signature
-            .iter()
-            .map(|&b| usize::from(b))
-            .sum::<usize>();
-        sum += self.checksum as usize;
-        sum += self.oem_id.iter().map(|&b| usize::from(b)).sum::<usize>();
-        sum += self.revision as usize;
-        sum += self.rsdt_address as usize;
+        let len = if self.revision > 0 {
+            // For Version 2.0+, check ALL the fields
+            mem::size_of::<Self>()
+        } else {
+            // For Version 1, only check fields up to v1 length only
+            20
+        };
 
-        // Check that the lowest byte is 0
-        if sum & 0b1111_1111 != 0 {
-            return Err(AcpiError::RsdpInvalidChecksum);
+        let self_ptr = self as *const Rsdp as *const u8;
+        let mut sum: u8 = 0;
+        for i in 0..self.length {
+            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) } as u8);
         }
 
-        // For Version 2.0+, check the extension checksum too
-        if self.revision > 0 {
-            let mut sum: usize = 0;
-            sum += self.length as usize;
-            sum += self.xsdt_address as usize;
-            sum += self.ext_checksum as usize;
-            sum += self.reserved.iter().map(|&b| usize::from(b)).sum::<usize>();
-
-            if sum & 0b1111_1111 != 0 {
-                return Err(AcpiError::RsdpInvalidChecksum);
-            }
+        if sum != 0 {
+            return Err(AcpiError::RsdpInvalidChecksum);
         }
 
         Ok(())

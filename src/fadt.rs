@@ -82,12 +82,14 @@ pub(crate) fn parse_fadt<H>(
 where
     H: AcpiHandler,
 {
-    (*mapping).header.validate(b"FACP")?;
+    let fadt = &*mapping;
+    fadt.header.validate(b"FACP")?;
 
-    let dsdt_physical_address: usize = if (*mapping).x_dsdt_address != 0 {
-        (*mapping).x_dsdt_address as usize
+    // TODO more generic typesafe way of accessing the x_ fields
+    let dsdt_physical_address: usize = if fadt.header.revision() > 1 && fadt.x_dsdt_address != 0 {
+        fadt.x_dsdt_address as usize
     } else {
-        (*mapping).dsdt_address as usize
+        fadt.dsdt_address as usize
     };
 
     // Parse the DSDT
