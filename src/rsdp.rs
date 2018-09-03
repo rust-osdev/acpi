@@ -47,19 +47,19 @@ impl Rsdp {
             return Err(AcpiError::RsdpInvalidOemId);
         }
 
-        let sum = if self.revision > 0 {
+        let len = if self.revision > 0 {
             // For Version 2.0+, check ALL the fields
-            // Check the fields present in all versions against `checksum`
-            let bytes: [u8; mem::size_of::<Self>()] = unsafe { mem::transmute_copy(&self) };
-
-            bytes.into_iter().map(|i| *i as u64).sum::<u64>() >> 48
+            mem::size_of::<Self>()
         } else {
-            // For Version 1, only check fields up to length only
-            // Check the fields present in all versions against `checksum`
-            let bytes: [u8; mem::size_of::<[u8; 20]>()] = unsafe { mem::transmute_copy(&self) };
-
-            bytes.into_iter().map(|i| *i as u64).sum::<u64>() >> 48
+            // For Version 1, only check fields up to v1 length only
+            20
         };
+
+        let self_ptr = self as *const Rsdp as *const u8;
+        let mut sum: u8 = 0;
+        for i in 0..self.length {
+            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) } as u8);
+        }
 
         if sum != 0 {
             return Err(AcpiError::RsdpInvalidChecksum);
