@@ -74,13 +74,13 @@ pub struct Fadt {
     hypervisor_vendor_id: u64,
 }
 
-pub(crate) fn parse_fadt<'a, 'h, H>(
-    acpi: &'a mut Acpi<'h, H>,
+pub(crate) fn parse_fadt<H>(
+    acpi: &mut Acpi,
+    handler: &mut H,
     mapping: &PhysicalMapping<Fadt>,
 ) -> Result<(), AcpiError>
 where
-    'h: 'a,
-    H: AcpiHandler + 'a,
+    H: AcpiHandler,
 {
     (*mapping).header.validate(b"FACP")?;
 
@@ -91,14 +91,13 @@ where
     };
 
     // Parse the DSDT
-    let dsdt_header = sdt::peek_at_sdt_header(acpi.handler, dsdt_physical_address);
-    let dsdt_mapping = acpi
-        .handler
+    let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_physical_address);
+    let dsdt_mapping = handler
         .map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
-    if let Err(error) = parse_aml_table(acpi, &dsdt_mapping, b"DSDT") {
+    if let Err(error) = parse_aml_table(acpi, handler, &dsdt_mapping, b"DSDT") {
         error!("Failed to parse DSDT: {:?}. At this stage, this is expected, but should be fatal in the future", error);
     }
-    acpi.handler.unmap_physical_region(dsdt_mapping);
+    handler.unmap_physical_region(dsdt_mapping);
 
     Ok(())
 }

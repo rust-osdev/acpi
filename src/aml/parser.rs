@@ -24,10 +24,10 @@ struct PkgLength {
 
 pub(crate) struct AmlParser<'s, 'a, 'h, H>
 where
-    'h: 'a,
     H: AcpiHandler + 'h,
 {
-    acpi: &'a mut Acpi<'h, H>,
+    acpi: &'a mut Acpi,
+    handler: &'h mut H,
     scope: String,
     stream: AmlStream<'s>,
 }
@@ -48,16 +48,17 @@ macro_rules! try_parse {
 
 impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
 where
-    'h: 'a,
-    H: AcpiHandler + 'h,
+    H: AcpiHandler,
 {
     pub(crate) fn parse(
-        acpi: &'a mut Acpi<'h, H>,
+        acpi: &'a mut Acpi,
+        handler: &'h mut H,
         scope: &str,
         stream: AmlStream<'s>,
     ) -> Result<(), AmlError> {
         let mut parser = AmlParser {
             acpi,
+            handler,
             scope: String::from(scope),
             stream,
         };
