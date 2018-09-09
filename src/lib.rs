@@ -3,6 +3,7 @@
 #![feature(alloc)]
 #![feature(exclusive_range_pattern, range_contains)]
 #![feature(exhaustive_integer_patterns)]
+#![feature(box_syntax)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]

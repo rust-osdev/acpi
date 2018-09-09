@@ -123,10 +123,12 @@ where
          * Because TermLists don't have PkgLengths, we pass the offset to stop at from whatever
          * explicit-length object we were parsing before.
          */
+        trace!("--> TermList");
         while self.stream.offset() <= end_offset {
             self.parse_term_object()?;
         }
 
+        trace!("<-- TermList");
         Ok(())
     }
 
@@ -138,13 +140,16 @@ where
          *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
          *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone
          */
-        try_parse!(
+        trace!("--> TermObj");
+        let result = try_parse!(
             self,
             AmlParser::parse_def_scope,
             AmlParser::parse_def_op_region,
             AmlParser::parse_def_field //,
                                        // AmlParser::parse_type1_opcode    TODO: reenable when we can parse them
-        )
+        );
+        trace!("<-- TermObj");
+        result
     }
 
     fn parse_def_scope(&mut self) -> Result<(), AmlError> {
@@ -152,7 +157,7 @@ where
          * DefScope := 0x10 PkgLength NameString TermList
          */
         self.consume_opcode(opcodes::SCOPE_OP)?;
-        trace!("Parsing scope op");
+        trace!("--> DefScope");
         let scope_end_offset = self.parse_pkg_length()?.end_offset;
 
         let name_string = self.parse_name_string()?;
@@ -162,6 +167,7 @@ where
         let term_list = self.parse_term_list(scope_end_offset)?;
         self.scope = containing_scope;
 
+        trace!("<-- DefScope");
         Ok(())
     }
 
@@ -184,7 +190,7 @@ where
          * RegionLen := TermArg => Integer
          */
         self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP)?;
-        info!("Parsing op region");
+        trace!("--> DefOpRegion");
 
         let name = self.parse_name_string()?;
         info!("name: {}", name);
@@ -199,7 +205,7 @@ where
             0x07 => RegionSpace::IPMI,
             0x08 => RegionSpace::GeneralPurposeIo,
             0x09 => RegionSpace::GenericSerialBus,
-            space @ 0x80..0xff => RegionSpace::OemDefined(space),
+            space @ 0x80..=0xff => RegionSpace::OemDefined(space),
             byte => return Err(AmlError::UnexpectedByte(byte)),
         };
         info!("region space: {:?}", region_space);
@@ -220,6 +226,7 @@ where
             },
         );
 
+        trace!("<-- DefOpRegion");
         Ok(())
     }
 
@@ -236,7 +243,7 @@ where
          * ConnectField := <0x02 NameString> | <0x02 BufferData>
          */
         self.consume_ext_opcode(opcodes::EXT_FIELD_OP)?;
-        trace!("Parsing DefField");
+        trace!("--> DefField");
         let end_offset = self.parse_pkg_length()?.end_offset;
         trace!("end offset: {}", end_offset);
         let name = self.parse_name_string()?;
@@ -260,6 +267,7 @@ where
             );
         }
 
+        trace!("<-- DefField");
         Ok(())
     }
 
@@ -270,10 +278,12 @@ where
          * This encodes the size of the field using a PkgLength - it doesn't mark the length of an
          * explicit-length structure!
          */
+        trace!("--> NamedField");
         let name = String::from(name_seg_to_string(&self.parse_name_seg()?)?);
         let length = self.parse_pkg_length()?.raw_length as u64;
         info!("Adding named field called {:?} with size {}", name, length);
 
+        trace!("<-- NamedField");
         Ok(FieldInfo { name, length })
     }
 
@@ -286,11 +296,10 @@ where
          * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
          * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
-        if let Some(result) = self.try_parse(AmlParser::parse_computational_data)? {
-            Ok(result)
-        } else {
-            Err(AmlError::UnexpectedByte(self.stream.next()?))
-        }
+        trace!("--> TermArg");
+        let result = try_parse!(self, AmlParser::parse_computational_data);
+        trace!("<-- TermArg");
+        result
     }
 
     fn parse_computational_data(&mut self) -> Result<AmlValue, AmlError> {
@@ -305,44 +314,53 @@ where
          * ConstObj := ZeroOp(0x00) | OneOp(0x01) | OnesOp(0xff)
          * RevisionOp := ExtOpPrefix(0x5B) 0x30
          */
+        trace!("--> ComputationalData");
         match self.stream.peek()? {
             opcodes::BYTE_CONST => {
                 self.consume_opcode(opcodes::BYTE_CONST)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next()? as u64))
             }
 
             opcodes::WORD_CONST => {
                 self.consume_opcode(opcodes::WORD_CONST)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::DWORD_CONST => {
                 self.consume_opcode(opcodes::DWORD_CONST)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::QWORD_CONST => {
                 self.consume_opcode(opcodes::QWORD_CONST)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::STRING_PREFIX => {
                 self.consume_opcode(opcodes::STRING_PREFIX)?;
+                trace!("<-- ComputationalData");
                 unimplemented!(); // TODO
             }
 
             opcodes::ZERO_OP => {
                 self.consume_opcode(opcodes::ZERO_OP)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(0))
             }
 
             opcodes::ONE_OP => {
                 self.consume_opcode(opcodes::ONE_OP)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(1))
             }
 
             opcodes::ONES_OP => {
                 self.consume_opcode(opcodes::ONES_OP)?;
+                trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(u64::max_value()))
             }
 
@@ -374,18 +392,14 @@ where
          *              <PkgLeadByte ByteData ByteData> |
          *              <PkgLeadByte ByteData ByteData ByteData>
          */
+        trace!("--> PkgLength");
         let lead_byte = self.stream.next()?;
         let byte_data_count = lead_byte.get_bits(6..8);
 
         if byte_data_count == 0 {
             let length = u32::from(lead_byte.get_bits(0..6));
             let end_offset = self.stream.offset() + length - 1; // Minus 1 to remove the PkgLength byte
-            trace!(
-                "Parsed 1-byte PkgLength with length {}, so ends at {}(current offset={}",
-                length,
-                end_offset,
-                self.stream.offset()
-            );
+            trace!("<-- PkgLength");
             return Ok(PkgLength {
                 raw_length: length,
                 end_offset,
@@ -399,12 +413,7 @@ where
 
         // Minus `byte_data_count + 1` to not include the PkgLength in the remaining bytes
         let end_offset = self.stream.offset() + length - byte_data_count as u32 - 1;
-        trace!(
-            "Parsed PkgLength with length {}, so ends at {}(current offset={})",
-            length,
-            end_offset,
-            self.stream.offset()
-        );
+        trace!("<-- PkgLength");
         Ok(PkgLength {
             raw_length: length,
             end_offset,

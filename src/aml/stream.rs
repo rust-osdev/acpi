@@ -60,7 +60,7 @@ impl<'a> AmlStream<'a> {
         self.data.len() as u32
     }
 
-    /// This gets the current offset into the stream
+    /// This gets the current offset into the stream (in bytes)
     pub fn offset(&self) -> u32 {
         self.offset
     }
