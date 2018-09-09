@@ -1,5 +1,5 @@
 use super::stream::AmlStream;
-use super::value::{AmlValue, FieldFlags, RegionSpace};
+use super::value::{AmlValue, FieldFlags, MethodFlags, RegionSpace};
 use super::{opcodes, AmlError};
 use alloc::string::String;
 use bit_field::BitField;
@@ -138,15 +138,17 @@ where
          * NameSpaceModifierObj := DefAlias | DefName | DefScope
          * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField | DefCreateDWordField |
          *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
-         *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone
+         *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone |
+         *             DefMethod
          */
         trace!("--> TermObj");
         let result = try_parse!(
             self,
             AmlParser::parse_def_scope,
             AmlParser::parse_def_op_region,
-            AmlParser::parse_def_field //,
-                                       // AmlParser::parse_type1_opcode    TODO: reenable when we can parse them
+            AmlParser::parse_def_field,
+            AmlParser::parse_def_method //,
+                                        // AmlParser::parse_type1_opcode    TODO: reenable when we can parse them
         );
         trace!("<-- TermObj");
         result
@@ -285,6 +287,41 @@ where
 
         trace!("<-- NamedField");
         Ok(FieldInfo { name, length })
+    }
+
+    fn parse_def_method(&mut self) -> Result<(), AmlError> {
+        /*
+         * DefMethod := 0x14 PkgLength NameString MethodFlags TermList
+         * MethodFlags := ByteData
+         */
+        self.consume_opcode(opcodes::METHOD_OP)?;
+        trace!("--> DefMethod");
+        let end_offset = self.parse_pkg_length()?.end_offset;
+        let name = self.parse_name_string()?;
+        let flags = MethodFlags::new(self.stream.next()?);
+
+        /*
+         * The next item of the method is a TermList, but we don't parse it! Instead, we extract
+         * the slice of bytes to the end offset, and keep it. When we want to execute the method,
+         * we interpret that TermList.
+         *
+         * TODO: do we want to store all the AML for the control methods on the kernel heap like
+         * this, or keep the mappings for the DSDT and SSDTs around and these be references to
+         * slices? Both have advantages
+         */
+        let term_list = self.stream.take_until(end_offset)?;
+
+        trace!("Parsed method called {}", name);
+        self.acpi.namespace.insert(
+            name,
+            AmlValue::Method {
+                flags,
+                code: term_list.to_vec(),
+            },
+        );
+
+        trace!("<-- DefMethod");
+        Ok(())
     }
 
     fn parse_def_buffer(&mut self) -> Result<AmlValue, AmlError> {

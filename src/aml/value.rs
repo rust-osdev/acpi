@@ -1,4 +1,5 @@
 use super::AmlError;
+use alloc::vec::Vec;
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -66,6 +67,27 @@ impl FieldFlags {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MethodFlags(u8);
+
+impl MethodFlags {
+    pub fn new(value: u8) -> MethodFlags {
+        MethodFlags(value)
+    }
+
+    pub fn arg_count(&self) -> u8 {
+        self.0.get_bits(0..3)
+    }
+
+    pub fn serialize(&self) -> bool {
+        self.0.get_bit(4)
+    }
+
+    pub fn sync_level(&self) -> u8 {
+        self.0.get_bits(4..8)
+    }
+}
+
 #[derive(Debug)]
 pub enum AmlValue {
     Integer(u64),
@@ -80,6 +102,12 @@ pub enum AmlValue {
         flags: FieldFlags,
         offset: u64,
         length: u64,
+    },
+
+    Method {
+        flags: MethodFlags,
+        // TODO: if we were to keep the methods "inline", this would become a `&'table [u8]`
+        code: Vec<u8>,
     },
 }
 

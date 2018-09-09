@@ -49,6 +49,17 @@ impl<'a> AmlStream<'a> {
             + ((forth_byte as u64) << 24))
     }
 
+    /// Consume every byte up to and including the end offset. Returns a slice of those bytes.
+    pub fn take_until(&mut self, end_offset: u32) -> Result<&[u8], AmlError> {
+        if end_offset > self.len() {
+            return Err(AmlError::EndOfStream);
+        }
+
+        let start = self.offset;
+        self.offset = end_offset.checked_add(1).ok_or(AmlError::EndOfStream)?;
+        Ok(&self.data[(self.offset as usize)..=(end_offset as usize)])
+    }
+
     pub fn lookahead(&self, amount: u32) -> Result<u8, AmlError> {
         match self.offset.checked_add(amount) {
             Some(offset) => Ok(self.data[offset as usize]),
