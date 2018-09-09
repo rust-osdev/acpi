@@ -3,6 +3,9 @@ mod parser;
 mod stream;
 mod value;
 
+#[cfg(test)]
+mod tests;
+
 pub use self::value::AmlValue;
 
 use self::parser::AmlParser;
