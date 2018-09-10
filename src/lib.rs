@@ -4,7 +4,6 @@
 #![feature(exclusive_range_pattern, range_contains)]
 #![feature(exhaustive_integer_patterns)]
 
-#[cfg(test)]
 #[macro_use]
 extern crate std;
 
@@ -285,21 +284,4 @@ where
 
     handler.unmap_physical_region(mapping);
     Ok(acpi)
-}
-
-#[cfg(test)]
-mod tests {
-    use GenericAddress;
-
-    impl GenericAddress {
-        pub(crate) fn make_testcase() -> GenericAddress {
-            GenericAddress {
-                address_space: 0 as u8,
-                bit_width: 0 as u8,
-                bit_offset: 0 as u8,
-                access_size: 0 as u8,
-                address: 0 as u64,
-            }
-        }
-    }
 }
