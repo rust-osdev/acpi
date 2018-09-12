@@ -20,13 +20,22 @@ branches:
     # This allows building of pull requests
     - master
 
+before_install:
+  - sudo apt-get update -qq
+  - sudo apt-get install -qq qemu-system
+  - sudo apt-get install -qq nasm
+  - sudo apt-get install xorriso
+
 before_script:
   - rustup component add rustfmt-preview
+  - rustup component add rust-src
+  - cargo install cargo-xbuild
 
 script:
   - cargo fmt --all -- --check
   - cargo build
   - cargo test
+  - make -C test_os grub_mkrescue=grub-mkrescue
 
 notifications:
   email: change

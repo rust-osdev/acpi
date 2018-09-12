@@ -1,0 +1,9 @@
+/target/
+/build/
+*.o
+*.a
+*.iso
+*.bin
+Cargo.lock
+serial.txt
+serial_tail.txt
