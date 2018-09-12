@@ -4,7 +4,8 @@
 #![feature(exclusive_range_pattern, range_contains)]
 #![feature(exhaustive_integer_patterns)]
 
-#[macro_use]
+#[cfg_attr(test, macro_use)]
+#[cfg(test)]
 extern crate std;
 
 #[macro_use]
