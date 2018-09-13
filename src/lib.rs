@@ -29,7 +29,7 @@ pub use rsdp_search::search_for_rsdp_bios;
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use aml::AmlValue;
 use core::mem;
-use core::ops::Deref;
+use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 use interrupt::InterruptModel;
 use rsdp::Rsdp;
@@ -121,6 +121,12 @@ impl<T> Deref for PhysicalMapping<T> {
 
     fn deref(&self) -> &T {
         unsafe { self.virtual_start.as_ref() }
+    }
+}
+
+impl<T> DerefMut for PhysicalMapping<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { self.virtual_start.as_mut() }
     }
 }
 
