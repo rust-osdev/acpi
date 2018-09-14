@@ -324,14 +324,17 @@ where
          * this, or keep the mappings for the DSDT and SSDTs around and these be references to
          * slices? Both have advantages
          */
-        let term_list = self.stream.take_until(end_offset)?;
+        let term_list = self
+            .stream
+            .take_n(end_offset - self.stream.offset())?
+            .to_vec();
 
         trace!("Parsed method called {}", name);
         self.acpi.namespace.insert(
             name,
             AmlValue::Method {
                 flags,
-                code: term_list.to_vec(),
+                code: term_list,
             },
         );
 
