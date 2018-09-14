@@ -282,8 +282,6 @@ where
         }
     }
 
-    info!("Parsed namespace: {:#?}", acpi.namespace);
-
     handler.unmap_physical_region(mapping);
     Ok(acpi)
 }

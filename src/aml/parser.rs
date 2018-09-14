@@ -438,26 +438,27 @@ where
 
     /// Parse a PkgLength. Returns the offset into the stream to stop parsing whatever object the
     /// PkgLength describes at.
-    // TODO: think hard about whether we actually need to minus the length now because we use
-    // `next()`? Isn't this already handled?
     fn parse_pkg_length(&mut self) -> Result<PkgLength, AmlError> {
         /*
          * PkgLength := PkgLeadByte |
          *              <PkgLeadByte ByteData> |
          *              <PkgLeadByte ByteData ByteData> |
          *              <PkgLeadByte ByteData ByteData ByteData>
+         *
+         * The length encoded by the PkgLength includes the number of bytes used to encode it.
          */
         trace!("--> PkgLength");
+        let current_offset = self.stream.offset();
+
         let lead_byte = self.stream.next()?;
         let byte_data_count = lead_byte.get_bits(6..8);
 
         if byte_data_count == 0 {
             let length = u32::from(lead_byte.get_bits(0..6));
-            let end_offset = self.stream.offset() + length - 1; // Minus 1 to remove the PkgLength byte
             trace!("<-- PkgLength");
             return Ok(PkgLength {
                 raw_length: length,
-                end_offset,
+                end_offset: current_offset + length,
             });
         }
 
@@ -466,12 +467,10 @@ where
             length += u32::from(self.stream.next()?) << (4 + i * 8);
         }
 
-        // Minus `byte_data_count + 1` to not include the PkgLength in the remaining bytes
-        let end_offset = self.stream.offset() + length - byte_data_count as u32 - 1;
         trace!("<-- PkgLength");
         Ok(PkgLength {
             raw_length: length,
-            end_offset,
+            end_offset: current_offset + length,
         })
     }
 
