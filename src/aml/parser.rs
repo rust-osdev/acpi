@@ -36,14 +36,28 @@ where
 /// the stream with each one. If a parsing function fails, it rolls back the stream and tries the
 /// next one. If none of the functions can parse the next part of the stream, we error on the
 /// unexpected byte.
-macro_rules! try_parse {
+macro_rules! parse_any_of {
     ($parser: expr, $($function: path),+) => {{
-        $(if let Some(value) = $parser.try_parse($function)? {
+        $(if let Some(value) = $parser.attempt_parse($function)? {
             Ok(value)
         } else)+ {
             Err(AmlError::UnexpectedByte($parser.stream.peek()?))
         }
     }}
+}
+
+/// This macro wraps parselets that check if we're parsing the thing we're attempting to. It should
+/// be used within `attempt_parse` calls, and converts `AmlError::UnexpectedByte` errors into
+/// `AmlError::NeedsBacktrack`s.
+macro_rules! check_attempt {
+    ($parselet: expr) => {{
+        let parse_result = $parselet;
+        if let Err(AmlError::UnexpectedByte(_)) = parse_result {
+            Err(AmlError::NeedsBacktrack)
+        } else {
+            parse_result
+        }?
+    }};
 }
 
 impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
@@ -98,7 +112,7 @@ where
     /// `AmlError` as an `Err`, except `AmlError::UnexpectedByte`, to which it will return
     /// `Ok(None)`. A successful parse gives `Ok(Some(...))`. On failure, this also reverts any
     /// changes made to the stream, so it's as if the parsing function never run.
-    fn try_parse<T, F>(&mut self, parsing_function: F) -> Result<Option<T>, AmlError>
+    fn attempt_parse<T, F>(&mut self, parsing_function: F) -> Result<Option<T>, AmlError>
     where
         F: Fn(&mut Self) -> Result<T, AmlError>,
     {
@@ -107,7 +121,7 @@ where
         match parsing_function(self) {
             Ok(result) => Ok(Some(result)),
 
-            Err(AmlError::UnexpectedByte(_)) => {
+            Err(AmlError::NeedsBacktrack) => {
                 self.stream = stream;
                 Ok(None)
             }
@@ -142,7 +156,7 @@ where
          *             DefMethod
          */
         trace!("--> TermObj");
-        let result = try_parse!(
+        let result = parse_any_of!(
             self,
             AmlParser::parse_def_scope,
             AmlParser::parse_def_op_region,
@@ -158,7 +172,7 @@ where
         /*
          * DefScope := 0x10 PkgLength NameString TermList
          */
-        self.consume_opcode(opcodes::SCOPE_OP)?;
+        check_attempt!(self.consume_opcode(opcodes::SCOPE_OP));
         trace!("--> DefScope");
         let scope_end_offset = self.parse_pkg_length()?.end_offset;
 
@@ -191,11 +205,10 @@ where
          * RegionOffset := TermArg => Integer
          * RegionLen := TermArg => Integer
          */
-        self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP)?;
+        check_attempt!(self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP));
         trace!("--> DefOpRegion");
 
         let name = self.parse_name_string()?;
-        info!("name: {}", name);
         let region_space = match self.stream.next()? {
             0x00 => RegionSpace::SystemMemory,
             0x01 => RegionSpace::SystemIo,
@@ -210,16 +223,12 @@ where
             space @ 0x80..=0xff => RegionSpace::OemDefined(space),
             byte => return Err(AmlError::UnexpectedByte(byte)),
         };
-        info!("region space: {:?}", region_space);
         let offset = self.parse_term_arg()?.as_integer()?;
-        info!("region offset: {}", offset);
         let length = self.parse_term_arg()?.as_integer()?;
-        info!("region len: {}", length);
 
         // Insert it into the namespace
         let namespace_path = self.resolve_path(&name)?;
         self.acpi.namespace.insert(
-            // self.resolve_path(name)?, TODO: I thought this would work with nll?
             namespace_path,
             AmlValue::OpRegion {
                 region: region_space,
@@ -228,7 +237,13 @@ where
             },
         );
 
-        trace!("<-- DefOpRegion");
+        trace!(
+            "<-- DefOpRegion(name = {}, space = {:?}, offset = {}, length = {})",
+            name,
+            region_space,
+            offset,
+            length
+        );
         Ok(())
     }
 
@@ -244,7 +259,7 @@ where
          * AccessAttrib := ByteData
          * ConnectField := <0x02 NameString> | <0x02 BufferData>
          */
-        self.consume_ext_opcode(opcodes::EXT_FIELD_OP)?;
+        check_attempt!(self.consume_ext_opcode(opcodes::EXT_FIELD_OP));
         trace!("--> DefField");
         let end_offset = self.parse_pkg_length()?.end_offset;
         trace!("end offset: {}", end_offset);
@@ -255,7 +270,7 @@ where
 
         while self.stream.offset() < end_offset {
             // TODO: parse other field types
-            let info = try_parse!(self, AmlParser::parse_named_field)?;
+            let info = parse_any_of!(self, AmlParser::parse_named_field)?;
 
             // TODO: add field name to this (info.name)?
             let namespace_path = self.resolve_path(&name)?;
@@ -294,7 +309,7 @@ where
          * DefMethod := 0x14 PkgLength NameString MethodFlags TermList
          * MethodFlags := ByteData
          */
-        self.consume_opcode(opcodes::METHOD_OP)?;
+        check_attempt!(self.consume_opcode(opcodes::METHOD_OP));
         trace!("--> DefMethod");
         let end_offset = self.parse_pkg_length()?.end_offset;
         let name = self.parse_name_string()?;
@@ -334,7 +349,7 @@ where
          * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
         trace!("--> TermArg");
-        let result = try_parse!(self, AmlParser::parse_computational_data);
+        let result = parse_any_of!(self, AmlParser::parse_computational_data);
         trace!("<-- TermArg");
         result
     }

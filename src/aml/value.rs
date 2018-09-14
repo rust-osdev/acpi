@@ -2,7 +2,7 @@ use super::AmlError;
 use alloc::vec::Vec;
 use bit_field::BitField;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum RegionSpace {
     SystemMemory,
     SystemIo,
@@ -17,6 +17,7 @@ pub enum RegionSpace {
     OemDefined(u8),
 }
 
+#[derive(Clone, Copy)]
 pub enum FieldAccessType {
     Any,
     Byte,
@@ -27,6 +28,7 @@ pub enum FieldAccessType {
     Reserved,
 }
 
+#[derive(Clone, Copy)]
 pub enum FieldUpdateRule {
     Preserve,
     WriteAsOnes,
