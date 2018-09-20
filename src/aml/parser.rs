@@ -153,19 +153,39 @@ where
          * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField | DefCreateDWordField |
          *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
          *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone |
-         *             DefMethod
+         *             DefMethod | DefDevice
          */
         trace!("--> TermObj");
         let result = parse_any_of!(
             self,
+            AmlParser::parse_def_name,
             AmlParser::parse_def_scope,
             AmlParser::parse_def_op_region,
             AmlParser::parse_def_field,
-            AmlParser::parse_def_method //,
-                                        // AmlParser::parse_type1_opcode    TODO: reenable when we can parse them
-        );
+            AmlParser::parse_def_method,
+            AmlParser::parse_def_device // AmlParser::parse_type1_opcode    TODO: reenable when we can parse them
+        )?;
         trace!("<-- TermObj");
-        result
+        Ok(result)
+    }
+
+    fn parse_def_name(&mut self) -> Result<(), AmlError> {
+        /*
+         * DefName := 0x08 NameString DataRefObject
+         */
+        check_attempt!(self.consume_opcode(opcodes::NAME_OP));
+        trace!("--> DefName");
+        let name = self.parse_name_string()?;
+        let data_ref_object = self.parse_data_ref_object()?;
+
+        // TODO: insert into namespace
+
+        trace!(
+            "<-- DefName(name = {}, data_ref_object = {:?})",
+            name,
+            data_ref_object
+        );
+        Ok(())
     }
 
     fn parse_def_scope(&mut self) -> Result<(), AmlError> {
@@ -342,19 +362,58 @@ where
         Ok(())
     }
 
+    fn parse_def_device(&mut self) -> Result<(), AmlError> {
+        /*
+         * DefDevice := ExtOpPrefix 0x82 PkgLength NameString TermList
+         */
+        check_attempt!(self.consume_ext_opcode(opcodes::EXT_DEVICE_OP));
+        trace!("--> DefDevice");
+        let end_offset = self.parse_pkg_length()?.end_offset;
+        trace!("end offset: {}", end_offset); // TODO: remove
+        let name = self.parse_name_string()?;
+        trace!("name: {}", name);
+        self.parse_term_list(end_offset);
+        // TODO: think about how to handle TermList namespacing (pass a name root?)
+        // TODO: add to namespace
+
+        trace!("<-- DefDevice");
+        Ok(())
+    }
+
     fn parse_def_buffer(&mut self) -> Result<AmlValue, AmlError> {
+        trace!("--> DefBuffer");
         unimplemented!(); // TODO
     }
 
     fn parse_term_arg(&mut self) -> Result<AmlValue, AmlError> {
         /*
          * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
-         * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
         trace!("--> TermArg");
-        let result = parse_any_of!(self, AmlParser::parse_computational_data);
+        let result = parse_any_of!(self, AmlParser::parse_data_object)?;
         trace!("<-- TermArg");
-        result
+        Ok(result)
+    }
+
+    fn parse_data_ref_object(&mut self) -> Result<AmlValue, AmlError> {
+        /*
+         * DataRefObject := DataObject | ObjectReference | DDBHandle
+         * DataObject := ComputationalData | DefPackage | DefVarPackage
+         */
+        trace!("--> DataRefObject");
+        let result = parse_any_of!(self, AmlParser::parse_data_object)?;
+        trace!("<-- DataRefObject");
+        Ok(result)
+    }
+
+    fn parse_data_object(&mut self) -> Result<AmlValue, AmlError> {
+        /*
+         * DataObject := ComputationalData | DefPackage | DefVarPackage
+         */
+        trace!("--> DataObject");
+        let result = parse_any_of!(self, AmlParser::parse_computational_data)?;
+        trace!("<-- DataObject");
+        Ok(result)
     }
 
     fn parse_computational_data(&mut self) -> Result<AmlValue, AmlError> {
@@ -386,13 +445,13 @@ where
             opcodes::DWORD_CONST => {
                 self.consume_opcode(opcodes::DWORD_CONST)?;
                 trace!("<-- ComputationalData");
-                Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
+                Ok(AmlValue::Integer(self.stream.next_u32()? as u64))
             }
 
             opcodes::QWORD_CONST => {
                 self.consume_opcode(opcodes::QWORD_CONST)?;
                 trace!("<-- ComputationalData");
-                Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
+                Ok(AmlValue::Integer(self.stream.next_u64()? as u64))
             }
 
             opcodes::STRING_PREFIX => {

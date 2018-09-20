@@ -32,21 +32,15 @@ impl<'a> AmlStream<'a> {
     }
 
     pub fn next_u32(&mut self) -> Result<u32, AmlError> {
-        let first_byte = self.next()?;
-        let second_byte = self.next()?;
-        let third_byte = self.next()?;
-        Ok(first_byte as u32 + ((second_byte as u32) << 8) + ((third_byte as u32) << 16))
+        let first_word = self.next_u16()?;
+        let second_word = self.next_u16()?;
+        Ok(first_word as u32 + ((second_word as u32) << 16))
     }
 
     pub fn next_u64(&mut self) -> Result<u64, AmlError> {
-        let first_byte = self.next()?;
-        let second_byte = self.next()?;
-        let third_byte = self.next()?;
-        let forth_byte = self.next()?;
-        Ok(first_byte as u64
-            + ((second_byte as u64) << 8)
-            + ((third_byte as u64) << 16)
-            + ((forth_byte as u64) << 24))
+        let first_dword = self.next_u32()?;
+        let second_dword = self.next_u32()?;
+        Ok(first_dword as u64 + ((second_dword as u64) << 32))
     }
 
     /// Consume `n` bytes from the stream and return the slice of them.
