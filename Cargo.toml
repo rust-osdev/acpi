@@ -10,6 +10,10 @@ license = "MIT/Apache-2.0"
 [dependencies]
 bit_field = "0.9.0"
 
+[features]
+default-features = []
+debug_parser = []
+
 [target.'cfg(not(test))'.dependencies]
 log = "0.4.5"
 
