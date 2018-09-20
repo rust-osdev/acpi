@@ -1,9 +1,13 @@
 #![no_std]
-#![feature(nll)]
-#![feature(alloc)]
-#![feature(exclusive_range_pattern, range_contains)]
-#![feature(exhaustive_integer_patterns)]
-#![feature(box_syntax)]
+#![feature(
+    nll,
+    alloc,
+    exclusive_range_pattern,
+    range_contains,
+    exhaustive_integer_patterns,
+    box_syntax,
+    decl_macro
+)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]

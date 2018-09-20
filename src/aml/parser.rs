@@ -36,28 +36,25 @@ where
 /// the stream with each one. If a parsing function fails, it rolls back the stream and tries the
 /// next one. If none of the functions can parse the next part of the stream, we error on the
 /// unexpected byte.
-macro_rules! parse_any_of {
-    ($parser: expr, $($function: path),+) => {{
-        $(if let Some(value) = $parser.attempt_parse($function)? {
-            Ok(value)
-        } else)+ {
-            Err(AmlError::UnexpectedByte($parser.stream.peek()?))
-        }
-    }}
+macro parse_any_of($parser: expr, $($function: path),+) {
+    $(if let Some(value) = $parser.attempt_parse($function)? {
+        Ok(value)
+    } else)+ {
+        warn!("Didn't parse any of!");
+        Err(AmlError::UnexpectedByte($parser.stream.peek()?))
+    }
 }
 
 /// This macro wraps parselets that check if we're parsing the thing we're attempting to. It should
 /// be used within `attempt_parse` calls, and converts `AmlError::UnexpectedByte` errors into
 /// `AmlError::NeedsBacktrack`s.
-macro_rules! check_attempt {
-    ($parselet: expr) => {{
-        let parse_result = $parselet;
-        if let Err(AmlError::UnexpectedByte(_)) = parse_result {
-            Err(AmlError::NeedsBacktrack)
-        } else {
-            parse_result
-        }?
-    }};
+macro check_attempt($parselet: expr) {
+    let parse_result = $parselet;
+    if let Err(AmlError::UnexpectedByte(_)) = parse_result {
+        Err(AmlError::NeedsBacktrack)
+    } else {
+        parse_result
+    }?
 }
 
 impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
