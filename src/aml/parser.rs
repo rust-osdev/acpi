@@ -552,7 +552,17 @@ where
             }
 
             b'^' => {
-                unimplemented!();
+                /*
+                 * NameString := PrefixPath NamePath
+                 * PrefixPath := Nothing | <'^' PrefixPath>
+                 */
+                let mut num_carats = 0;
+                while self.stream.peek()? == b'^' {
+                    self.stream.next()?;
+                    num_carats += 1;
+                }
+
+                Ok(String::from("^".repeat(num_carats)) + &self.parse_name_path()?)
             }
 
             _ => {
