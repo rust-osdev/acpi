@@ -77,17 +77,17 @@ pub enum ProcessorState {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Processor {
-    processor_uid: u8,
-    local_apic_id: u8,
+    pub processor_uid: u8,
+    pub local_apic_id: u8,
 
     /// The state of this processor. Always check that the processor is not `Disabled` before
     /// attempting to bring it up!
-    state: ProcessorState,
+    pub state: ProcessorState,
 
     /// Whether this processor is the Bootstrap Processor (BSP), or an Application Processor (AP).
     /// When the bootloader is entered, the BSP is the only processor running code. To run code on
     /// more than one processor, you need to "bring up" the APs.
-    is_ap: bool,
+    pub is_ap: bool,
 }
 
 impl Processor {
