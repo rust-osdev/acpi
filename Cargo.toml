@@ -1,6 +1,6 @@
 [package]
 name = "acpi"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Isaac Woods <isaacwoods.home@gmail.com>"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "Library for parsing ACPI tables and AML"
@@ -8,5 +8,5 @@ readme = "README.md"
 license = "MIT/Apache-2.0"
 
 [dependencies]
-log = "0.*"
-bit_field = "0.9.0"
+log = "0.4"
+bit_field = "0.9"
