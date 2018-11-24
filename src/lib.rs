@@ -192,19 +192,19 @@ pub struct Acpi {
 impl Acpi {
     /// A description of the boot processor. Until you bring any more up, this is the only processor
     /// running code, even on SMP systems.
-    pub fn boot_processor<'a>(&'a self) -> &'a Option<Processor> {
+    pub fn boot_processor(&self) -> &Option<Processor> {
         &self.boot_processor
     }
 
     /// Descriptions of each of the application processors. These are not brought up until you do
     /// so. The application processors must be brought up in the order that they appear in this
     /// list.
-    pub fn application_processors<'a>(&'a self) -> &'a Vec<Processor> {
+    pub fn application_processors(&self) -> &Vec<Processor> {
         &self.application_processors
     }
 
     /// The interrupt model supported by this system.
-    pub fn interrupt_model<'a>(&'a self) -> &'a Option<InterruptModel> {
+    pub fn interrupt_model(&self) -> &Option<InterruptModel> {
         &self.interrupt_model
     }
 }
