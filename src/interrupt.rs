@@ -1,3 +1,5 @@
+//! Describes the system's interrupt model.
+
 use alloc::vec::Vec;
 
 #[derive(Debug)]

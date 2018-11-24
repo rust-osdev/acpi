@@ -1,8 +1,30 @@
+//! A library for parsing ACPI tables, and interacting with AML. This crate can be used in kernels,
+//! but also aims to be usable from user-space for microkernel designs. `acpi` is still far from
+//! feature-complete and is of alpha-quality, but can still be used for parsing the static tables,
+//! and setting up hardware like the APIC and HPET. The AML parser and interpreter are not yet
+//! usable.
+//!
+//! # Usage
+//! To use the library, you will need to provide an implementation of the `AcpiHandler` trait, which
+//! allows us to make requests such as mapping physical memory into the virtual address space. You
+//! can then either provide the physical address of the RSDP to `parse_rsdp` (GRUB can provide this
+//! to you with the correct Multiboot tag), provide the physical address of the RSDT or XSDT to
+//! `parse_rsdt`, or do a manual search for the RSDP using `search_for_rsdp_bios` (note that this
+//! **only** works on legacy BIOS systems - UEFI systems do not follow the same conventions and may
+//! put the RSDP anywhere in memory).
+//!
+//! You can then use the provided `Acpi` struct to query information about the system. For example,
+//! the `InterruptModel` will detail how the interrupt controller, usually the APIC on x86_64
+//! systems, should be set up.
+
 #![no_std]
-#![feature(nll)]
-#![feature(alloc)]
-#![feature(exclusive_range_pattern, range_contains)]
-#![feature(exhaustive_integer_patterns)]
+#![feature(
+    nll,
+    alloc,
+    exclusive_range_pattern,
+    range_contains,
+    exhaustive_integer_patterns
+)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -35,6 +57,8 @@ use interrupt::InterruptModel;
 use rsdp::Rsdp;
 use sdt::SdtHeader;
 
+/// Main error type for the `acpi` crate. Describes many of the main errors that can occur when
+/// parsing the ACPI tables.
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
 pub enum AcpiError {
@@ -62,6 +86,8 @@ pub(crate) struct GenericAddress {
     address: u64,
 }
 
+/// The state of a processor, as describes in the MADT. This can be used to establish whether a
+/// processor can be used, and who is responsible for bringing it up.
 #[derive(Clone, Copy, Debug)]
 pub enum ProcessorState {
     /// A processor in this state is unusable, and you must not attempt to bring it up.
@@ -75,6 +101,9 @@ pub enum ProcessorState {
     Running,
 }
 
+/// A processor, as described in the MADT. Each processor has a local APIC, and is either the
+/// Bootstrap Processor (the processor brought up to run the bootloader), or an Application
+/// Processor that the OS is responsible for bringing up.
 #[derive(Clone, Copy, Debug)]
 pub struct Processor {
     pub processor_uid: u8,
@@ -144,6 +173,9 @@ pub trait AcpiHandler {
     fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>);
 }
 
+/// This structure is built up as the crate parses the ACPI tables, and passed back to the kernel.
+/// It can be used to query information about the system such as the interrupt model, or values in
+/// the AML namespace.
 #[derive(Debug)]
 pub struct Acpi {
     acpi_revision: u8,
