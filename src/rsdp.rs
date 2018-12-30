@@ -47,18 +47,26 @@ impl Rsdp {
             return Err(AcpiError::RsdpInvalidOemId);
         }
 
-        let len = if self.revision > 0 {
+        /*
+         * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
+         * check for version 1.0 and use a hard-coded length instead.
+         */
+        let length = if self.revision > 0 {
             // For Version 2.0+, check ALL the fields
             mem::size_of::<Self>()
         } else {
             // For Version 1, only check fields up to v1 length only
-            20
+            mem::size_of::<[u8; 8]>()
+                + mem::size_of::<u8>()
+                + mem::size_of::<[u8; 6]>()
+                + mem::size_of::<u8>()
+                + mem::size_of::<u32>()
         };
 
         let self_ptr = self as *const Rsdp as *const u8;
         let mut sum: u8 = 0;
-        for i in 0..self.length {
-            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) } as u8);
+        for i in 0..length {
+            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) });
         }
 
         if sum != 0 {
