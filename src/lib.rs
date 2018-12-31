@@ -6,7 +6,8 @@
     range_contains,
     exhaustive_integer_patterns,
     box_syntax,
-    decl_macro
+    decl_macro,
+    type_ascription
 )]
 
 #[cfg_attr(test, macro_use)]

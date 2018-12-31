@@ -2,6 +2,7 @@ use super::stream::AmlStream;
 use super::value::{AmlValue, FieldFlags, MethodFlags, RegionSpace};
 use super::{opcodes, AmlError};
 use alloc::string::String;
+use alloc::vec::Vec;
 use bit_field::BitField;
 use core::str;
 use {Acpi, AcpiHandler};
@@ -392,8 +393,38 @@ where
     }
 
     fn parse_def_buffer(&mut self) -> Result<AmlValue, AmlError> {
-        parser_trace!("--> DefBuffer");
-        Err(AmlError::EndOfStream)  // TODO: implement this
+        /*
+         * XXX: it's not clear what you're meant to do if the PkgLength is 0 (the spec claims these
+         * are illegal), so I've made up that we just return an empty buffer.
+         */
+
+        self.consume_opcode(opcodes::BUFFER_OP);
+        parser_trace!(self, "--> DefBuffer");
+        let pkg_length = self.parse_pkg_length()?;
+        parser_trace!(self, "current offset: {}", self.stream.offset());
+        parser_trace!(self, "pkg length: {:?}", pkg_length);
+
+        if pkg_length.raw_length != 0 {
+            let size = self.parse_term_arg()?.as_integer()?;
+            parser_trace!(self, "buffer size: {}", size);
+            let bytes = self
+                .stream
+                .take_n(pkg_length.end_offset - self.stream.offset())?
+                .to_vec();
+            parser_trace!(self, "bytes: {:?}", bytes);
+
+            parser_trace!(self, "<-- DefBuffer");
+            Ok(AmlValue::Buffer { size, bytes })
+        } else {
+            parser_trace!(
+                self,
+                "<-- DefBuffer(warning: returning empty buffer because PkgLength was 0)"
+            );
+            Ok(AmlValue::Buffer {
+                size: 0,
+                bytes: Vec::with_capacity(0),
+            })
+        }
     }
 
     fn parse_term_arg(&mut self) -> Result<AmlValue, AmlError> {
