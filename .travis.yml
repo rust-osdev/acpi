@@ -26,7 +26,7 @@ before_script:
 script:
   - cargo fmt --all -- --check
   - cargo build
-  - cargo test
+  - cargo test --features running_on_ci
 
 notifications:
   email: change

@@ -415,7 +415,7 @@ where
          * are illegal), so I've made up that we just return an empty buffer.
          */
 
-        self.consume_opcode(opcodes::BUFFER_OP);
+        self.consume_opcode(opcodes::BUFFER_OP)?;
         parser_trace!(self, "--> DefBuffer");
         let pkg_length = self.parse_pkg_length()?;
         parser_trace!(self, "current offset: {}", self.stream.offset());
