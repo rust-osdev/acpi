@@ -17,6 +17,7 @@ struct FieldInfo {
 /// current explicit-length structure, so we know when to stop parsing it. However, various constants
 /// (e.g. the size of fields) are also encoded as PkgLengths, and so sometimes we want to access
 /// the raw data as well.
+#[derive(Debug)]
 struct PkgLength {
     pub raw_length: u32,
     pub end_offset: u32,
@@ -32,9 +33,11 @@ where
     stream: AmlStream<'s>,
 }
 
-macro parser_trace($($arg: tt)*) {
+/// Easy macro for controlling whether debug output is printed during parsing. Takes a copy of the
+/// parser so we can, for example, print the offset in the AML stream for every trace.
+macro parser_trace($parser: ident, $($args: tt)*) {
     #[cfg(feature = "debug_parser")]
-    trace!($($arg)*);
+    trace!($($args)*);
 }
 
 /// This macro takes a parser and one or more parsing functions and tries to parse the next part of
@@ -45,7 +48,7 @@ macro parse_any_of($parser: expr, $($function: path),+) {
     $(if let Some(value) = $parser.attempt_parse($function)? {
         Ok(value)
     } else)+ {
-        warn!("Didn't parse any of!");
+        warn!("Didn't parse any of (Unexpected byte was {:?})", $parser.stream.peek());
         Err(AmlError::UnexpectedByte($parser.stream.peek()?))
     }
 }
@@ -87,7 +90,7 @@ where
     /// does, returns `Ok(the consumed char)`. If it doesn't, returns
     /// `Err(AmlError::UnexpectedByte(the consumed char)`. If there's an error consuming the char,
     /// it will forward the error on from that.
-    fn consume_byte<F>(&mut self, predicate: F) -> Result<u8, AmlError>
+    fn consume<F>(&mut self, predicate: F) -> Result<u8, AmlError>
     where
         F: Fn(u8) -> bool,
     {
@@ -100,13 +103,13 @@ where
     }
 
     fn consume_opcode(&mut self, opcode: u8) -> Result<(), AmlError> {
-        self.consume_byte(matches_byte(opcode))?;
+        self.consume(matches_byte(opcode))?;
         Ok(())
     }
 
     fn consume_ext_opcode(&mut self, ext_opcode: u8) -> Result<(), AmlError> {
-        self.consume_byte(matches_byte(opcodes::EXT_OPCODE_PREFIX))?;
-        self.consume_byte(matches_byte(ext_opcode))?;
+        self.consume(matches_byte(opcodes::EXT_OPCODE_PREFIX))?;
+        self.consume(matches_byte(ext_opcode))?;
         Ok(())
     }
 
@@ -139,12 +142,12 @@ where
          * Because TermLists don't have PkgLengths, we pass the offset to stop at from whatever
          * explicit-length object we were parsing before.
          */
-        parser_trace!("--> TermList");
+        parser_trace!(self, "--> TermList");
         while self.stream.offset() <= end_offset {
             self.parse_term_object()?;
         }
 
-        parser_trace!("<-- TermList");
+        parser_trace!(self, "<-- TermList");
         Ok(())
     }
 
@@ -157,7 +160,7 @@ where
          *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone |
          *             DefMethod | DefDevice
          */
-        parser_trace!("--> TermObj");
+        parser_trace!(self, "--> TermObj");
         let result = parse_any_of!(
             self,
             AmlParser::parse_def_name,
@@ -167,7 +170,7 @@ where
             AmlParser::parse_def_method,
             AmlParser::parse_def_device // AmlParser::parse_type1_opcode    TODO: reenable when we can parse them
         )?;
-        parser_trace!("<-- TermObj");
+        parser_trace!(self, "<-- TermObj");
         Ok(result)
     }
 
@@ -176,13 +179,14 @@ where
          * DefName := 0x08 NameString DataRefObject
          */
         check_attempt!(self.consume_opcode(opcodes::NAME_OP));
-        parser_trace!("--> DefName");
+        parser_trace!(self, "--> DefName");
         let name = self.parse_name_string()?;
         let data_ref_object = self.parse_data_ref_object()?;
 
         // TODO: insert into namespace
 
         parser_trace!(
+            self,
             "<-- DefName(name = {}, data_ref_object = {:?})",
             name,
             data_ref_object
@@ -195,7 +199,7 @@ where
          * DefScope := 0x10 PkgLength NameString TermList
          */
         check_attempt!(self.consume_opcode(opcodes::SCOPE_OP));
-        parser_trace!("--> DefScope");
+        parser_trace!(self, "--> DefScope");
         let scope_end_offset = self.parse_pkg_length()?.end_offset;
 
         let name_string = self.parse_name_string()?;
@@ -205,7 +209,7 @@ where
         let term_list = self.parse_term_list(scope_end_offset)?;
         self.scope = containing_scope;
 
-        parser_trace!("<-- DefScope");
+        parser_trace!(self, "<-- DefScope({})", self.scope);
         Ok(())
     }
 
@@ -228,7 +232,7 @@ where
          * RegionLen := TermArg => Integer
          */
         check_attempt!(self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP));
-        parser_trace!("--> DefOpRegion");
+        parser_trace!(self, "--> DefOpRegion");
 
         let name = self.parse_name_string()?;
         let region_space = match self.stream.next()? {
@@ -260,6 +264,7 @@ where
         );
 
         parser_trace!(
+            self,
             "<-- DefOpRegion(name = {}, space = {:?}, offset = {}, length = {})",
             name,
             region_space,
@@ -282,13 +287,13 @@ where
          * ConnectField := <0x02 NameString> | <0x02 BufferData>
          */
         check_attempt!(self.consume_ext_opcode(opcodes::EXT_FIELD_OP));
-        parser_trace!("--> DefField");
+        parser_trace!(self, "--> DefField");
         let end_offset = self.parse_pkg_length()?.end_offset;
-        parser_trace!("end offset: {}", end_offset);
+        parser_trace!(self, "end offset: {}", end_offset);
         let name = self.parse_name_string()?;
-        parser_trace!("name: {}", name);
+        parser_trace!(self, "name: {}", name);
         let flags = FieldFlags::new(self.stream.next()?);
-        parser_trace!("Field flags: {:?}", flags);
+        parser_trace!(self, "Field flags: {:?}", flags);
 
         while self.stream.offset() < end_offset {
             // TODO: parse other field types
@@ -306,7 +311,7 @@ where
             );
         }
 
-        parser_trace!("<-- DefField");
+        parser_trace!(self, "<-- DefField");
         Ok(())
     }
 
@@ -317,12 +322,17 @@ where
          * This encodes the size of the field using a PkgLength - it doesn't mark the length of an
          * explicit-length structure!
          */
-        parser_trace!("--> NamedField");
+        parser_trace!(self, "--> NamedField");
         let name = String::from(name_seg_to_string(&self.parse_name_seg()?)?);
         let length = self.parse_pkg_length()?.raw_length as u64;
-        parser_trace!("Adding named field called {:?} with size {}", name, length);
+        parser_trace!(
+            self,
+            "Adding named field called {:?} with size {}",
+            name,
+            length
+        );
 
-        parser_trace!("<-- NamedField");
+        parser_trace!(self, "<-- NamedField");
         Ok(FieldInfo { name, length })
     }
 
@@ -332,7 +342,7 @@ where
          * MethodFlags := ByteData
          */
         check_attempt!(self.consume_opcode(opcodes::METHOD_OP));
-        parser_trace!("--> DefMethod");
+        parser_trace!(self, "--> DefMethod");
         let end_offset = self.parse_pkg_length()?.end_offset;
         let name = self.parse_name_string()?;
         let flags = MethodFlags::new(self.stream.next()?);
@@ -351,7 +361,7 @@ where
             .take_n(end_offset - self.stream.offset())?
             .to_vec();
 
-        parser_trace!("Parsed method called {}", name);
+        parser_trace!(self, "Parsed method called {}", name);
         self.acpi.namespace.insert(
             name,
             AmlValue::Method {
@@ -360,7 +370,7 @@ where
             },
         );
 
-        parser_trace!("<-- DefMethod");
+        parser_trace!(self, "<-- DefMethod");
         Ok(())
     }
 
@@ -369,16 +379,15 @@ where
          * DefDevice := ExtOpPrefix 0x82 PkgLength NameString TermList
          */
         check_attempt!(self.consume_ext_opcode(opcodes::EXT_DEVICE_OP));
-        parser_trace!("--> DefDevice");
+        parser_trace!(self, "--> DefDevice");
         let end_offset = self.parse_pkg_length()?.end_offset;
-        parser_trace!("end offset: {}", end_offset); // TODO: remove
         let name = self.parse_name_string()?;
-        parser_trace!("name: {}", name);
-        self.parse_term_list(end_offset);
+        parser_trace!(self, "name: {}", name);
+        self.parse_term_list(end_offset)?;
         // TODO: think about how to handle TermList namespacing (pass a name root?)
         // TODO: add to namespace
 
-        parser_trace!("<-- DefDevice");
+        parser_trace!(self, "<-- DefDevice({})", name);
         Ok(())
     }
 
@@ -391,9 +400,9 @@ where
         /*
          * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
          */
-        parser_trace!("--> TermArg");
+        parser_trace!(self, "--> TermArg");
         let result = parse_any_of!(self, AmlParser::parse_data_object)?;
-        parser_trace!("<-- TermArg");
+        parser_trace!(self, "<-- TermArg");
         Ok(result)
     }
 
@@ -402,9 +411,9 @@ where
          * DataRefObject := DataObject | ObjectReference | DDBHandle
          * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
-        parser_trace!("--> DataRefObject");
+        parser_trace!(self, "--> DataRefObject");
         let result = parse_any_of!(self, AmlParser::parse_data_object)?;
-        parser_trace!("<-- DataRefObject");
+        parser_trace!(self, "<-- DataRefObject");
         Ok(result)
     }
 
@@ -412,9 +421,9 @@ where
         /*
          * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
-        parser_trace!("--> DataObject");
+        parser_trace!(self, "--> DataObject");
         let result = parse_any_of!(self, AmlParser::parse_computational_data)?;
-        parser_trace!("<-- DataObject");
+        parser_trace!(self, "<-- DataObject");
         Ok(result)
     }
 
@@ -430,53 +439,45 @@ where
          * ConstObj := ZeroOp(0x00) | OneOp(0x01) | OnesOp(0xff)
          * RevisionOp := ExtOpPrefix(0x5B) 0x30
          */
-        parser_trace!("--> ComputationalData");
-        match self.stream.peek()? {
+        parser_trace!(self, "--> ComputationalData");
+        let result = match self.stream.peek()? {
             opcodes::BYTE_CONST => {
                 self.consume_opcode(opcodes::BYTE_CONST)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next()? as u64))
             }
 
             opcodes::WORD_CONST => {
                 self.consume_opcode(opcodes::WORD_CONST)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next_u16()? as u64))
             }
 
             opcodes::DWORD_CONST => {
                 self.consume_opcode(opcodes::DWORD_CONST)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next_u32()? as u64))
             }
 
             opcodes::QWORD_CONST => {
                 self.consume_opcode(opcodes::QWORD_CONST)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(self.stream.next_u64()? as u64))
             }
 
             opcodes::STRING_PREFIX => {
                 self.consume_opcode(opcodes::STRING_PREFIX)?;
-                parser_trace!("<-- ComputationalData");
                 unimplemented!(); // TODO
             }
 
             opcodes::ZERO_OP => {
                 self.consume_opcode(opcodes::ZERO_OP)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(0))
             }
 
             opcodes::ONE_OP => {
                 self.consume_opcode(opcodes::ONE_OP)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(1))
             }
 
             opcodes::ONES_OP => {
                 self.consume_opcode(opcodes::ONES_OP)?;
-                parser_trace!("<-- ComputationalData");
                 Ok(AmlValue::Integer(u64::max_value()))
             }
 
@@ -485,7 +486,10 @@ where
             }
 
             _ => self.parse_def_buffer(),
-        }
+        };
+
+        parser_trace!(self, "<-- ComputationalData");
+        result
     }
 
     fn parse_type1_opcode(&mut self) -> Result<(), AmlError> {
@@ -508,7 +512,7 @@ where
          *
          * The length encoded by the PkgLength includes the number of bytes used to encode it.
          */
-        parser_trace!("--> PkgLength");
+        parser_trace!(self, "--> PkgLength");
         let current_offset = self.stream.offset();
 
         let lead_byte = self.stream.next()?;
@@ -516,7 +520,7 @@ where
 
         if byte_data_count == 0 {
             let length = u32::from(lead_byte.get_bits(0..6));
-            parser_trace!("<-- PkgLength");
+            parser_trace!(self, "<-- PkgLength");
             return Ok(PkgLength {
                 raw_length: length,
                 end_offset: current_offset + length,
@@ -528,7 +532,7 @@ where
             length += u32::from(self.stream.next()?) << (4 + i * 8);
         }
 
-        parser_trace!("<-- PkgLength");
+        parser_trace!(self, "<-- PkgLength");
         Ok(PkgLength {
             raw_length: length,
             end_offset: current_offset + length,
@@ -540,14 +544,13 @@ where
          * NameString := <RootChar('\') NamePath> | <PrefixPath NamePath>
          * PrefixPath := Nothing | <'^' PrefixPath>
          */
-        parser_trace!("--> NameString");
-        match self.stream.peek()? {
+        parser_trace!(self, "--> NameString");
+        let result = match self.stream.peek()? {
             b'\\' => {
                 /*
                  * NameString := RootChar NamePath
                  */
                 self.stream.next()?;
-                parser_trace!("<-- NameString");
                 Ok(String::from("\\") + &self.parse_name_path()?)
             }
 
@@ -565,12 +568,11 @@ where
                 Ok(String::from("^".repeat(num_carats)) + &self.parse_name_path()?)
             }
 
-            _ => {
-                let result = self.parse_name_path();
-                parser_trace!("<-- NameString");
-                result
-            }
-        }
+            _ => self.parse_name_path(),
+        };
+
+        parser_trace!(self, "<-- NameString({:?})", result);
+        result
     }
 
     fn parse_name_path(&mut self) -> Result<String, AmlError> {
@@ -579,53 +581,56 @@ where
          * DualNamePath := DualNamePrefix NameSeg NameSeg
          * MultiNamePath := MultiNamePrefix SegCount{ByteData} NameSeg(..SegCount)
          */
-        parser_trace!("--> NamePath");
-        match self.stream.peek()? {
-            opcodes::NULL_NAME => {
-                self.stream.next()?;
-                parser_trace!("<-- NamePath");
-                Ok(String::from(""))
-            }
+        // parser_trace!(self, "--> NamePath");
+        let result =
+            match self.stream.peek()? {
+                opcodes::NULL_NAME => {
+                    self.consume_opcode(opcodes::NULL_NAME)?;
+                    Ok(String::from(""))
+                }
 
-            opcodes::DUAL_NAME_PREFIX => {
-                self.stream.next()?;
-                let first = self.parse_name_seg()?;
-                let second = self.parse_name_seg()?;
+                opcodes::DUAL_NAME_PREFIX => {
+                    self.consume_opcode(opcodes::DUAL_NAME_PREFIX)?;
+                    let first = self.parse_name_seg()?;
+                    let second = self.parse_name_seg()?;
 
-                parser_trace!("<-- NamePath");
-                Ok(
-                    String::from(str::from_utf8(&first).unwrap())
-                        + str::from_utf8(&second).unwrap(),
-                )
-            }
+                    Ok(String::from(str::from_utf8(&first).unwrap())
+                        + str::from_utf8(&second).unwrap())
+                }
 
-            opcodes::MULTI_NAME_PREFIX => {
-                // TODO
-                unimplemented!();
-            }
+                opcodes::MULTI_NAME_PREFIX => {
+                    self.consume_opcode(opcodes::MULTI_NAME_PREFIX)?;
+                    let seg_count = self.stream.next()?;
+                    let mut name = String::new();
 
-            _ => {
-                let result = Ok(String::from(
+                    for i in 0..seg_count {
+                        name += str::from_utf8(&self.parse_name_seg()?).unwrap();
+                    }
+
+                    Ok(name)
+                }
+
+                _ => Ok(String::from(
                     str::from_utf8(&self.parse_name_seg()?).unwrap(),
-                ));
-                parser_trace!("<-- NamePath");
-                result
-            }
-        }
+                )),
+            };
+
+        // parser_trace!(self, "<-- NamePath");
+        result
     }
 
     fn parse_name_seg(&mut self) -> Result<[u8; 4], AmlError> {
         /*
          * NameSeg := <LeadNameChar NameChar NameChar NameChar>
          */
-        parser_trace!("--> NameSeg");
+        // parser_trace!(self, "--> NameSeg");
         let result = Ok([
-            self.consume_byte(is_lead_name_char)?,
-            self.consume_byte(is_name_char)?,
-            self.consume_byte(is_name_char)?,
-            self.consume_byte(is_name_char)?,
+            self.consume(is_lead_name_char)?,
+            self.consume(is_name_char)?,
+            self.consume(is_name_char)?,
+            self.consume(is_name_char)?,
         ]);
-        parser_trace!("<-- NameSeg");
+        // parser_trace!(self, "<-- NameSeg");
         result
     }
 
