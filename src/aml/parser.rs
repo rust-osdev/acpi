@@ -143,7 +143,7 @@ where
          * explicit-length object we were parsing before.
          */
         parser_trace!(self, "--> TermList");
-        while self.stream.offset() <= end_offset {
+        while self.stream.offset() < end_offset {
             self.parse_term_object()?;
         }
 
