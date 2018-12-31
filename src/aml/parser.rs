@@ -296,20 +296,37 @@ where
         let flags = FieldFlags::new(self.stream.next()?);
         parser_trace!(self, "Field flags: {:?}", flags);
 
+        let mut field_offset = 0;
         while self.stream.offset() < end_offset {
             // TODO: parse other field types
-            let info = parse_any_of!(self, AmlParser::parse_named_field)?;
+            match self.stream.peek()? {
+                0x00 => {
+                    /*
+                     * ReservedField := 0x00 PkgLength
+                     */
+                    self.consume(matches_byte(0x00))?;
+                    let pkg_length = self.parse_pkg_length()?;
+                    field_offset += pkg_length.raw_length;
+                    // TODO: add to namespace?
+                }
 
-            // TODO: add field name to this (info.name)?
-            let namespace_path = self.resolve_path(&name)?;
-            self.acpi.namespace.insert(
-                namespace_path,
-                AmlValue::Field {
-                    flags,
-                    offset: 0, // TODO: calculate offset
-                    length: info.length,
-                },
-            );
+                _ => {
+                    let info = parse_any_of!(self, AmlParser::parse_named_field)?;
+
+                    // TODO: add field name to this (info.name)?
+                    let namespace_path = self.resolve_path(&name)?;
+                    self.acpi.namespace.insert(
+                        namespace_path,
+                        AmlValue::Field {
+                            flags,
+                            offset: 0, // TODO: calculate offset
+                            length: info.length,
+                        },
+                    );
+
+                    field_offset += info.length as u32;
+                }
+            }
         }
 
         parser_trace!(self, "<-- DefField");
