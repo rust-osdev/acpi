@@ -58,12 +58,14 @@ macro parse_any_of($parser: expr, $($function: path),+) {
 /// be used within `attempt_parse` calls, and converts `AmlError::UnexpectedByte` errors into
 /// `AmlError::NeedsBacktrack`s.
 macro check_attempt($parselet: expr) {
-    let parse_result = $parselet;
-    if let Err(AmlError::UnexpectedByte(_)) = parse_result {
-        Err(AmlError::NeedsBacktrack)
-    } else {
-        parse_result
-    }?
+    {
+        let parse_result = $parselet;
+        if let Err(AmlError::UnexpectedByte(_)) = parse_result {
+            Err(AmlError::NeedsBacktrack)
+        } else {
+            parse_result
+        }
+    }
 }
 
 impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
@@ -179,7 +181,7 @@ where
         /*
          * DefName := 0x08 NameString DataRefObject
          */
-        check_attempt!(self.consume_opcode(opcodes::NAME_OP));
+        check_attempt!(self.consume_opcode(opcodes::NAME_OP))?;
         parser_trace!(self, "--> DefName");
         let name = self.parse_name_string()?;
         let data_ref_object = self.parse_data_ref_object()?;
@@ -199,7 +201,7 @@ where
         /*
          * DefScope := 0x10 PkgLength NameString TermList
          */
-        check_attempt!(self.consume_opcode(opcodes::SCOPE_OP));
+        check_attempt!(self.consume_opcode(opcodes::SCOPE_OP))?;
         parser_trace!(self, "--> DefScope");
         let scope_end_offset = self.parse_pkg_length()?.end_offset;
 
@@ -232,7 +234,7 @@ where
          * RegionOffset := TermArg => Integer
          * RegionLen := TermArg => Integer
          */
-        check_attempt!(self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP));
+        check_attempt!(self.consume_ext_opcode(opcodes::EXT_OP_REGION_OP))?;
         parser_trace!(self, "--> DefOpRegion");
 
         let name = self.parse_name_string()?;
@@ -287,7 +289,7 @@ where
          * AccessAttrib := ByteData
          * ConnectField := <0x02 NameString> | <0x02 BufferData>
          */
-        check_attempt!(self.consume_ext_opcode(opcodes::EXT_FIELD_OP));
+        check_attempt!(self.consume_ext_opcode(opcodes::EXT_FIELD_OP))?;
         parser_trace!(self, "--> DefField");
         let end_offset = self.parse_pkg_length()?.end_offset;
         parser_trace!(self, "end offset: {}", end_offset);
@@ -359,7 +361,7 @@ where
          * DefMethod := 0x14 PkgLength NameString MethodFlags TermList
          * MethodFlags := ByteData
          */
-        check_attempt!(self.consume_opcode(opcodes::METHOD_OP));
+        check_attempt!(self.consume_opcode(opcodes::METHOD_OP))?;
         parser_trace!(self, "--> DefMethod");
         let end_offset = self.parse_pkg_length()?.end_offset;
         let name = self.parse_name_string()?;
@@ -396,7 +398,7 @@ where
         /*
          * DefDevice := ExtOpPrefix 0x82 PkgLength NameString TermList
          */
-        check_attempt!(self.consume_ext_opcode(opcodes::EXT_DEVICE_OP));
+        check_attempt!(self.consume_ext_opcode(opcodes::EXT_DEVICE_OP))?;
         parser_trace!(self, "--> DefDevice");
         let end_offset = self.parse_pkg_length()?.end_offset;
         let name = self.parse_name_string()?;
@@ -415,7 +417,7 @@ where
          * are illegal), so I've made up that we just return an empty buffer.
          */
 
-        self.consume_opcode(opcodes::BUFFER_OP)?;
+        check_attempt!(self.consume_opcode(opcodes::BUFFER_OP))?;
         parser_trace!(self, "--> DefBuffer");
         let pkg_length = self.parse_pkg_length()?;
         parser_trace!(self, "current offset: {}", self.stream.offset());
