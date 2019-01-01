@@ -292,11 +292,8 @@ where
         check_attempt!(self.consume_ext_opcode(opcodes::EXT_FIELD_OP))?;
         parser_trace!(self, "--> DefField");
         let end_offset = self.parse_pkg_length()?.end_offset;
-        parser_trace!(self, "end offset: {}", end_offset);
         let name = self.parse_name_string()?;
-        parser_trace!(self, "name: {}", name);
         let flags = FieldFlags::new(self.stream.next()?);
-        parser_trace!(self, "Field flags: {:?}", flags);
 
         let mut field_offset = 0;
         while self.stream.offset() < end_offset {
@@ -331,7 +328,7 @@ where
             }
         }
 
-        parser_trace!(self, "<-- DefField");
+        parser_trace!(self, "<-- DefField({})", name);
         Ok(())
     }
 
@@ -472,9 +469,37 @@ where
          * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
         parser_trace!(self, "--> DataObject");
-        let result = parse_any_of!(self, AmlParser::parse_computational_data)?;
+        let result = parse_any_of!(self,
+                                   AmlParser::parse_def_package,
+                                   AmlParser::parse_computational_data)?;
         parser_trace!(self, "<-- DataObject");
         Ok(result)
+    }
+
+    fn parse_def_package(&mut self) -> Result<AmlValue, AmlError> {
+        /*
+         * DefPackage := 0x12 PkgLength NumElements PackageElementList
+         * NumElements := ByteData
+         * PackageElementList := Nothing | <PackageElement PackageElementList>
+         * PackageElement := DataRefObject | NameString
+         */
+        check_attempt!(self.consume_opcode(opcodes::PACKAGE_OP))?;
+        parser_trace!(self, "--> DefPackage");
+        let end_offset = self.parse_pkg_length()?.end_offset;
+        let num_elements = self.stream.next()?;
+        let mut elements = Vec::with_capacity(num_elements as usize);
+
+        while self.stream.offset() < end_offset {
+            if let Some(data_ref_object) = self.attempt_parse(AmlParser::parse_data_ref_object)? {
+                elements.push(data_ref_object);
+            } else {
+                let name_string = self.parse_name_string()?;
+                elements.push(AmlValue::String(name_string));
+            }
+        }
+
+        parser_trace!(self, "<-- DefPackage");
+        Ok(AmlValue::Package(elements))
     }
 
     fn parse_computational_data(&mut self) -> Result<AmlValue, AmlError> {
@@ -535,7 +560,7 @@ where
                 unimplemented!(); // TODO
             }
 
-            _ => self.parse_def_buffer(),
+            _ => check_attempt!(self.parse_def_buffer()),
         };
 
         parser_trace!(self, "<-- ComputationalData");

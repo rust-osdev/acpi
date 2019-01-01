@@ -14,6 +14,7 @@ pub const QWORD_CONST: u8 = 0x0e;
 pub const NAME_OP: u8 = 0x08;
 pub const SCOPE_OP: u8 = 0x10;
 pub const BUFFER_OP: u8 = 0x11;
+pub const PACKAGE_OP: u8 = 0x12;
 pub const METHOD_OP: u8 = 0x14;
 pub const EXT_REVISION_OP: u8 = 0x30;
 pub const EXT_OP_REGION_OP: u8 = 0x80;

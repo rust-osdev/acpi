@@ -1,5 +1,6 @@
 use super::AmlError;
 use alloc::vec::Vec;
+use alloc::string::String;
 use bit_field::BitField;
 
 #[derive(Clone, Copy, Debug)]
@@ -93,6 +94,7 @@ impl MethodFlags {
 #[derive(Debug)]
 pub enum AmlValue {
     Integer(u64),
+    String(String),
 
     OpRegion {
         region: RegionSpace,
@@ -115,6 +117,8 @@ pub enum AmlValue {
         size: u64,
         bytes: Vec<u8>,
     },
+
+    Package(Vec<AmlValue>),
 }
 
 impl AmlValue {
