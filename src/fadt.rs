@@ -1,7 +1,5 @@
-use aml::{parse_aml_table, AmlTable};
-use sdt;
 use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
+use {AcpiError, AcpiHandler, AcpiStaticInfo, GenericAddress, PhysicalMapping};
 
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
@@ -75,7 +73,7 @@ pub struct Fadt {
 }
 
 pub(crate) fn parse_fadt<H>(
-    acpi: &mut Acpi,
+    static_info: &mut AcpiStaticInfo,
     handler: &mut H,
     mapping: &PhysicalMapping<Fadt>,
 ) -> Result<(), AcpiError>
@@ -86,20 +84,11 @@ where
     fadt.header.validate(b"FACP")?;
 
     // TODO more generic typesafe way of accessing the x_ fields
-    let dsdt_physical_address: usize = if fadt.header.revision() > 1 && fadt.x_dsdt_address != 0 {
+    static_info.dsdt_physical_address = if fadt.header.revision() > 1 && fadt.x_dsdt_address != 0 {
         fadt.x_dsdt_address as usize
     } else {
         fadt.dsdt_address as usize
     };
-
-    // Parse the DSDT
-    let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_physical_address);
-    let dsdt_mapping = handler
-        .map_physical_region::<AmlTable>(dsdt_physical_address, dsdt_header.length() as usize);
-    if let Err(error) = parse_aml_table(acpi, handler, &dsdt_mapping, b"DSDT") {
-        error!("Failed to parse DSDT: {:?}. At this stage, this is expected, but should be fatal in the future", error);
-    }
-    handler.unmap_physical_region(dsdt_mapping);
 
     Ok(())
 }

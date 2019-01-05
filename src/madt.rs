@@ -6,7 +6,7 @@ use interrupt::{
     InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode,
 };
 use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
+use {AcpiError, AcpiHandler, AcpiStaticInfo, PhysicalMapping, Processor, ProcessorState};
 
 #[derive(Debug)]
 pub enum MadtError {
@@ -327,7 +327,7 @@ struct GicInterruptTranslationServiceEntry {
 }
 
 pub(crate) fn parse_madt<H>(
-    acpi: &mut Acpi,
+    static_info: &mut AcpiStaticInfo,
     handler: &mut H,
     mapping: &PhysicalMapping<Madt>,
 ) -> Result<(), AcpiError>
@@ -342,7 +342,7 @@ where
      * TODO: It's not clear how trustworthy this field is - should we be relying on it in any way?
      */
     if (*mapping).supports_8259() {
-        acpi.interrupt_model = Some(InterruptModel::Pic);
+        static_info.interrupt_model = Some(InterruptModel::Pic);
     }
 
     /*
@@ -356,7 +356,7 @@ where
             MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
             MadtEntry::LocalApicNmi(_) |
             MadtEntry::LocalApicAddressOverride(_) => {
-                acpi.interrupt_model = Some(parse_apic_model(acpi, mapping)?);
+                static_info.interrupt_model = Some(parse_apic_model(static_info, mapping)?);
                 break;
             }
 
@@ -387,7 +387,7 @@ where
 /// This parses the MADT and gathers information about a APIC interrupt model. We error if we
 /// encounter an entry that doesn't configure the APIC.
 fn parse_apic_model(
-    acpi: &mut Acpi,
+    static_info: &mut AcpiStaticInfo,
     mapping: &PhysicalMapping<Madt>,
 ) -> Result<InterruptModel, AcpiError> {
     use interrupt::LocalInterruptLine;
@@ -405,7 +405,7 @@ fn parse_apic_model(
                  * The first processor is the BSP. Subsequent ones are APs. If we haven't found the
                  * BSP yet, this must be it.
                  */
-                let is_ap = acpi.boot_processor.is_some();
+                let is_ap = static_info.boot_processor.is_some();
                 let is_disabled = !unsafe { entry.flags.get_bit(0) };
 
                 let state = match (is_ap, is_disabled) {
@@ -417,9 +417,9 @@ fn parse_apic_model(
                 let processor = Processor::new(entry.processor_id, entry.apic_id, state, is_ap);
 
                 if is_ap {
-                    acpi.application_processors.push(processor);
+                    static_info.application_processors.push(processor);
                 } else {
-                    acpi.boot_processor = Some(processor);
+                    static_info.boot_processor = Some(processor);
                 }
             }
 

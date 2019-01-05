@@ -1,11 +1,12 @@
 use super::stream::AmlStream;
 use super::value::{AmlValue, FieldFlags, MethodFlags, RegionSpace};
+use super::AmlNamespace;
 use super::{opcodes, AmlError};
 use alloc::string::String;
 use alloc::vec::Vec;
 use bit_field::BitField;
 use core::str;
-use {Acpi, AcpiHandler};
+use AcpiHandler;
 
 /// This is used internally by the parser to keep track of what we know about a field before we can
 /// add it to the namespace.
@@ -24,14 +25,14 @@ struct PkgLength {
     pub end_offset: u32,
 }
 
-pub(crate) struct AmlParser<'s, 'a, 'h, H>
+pub(crate) struct AmlParser<'stream, 'namespace, 'handler, H>
 where
-    H: AcpiHandler + 'h,
+    H: AcpiHandler + 'handler,
 {
-    acpi: &'a mut Acpi,
-    handler: &'h mut H,
+    namespace: &'namespace mut AmlNamespace,
+    handler: &'handler mut H,
     scope: String,
-    stream: AmlStream<'s>,
+    stream: AmlStream<'stream>,
 }
 
 /// Easy macro for controlling whether debug output is printed during parsing. Takes a copy of the
@@ -57,29 +58,27 @@ macro parse_any_of($parser: expr, $($function: path),+) {
 /// This macro wraps parselets that check if we're parsing the thing we're attempting to. It should
 /// be used within `attempt_parse` calls, and converts `AmlError::UnexpectedByte` errors into
 /// `AmlError::NeedsBacktrack`s.
-macro check_attempt($parselet: expr) {
-    {
-        let parse_result = $parselet;
-        if let Err(AmlError::UnexpectedByte(_)) = parse_result {
-            Err(AmlError::NeedsBacktrack)
-        } else {
-            parse_result
-        }
+macro check_attempt($parselet: expr) {{
+    let parse_result = $parselet;
+    if let Err(AmlError::UnexpectedByte(_)) = parse_result {
+        Err(AmlError::NeedsBacktrack)
+    } else {
+        parse_result
     }
-}
+}}
 
-impl<'s, 'a, 'h, H> AmlParser<'s, 'a, 'h, H>
+impl<'stream, 'namespace, 'handler, H> AmlParser<'stream, 'namespace, 'handler, H>
 where
     H: AcpiHandler,
 {
     pub(crate) fn parse(
-        acpi: &'a mut Acpi,
-        handler: &'h mut H,
+        namespace: &'namespace mut AmlNamespace,
+        handler: &'handler mut H,
         scope: &str,
-        stream: AmlStream<'s>,
+        stream: AmlStream<'stream>,
     ) -> Result<(), AmlError> {
         let mut parser = AmlParser {
-            acpi,
+            namespace,
             handler,
             scope: String::from(scope),
             stream,
@@ -257,7 +256,7 @@ where
 
         // Insert it into the namespace
         let namespace_path = self.resolve_path(&name)?;
-        self.acpi.namespace.insert(
+        self.namespace.insert(
             namespace_path,
             AmlValue::OpRegion {
                 region: region_space,
@@ -314,7 +313,7 @@ where
 
                     // TODO: add field name to this (info.name)?
                     let namespace_path = self.resolve_path(&name)?;
-                    self.acpi.namespace.insert(
+                    self.namespace.insert(
                         namespace_path,
                         AmlValue::Field {
                             flags,
@@ -379,7 +378,7 @@ where
             .to_vec();
 
         parser_trace!(self, "Parsed method called {}", name);
-        self.acpi.namespace.insert(
+        self.namespace.insert(
             name,
             AmlValue::Method {
                 flags,
@@ -469,9 +468,11 @@ where
          * DataObject := ComputationalData | DefPackage | DefVarPackage
          */
         parser_trace!(self, "--> DataObject");
-        let result = parse_any_of!(self,
-                                   AmlParser::parse_def_package,
-                                   AmlParser::parse_computational_data)?;
+        let result = parse_any_of!(
+            self,
+            AmlParser::parse_def_package,
+            AmlParser::parse_computational_data
+        )?;
         parser_trace!(self, "<-- DataObject");
         Ok(result)
     }

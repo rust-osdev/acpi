@@ -10,10 +10,65 @@ pub use self::value::AmlValue;
 
 use self::parser::AmlParser;
 use self::stream::AmlStream;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use core::{mem, slice};
 use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, PhysicalMapping};
+use {AcpiError, AcpiHandler, AcpiStaticInfo, PhysicalMapping};
+
+pub struct AmlNamespace {
+    namespace: BTreeMap<String, AmlValue>,
+}
+
+impl AmlNamespace {
+    pub fn parse_aml_tables<H>(
+        static_info: &AcpiStaticInfo,
+        handler: &mut H,
+    ) -> Result<AmlNamespace, AcpiError>
+    where
+        H: AcpiHandler,
+    {
+        let mut namespace = AmlNamespace {
+            namespace: BTreeMap::new(),
+        };
+
+        /*
+         * Parse the DSDT.
+         */
+        let dsdt_header = ::sdt::peek_at_sdt_header(handler, static_info.dsdt_physical_address);
+        let dsdt_mapping = handler.map_physical_region::<AmlTable>(
+            static_info.dsdt_physical_address,
+            dsdt_header.length() as usize,
+        );
+        namespace.parse_table(&dsdt_mapping, handler, b"DSDT")?;
+        handler.unmap_physical_region(dsdt_mapping);
+
+        // TODO: parse SSDTs
+
+        Ok(namespace)
+    }
+
+    fn parse_table<H>(
+        &mut self,
+        mapping: &PhysicalMapping<AmlTable>,
+        handler: &mut H,
+        signature: &[u8; 4],
+    ) -> Result<(), AcpiError>
+    where
+        H: AcpiHandler,
+    {
+        (*mapping).header.validate(signature)?;
+
+        match AmlParser::parse(self, handler, "\\", (*mapping).stream()) {
+            Ok(_) => Ok(()),
+            Err(error) => Err(AcpiError::InvalidAmlTable(*signature, error)),
+        }
+    }
+
+    pub(in aml) fn insert(&mut self, path: String, value: AmlValue) {
+        self.namespace.insert(path, value);
+    }
+}
 
 /// Represents a table containing AML. For ACPI Version 2+, this is just the DSDT and SSDTs.
 /// Version 1.0 may also have a PSDT.
@@ -47,22 +102,5 @@ impl AmlTable {
             ((self as *const AmlTable as usize) + mem::size_of::<SdtHeader>()) as *const u8;
 
         unsafe { AmlStream::new(slice::from_raw_parts(stream_ptr, stream_length)) }
-    }
-}
-
-pub(crate) fn parse_aml_table<H>(
-    acpi: &mut Acpi,
-    handler: &mut H,
-    mapping: &PhysicalMapping<AmlTable>,
-    signature: &[u8; 4],
-) -> Result<(), AcpiError>
-where
-    H: AcpiHandler,
-{
-    (*mapping).header.validate(signature)?;
-
-    match AmlParser::parse(acpi, handler, "\\", (*mapping).stream()) {
-        Ok(_) => Ok(()),
-        Err(error) => Err(AcpiError::InvalidAmlTable(*signature, error)),
     }
 }

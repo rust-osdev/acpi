@@ -1,6 +1,6 @@
 use core::{mem, ops::RangeInclusive};
 use rsdp::Rsdp;
-use Acpi;
+use AcpiStaticInfo;
 use {parse_validated_rsdp, AcpiError, AcpiHandler};
 
 /// The pointer to the EBDA (Extended Bios Data Area) start segment pointer
@@ -56,7 +56,7 @@ where
 ///
 /// This function is unsafe because it may read from protected memory if the computer is using UEFI.
 /// Only use this function if you are sure the computer is using BIOS.
-pub unsafe fn search_for_rsdp_bios<H>(handler: &mut H) -> Result<Acpi, AcpiError>
+pub unsafe fn search_for_rsdp_bios<H>(handler: &mut H) -> Result<AcpiStaticInfo, AcpiError>
 where
     H: AcpiHandler,
 {

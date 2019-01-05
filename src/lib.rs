@@ -4,7 +4,6 @@
     alloc,
     exclusive_range_pattern,
     range_contains,
-    exhaustive_integer_patterns,
     box_syntax,
     decl_macro,
     type_ascription
@@ -28,11 +27,11 @@ mod rsdp;
 mod rsdp_search;
 mod sdt;
 
-pub use aml::AmlError;
+pub use aml::{AmlError, AmlNamespace};
 pub use madt::MadtError;
 pub use rsdp_search::search_for_rsdp_bios;
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use alloc::vec::Vec;
 use aml::AmlValue;
 use core::mem;
 use core::ops::Deref;
@@ -68,7 +67,7 @@ pub(crate) struct GenericAddress {
     address: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
     /// A processor in this state is unusable, and you must not attempt to bring it up.
     Disabled,
@@ -150,10 +149,15 @@ pub trait AcpiHandler {
     fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>);
 }
 
+/// All the information from parsing the static tables. This is returned by the `from_*` methods,
+/// and is the first step of parsing the ACPI tables.
+///
+/// This purposely does not parse tables containing AML. This allows you to defer parsing these
+/// tables if you want to. For example, microkernels can choose to parse AML tables in userspace
+/// for added safety.
 #[derive(Debug)]
-pub struct Acpi {
+pub struct AcpiStaticInfo {
     acpi_revision: u8,
-    namespace: BTreeMap<String, AmlValue>,
     boot_processor: Option<Processor>,
     application_processors: Vec<Processor>,
 
@@ -161,9 +165,11 @@ pub struct Acpi {
     /// hardware. For simplicity and because hardware practically will only support one model, we
     /// just error in cases that the tables detail more than one.
     interrupt_model: Option<InterruptModel>,
+
+    dsdt_physical_address: usize,
 }
 
-impl Acpi {
+impl AcpiStaticInfo {
     /// A description of the boot processor. Until you bring any more up, this is the only processor
     /// running code, even on SMP systems.
     pub fn boot_processor<'a>(&'a self) -> &'a Option<Processor> {
@@ -186,7 +192,7 @@ impl Acpi {
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
 /// address of the RSDT/XSDT to `parse_rsdt`.
-pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
+pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<AcpiStaticInfo, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -199,7 +205,7 @@ where
 fn parse_validated_rsdp<H>(
     handler: &mut H,
     rsdp_mapping: PhysicalMapping<Rsdp>,
-) -> Result<Acpi, AcpiError>
+) -> Result<AcpiStaticInfo, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -233,16 +239,16 @@ pub fn parse_rsdt<H>(
     handler: &mut H,
     revision: u8,
     physical_address: usize,
-) -> Result<Acpi, AcpiError>
+) -> Result<AcpiStaticInfo, AcpiError>
 where
     H: AcpiHandler,
 {
-    let mut acpi = Acpi {
+    let mut static_info = AcpiStaticInfo {
         acpi_revision: revision,
-        namespace: BTreeMap::new(),
         boot_processor: None,
         application_processors: Vec::new(),
         interrupt_model: None,
+        dsdt_physical_address: 0,
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
@@ -262,7 +268,7 @@ where
 
         for i in 0..num_tables {
             sdt::dispatch_sdt(
-                &mut acpi,
+                &mut static_info,
                 handler,
                 unsafe { *tables_base.offset(i as isize) } as usize,
             )?;
@@ -280,7 +286,7 @@ where
 
         for i in 0..num_tables {
             sdt::dispatch_sdt(
-                &mut acpi,
+                &mut static_info,
                 handler,
                 unsafe { *tables_base.offset(i as isize) } as usize,
             )?;
@@ -288,5 +294,5 @@ where
     }
 
     handler.unmap_physical_region(mapping);
-    Ok(acpi)
+    Ok(static_info)
 }
