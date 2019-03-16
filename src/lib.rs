@@ -22,18 +22,18 @@ mod rsdp;
 mod rsdp_search;
 mod sdt;
 
-pub use aml::AmlError;
-pub use madt::MadtError;
-pub use rsdp_search::search_for_rsdp_bios;
+pub use crate::aml::AmlError;
+pub use crate::madt::MadtError;
+pub use crate::rsdp_search::search_for_rsdp_bios;
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use aml::AmlValue;
+use crate::aml::AmlValue;
 use core::mem;
 use core::ops::Deref;
 use core::ptr::NonNull;
-use interrupt::InterruptModel;
-use rsdp::Rsdp;
-use sdt::SdtHeader;
+use crate::interrupt::InterruptModel;
+use crate::rsdp::Rsdp;
+use crate::sdt::SdtHeader;
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.

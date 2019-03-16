@@ -2,11 +2,11 @@ use alloc::vec::Vec;
 use bit_field::BitField;
 use core::marker::PhantomData;
 use core::mem;
-use interrupt::{
+use crate::interrupt::{
     InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode,
 };
-use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
+use crate::sdt::SdtHeader;
+use crate::{Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
 
 #[derive(Debug)]
 pub enum MadtError {
@@ -328,7 +328,7 @@ struct GicInterruptTranslationServiceEntry {
 
 pub(crate) fn parse_madt<H>(
     acpi: &mut Acpi,
-    handler: &mut H,
+    _handler: &mut H,
     mapping: &PhysicalMapping<Madt>,
 ) -> Result<(), AcpiError>
 where
@@ -390,7 +390,7 @@ fn parse_apic_model(
     acpi: &mut Acpi,
     mapping: &PhysicalMapping<Madt>,
 ) -> Result<InterruptModel, AcpiError> {
-    use interrupt::LocalInterruptLine;
+    use crate::interrupt::LocalInterruptLine;
 
     let mut local_apic_address = (*mapping).local_apic_address as u64;
     let mut io_apics = Vec::new();

@@ -1,8 +1,8 @@
 use core::{mem, str};
-use fadt::Fadt;
-use hpet::Hpet;
-use madt::Madt;
-use {Acpi, AcpiError, AcpiHandler};
+use crate::fadt::Fadt;
+use crate::hpet::Hpet;
+use crate::madt::Madt;
+use crate::{Acpi, AcpiError, AcpiHandler};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
 /// this is.
@@ -154,21 +154,21 @@ where
         "FACP" => {
             let fadt_mapping =
                 handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
-            ::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
+            crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
             handler.unmap_physical_region(fadt_mapping);
         }
 
         "HPET" => {
             let hpet_mapping =
                 handler.map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
-            ::hpet::parse_hpet(&hpet_mapping)?;
+            crate::hpet::parse_hpet(&hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }
 
         "APIC" => {
             let madt_mapping =
                 handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
-            ::madt::parse_madt(acpi, handler, &madt_mapping)?;
+            crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }
 
