@@ -1,12 +1,12 @@
-use alloc::vec::Vec;
-use bit_field::BitField;
-use core::marker::PhantomData;
-use core::mem;
 use crate::interrupt::{
     InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode,
 };
 use crate::sdt::SdtHeader;
 use crate::{Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
+use alloc::vec::Vec;
+use bit_field::BitField;
+use core::marker::PhantomData;
+use core::mem;
 
 #[derive(Debug)]
 pub enum MadtError {

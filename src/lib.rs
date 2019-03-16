@@ -26,14 +26,14 @@ pub use crate::aml::AmlError;
 pub use crate::madt::MadtError;
 pub use crate::rsdp_search::search_for_rsdp_bios;
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use crate::aml::AmlValue;
-use core::mem;
-use core::ops::Deref;
-use core::ptr::NonNull;
 use crate::interrupt::InterruptModel;
 use crate::rsdp::Rsdp;
 use crate::sdt::SdtHeader;
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use core::mem;
+use core::ops::Deref;
+use core::ptr::NonNull;
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
