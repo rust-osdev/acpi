@@ -1,7 +1,7 @@
+use crate::rsdp::Rsdp;
+use crate::Acpi;
+use crate::{parse_validated_rsdp, AcpiError, AcpiHandler};
 use core::{mem, ops::RangeInclusive};
-use rsdp::Rsdp;
-use Acpi;
-use {parse_validated_rsdp, AcpiError, AcpiHandler};
 
 /// The pointer to the EBDA (Extended Bios Data Area) start segment pointer
 const EBDA_START_SEGMENT_PTR: usize = 0x40e;

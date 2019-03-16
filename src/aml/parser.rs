@@ -1,10 +1,10 @@
 use super::stream::AmlStream;
 use super::value::{AmlValue, FieldFlags, RegionSpace};
 use super::{opcodes, AmlError};
+use crate::{Acpi, AcpiHandler};
 use alloc::string::String;
 use bit_field::BitField;
 use core::str;
-use {Acpi, AcpiHandler};
 
 /// This is used internally by the parser to keep track of what we know about a field before we can
 /// add it to the namespace.
@@ -159,7 +159,7 @@ where
         let containing_scope = self.scope.clone();
 
         self.scope = name_string;
-        let term_list = self.parse_term_list(scope_end_offset)?;
+        let _term_list = self.parse_term_list(scope_end_offset)?;
         self.scope = containing_scope;
 
         Ok(())

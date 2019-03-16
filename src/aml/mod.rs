@@ -7,10 +7,10 @@ pub use self::value::AmlValue;
 
 use self::parser::AmlParser;
 use self::stream::AmlStream;
+use crate::sdt::SdtHeader;
+use crate::{Acpi, AcpiError, AcpiHandler, PhysicalMapping};
 use alloc::string::String;
 use core::{mem, slice};
-use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, PhysicalMapping};
 
 /// Represents a table containing AML. For ACPI Version 2+, this is just the DSDT and SSDTs.
 /// Version 1.0 may also have a PSDT.

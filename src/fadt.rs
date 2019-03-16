@@ -1,7 +1,7 @@
-use aml::{parse_aml_table, AmlTable};
-use sdt;
-use sdt::SdtHeader;
-use {Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
+use crate::aml::{parse_aml_table, AmlTable};
+use crate::sdt;
+use crate::sdt::SdtHeader;
+use crate::{Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
 
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
