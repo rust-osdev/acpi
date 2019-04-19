@@ -1,8 +1,30 @@
+//! A library for parsing ACPI tables. This crate can be used by bootloaders and kernels for
+//! architectures that support ACPI. The crate is far from feature-complete, but can still be used
+//! for finding and parsing the static tables, which is enough to set up hardware such as the APIC
+//! and HPET on x86_64.
+//!
+//! The crate is designed for use in conjunction with the `aml_parser` crate, which is the (much
+//! less complete) AML parser used to parse the DSDT and SSDTs. These crates are separate because
+//! some kernels may want to detect the static tables, but delay AML parsing to a later stage.
+//!
+//! ### Usage
+//! To use the library, you will need to provide an implementation of the `AcpiHandler` trait,
+//! which allows the library to make requests such as mapping a particular region of physical
+//! memory into the virtual address space.
+//!
+//! You should then call one of the entry points, based on how much information you have:
+//!     * Call `parse_rsdp` if you have the physical address of the RSDP
+//!     * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
+//!     * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you
+//!     know you're running on BIOS, not UEFI**
+//!
+//! All of these methods return an instance of `Acpi`. This struct contains all the information
+//! gathered from the static tables, and can be queried to set up hardware etc.
+
 #![no_std]
 #![feature(nll)]
 #![feature(alloc)]
-#![feature(exclusive_range_pattern, range_contains)]
-#![feature(exhaustive_integer_patterns)]
+#![feature(exclusive_range_pattern)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
