@@ -22,18 +22,11 @@ mod rsdp;
 mod rsdp_search;
 mod sdt;
 
-pub use crate::aml::AmlError;
-pub use crate::madt::MadtError;
-pub use crate::rsdp_search::search_for_rsdp_bios;
+pub use crate::{aml::AmlError, madt::MadtError, rsdp_search::search_for_rsdp_bios};
 
-use crate::aml::AmlValue;
-use crate::interrupt::InterruptModel;
-use crate::rsdp::Rsdp;
-use crate::sdt::SdtHeader;
+use crate::{aml::AmlValue, interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use core::mem;
-use core::ops::Deref;
-use core::ptr::NonNull;
+use core::{mem, ops::Deref, ptr::NonNull};
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
@@ -97,12 +90,7 @@ impl Processor {
         state: ProcessorState,
         is_ap: bool,
     ) -> Processor {
-        Processor {
-            processor_uid,
-            local_apic_id,
-            state,
-            is_ap,
-        }
+        Processor { processor_uid, local_apic_id, state, is_ap }
     }
 }
 
@@ -129,10 +117,10 @@ impl<T> Deref for PhysicalMapping<T> {
 /// however you please, as long as they conform to the documentation of each function.
 pub trait AcpiHandler {
     /// Given a starting physical address and a size, map a region of physical memory that contains
-    /// a `T` (but may be bigger than `size_of::<T>()`). The address doesn't have to be page-aligned,
-    /// so the implementation may have to add padding to either end. The given size must be greater
-    /// or equal to the size of a `T`. The virtual address the memory is mapped to does not matter,
-    /// as long as it is accessible from `acpi`.
+    /// a `T` (but may be bigger than `size_of::<T>()`). The address doesn't have to be
+    /// page-aligned, so the implementation may have to add padding to either end. The given
+    /// size must be greater or equal to the size of a `T`. The virtual address the memory is
+    /// mapped to does not matter, as long as it is accessible from `acpi`.
     fn map_physical_region<T>(
         &mut self,
         physical_address: usize,
@@ -255,11 +243,8 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(
-                &mut acpi,
-                handler,
-                unsafe { *tables_base.offset(i as isize) } as usize,
-            )?;
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
+                as usize)?;
         }
     } else {
         /*
@@ -273,11 +258,8 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(
-                &mut acpi,
-                handler,
-                unsafe { *tables_base.offset(i as isize) } as usize,
-            )?;
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
+                as usize)?;
         }
     }
 

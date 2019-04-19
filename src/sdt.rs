@@ -1,7 +1,4 @@
-use crate::fadt::Fadt;
-use crate::hpet::Hpet;
-use crate::madt::Madt;
-use crate::{Acpi, AcpiError, AcpiHandler};
+use crate::{fadt::Fadt, hpet::Hpet, madt::Madt, Acpi, AcpiError, AcpiHandler};
 use core::{mem, str};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT

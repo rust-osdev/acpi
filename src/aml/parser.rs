@@ -1,6 +1,9 @@
-use super::stream::AmlStream;
-use super::value::{AmlValue, FieldFlags, RegionSpace};
-use super::{opcodes, AmlError};
+use super::{
+    opcodes,
+    stream::AmlStream,
+    value::{AmlValue, FieldFlags, RegionSpace},
+    AmlError,
+};
 use crate::{Acpi, AcpiHandler};
 use alloc::string::String;
 use bit_field::BitField;
@@ -14,9 +17,9 @@ struct FieldInfo {
 }
 
 /// This is used internally by the parser. Often, we're only interested in offset of the end of the
-/// current explicit-length structure, so we know when to stop parsing it. However, various constants
-/// (e.g. the size of fields) are also encoded as PkgLengths, and so sometimes we want to access
-/// the raw data as well.
+/// current explicit-length structure, so we know when to stop parsing it. However, various
+/// constants (e.g. the size of fields) are also encoded as PkgLengths, and so sometimes we want to
+/// access the raw data as well.
 struct PkgLength {
     pub raw_length: u32,
     pub end_offset: u32,
@@ -56,12 +59,7 @@ where
         scope: &str,
         stream: AmlStream<'s>,
     ) -> Result<(), AmlError> {
-        let mut parser = AmlParser {
-            acpi,
-            handler,
-            scope: String::from(scope),
-            stream,
-        };
+        let mut parser = AmlParser { acpi, handler, scope: String::from(scope), stream };
 
         let end_offset = parser.stream.len() as u32;
         parser.parse_term_list(end_offset)
@@ -134,9 +132,10 @@ where
         /*
          * TermObj := NameSpaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
          * NameSpaceModifierObj := DefAlias | DefName | DefScope
-         * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField | DefCreateDWordField |
-         *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
-         *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone
+         * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField |
+         * DefCreateDWordField |             DefCreateField | DefCreateQWordField |
+         * DefCreateWordField | DefDataRegion |             DefExternal | DefOpRegion |
+         * DefPowerRes | DefProcessor | DefThermalZone
          */
         try_parse!(
             self,
@@ -213,11 +212,7 @@ where
         self.acpi.namespace.insert(
             // self.resolve_path(name)?, TODO: I thought this would work with nll?
             namespace_path,
-            AmlValue::OpRegion {
-                region: region_space,
-                offset,
-                length,
-            },
+            AmlValue::OpRegion { region: region_space, offset, length },
         );
 
         Ok(())
@@ -267,8 +262,8 @@ where
         /*
          * NamedField := NameSeg PkgLength
          *
-         * This encodes the size of the field using a PkgLength - it doesn't mark the length of an
-         * explicit-length structure!
+         * This encodes the size of the field using a PkgLength - it doesn't mark the length of
+         * an explicit-length structure!
          */
         let name = String::from(name_seg_to_string(&self.parse_name_seg()?)?);
         let length = self.parse_pkg_length()?.raw_length as u64;
@@ -356,9 +351,9 @@ where
 
     fn parse_type1_opcode(&mut self) -> Result<(), AmlError> {
         /*
-         * Type1Opcode := DefBreak | DefBreakPoint | DefContinue | DefFatal | DefIfElse | DefLoad |
-         *                DefNoop | DefNotify | DefRelease | DefReset | DefReturn | DefSignal |
-         *                DefSleep | DefStall | DefUnload | DefWhile
+         * Type1Opcode := DefBreak | DefBreakPoint | DefContinue | DefFatal | DefIfElse | DefLoad
+         * |                DefNoop | DefNotify | DefRelease | DefReset | DefReturn |
+         * DefSignal |                DefSleep | DefStall | DefUnload | DefWhile
          */
         unimplemented!(); // TODO
     }
@@ -386,10 +381,7 @@ where
                 end_offset,
                 self.stream.offset()
             );
-            return Ok(PkgLength {
-                raw_length: length,
-                end_offset,
-            });
+            return Ok(PkgLength { raw_length: length, end_offset });
         }
 
         let mut length = u32::from(lead_byte.get_bits(0..4));
@@ -405,10 +397,7 @@ where
             end_offset,
             self.stream.offset()
         );
-        Ok(PkgLength {
-            raw_length: length,
-            end_offset,
-        })
+        Ok(PkgLength { raw_length: length, end_offset })
     }
 
     fn parse_name_string(&mut self) -> Result<String, AmlError> {
@@ -450,10 +439,7 @@ where
                 let first = self.parse_name_seg()?;
                 let second = self.parse_name_seg()?;
 
-                Ok(
-                    String::from(str::from_utf8(&first).unwrap())
-                        + str::from_utf8(&second).unwrap(),
-                )
+                Ok(String::from(str::from_utf8(&first).unwrap()) + str::from_utf8(&second).unwrap())
             }
 
             opcodes::MULTI_NAME_PREFIX => {
@@ -461,9 +447,7 @@ where
                 unimplemented!();
             }
 
-            _ => Ok(String::from(
-                str::from_utf8(&self.parse_name_seg()?).unwrap(),
-            )),
+            _ => Ok(String::from(str::from_utf8(&self.parse_name_seg()?).unwrap())),
         }
     }
 

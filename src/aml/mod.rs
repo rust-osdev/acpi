@@ -5,10 +5,8 @@ mod value;
 
 pub use self::value::AmlValue;
 
-use self::parser::AmlParser;
-use self::stream::AmlStream;
-use crate::sdt::SdtHeader;
-use crate::{Acpi, AcpiError, AcpiHandler, PhysicalMapping};
+use self::{parser::AmlParser, stream::AmlStream};
+use crate::{sdt::SdtHeader, Acpi, AcpiError, AcpiHandler, PhysicalMapping};
 use alloc::string::String;
 use core::{mem, slice};
 

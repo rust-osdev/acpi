@@ -70,17 +70,9 @@ impl FieldFlags {
 pub enum AmlValue {
     Integer(u64),
 
-    OpRegion {
-        region: RegionSpace,
-        offset: u64,
-        length: u64,
-    },
+    OpRegion { region: RegionSpace, offset: u64, length: u64 },
 
-    Field {
-        flags: FieldFlags,
-        offset: u64,
-        length: u64,
-    },
+    Field { flags: FieldFlags, offset: u64, length: u64 },
 }
 
 impl AmlValue {

@@ -1,5 +1,4 @@
-use crate::sdt::SdtHeader;
-use crate::{AcpiError, GenericAddress, PhysicalMapping};
+use crate::{sdt::SdtHeader, AcpiError, GenericAddress, PhysicalMapping};
 
 #[repr(C, packed)]
 pub struct Hpet {
