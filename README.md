@@ -2,20 +2,20 @@
 [![Build Status](https://travis-ci.org/rust-osdev/acpi.svg?branch=master)](https://travis-ci.org/rust-osdev/acpi)
 [![Version](https://img.shields.io/crates/v/acpi.svg?style=rounded-square)](https://crates.io/crates/acpi/)
 
-A library to parse ACPI tables and AML, written in Rust. Designed to be easy to use from inside a
-kernel written in Rust, and fully tested.
-**Acpi is currently very early in development, will be highly unstable and is next to useless for
-actually parsing ACPI or AML.**
+### [Documentation (`acpi`)](https://docs.rs/acpi)
+### [Documentation (`aml_parser`)](https://docs.rs/aml_parser)
 
-## Using
-`acpi` uses the nightly channel, and currently builds on `rustc 1.27.0-nightly (7925ff4e 2018-04-19)`.
-If `acpi` fails to build on a later nightly, please file an issue!
+A library to parse ACPI tables and AML, written in pure Rust. Designed to be easy to use from Rust bootloaders and kernels. The library is split into two crates:
+- `acpi` parses the static tables (useful but not feature-complete)
+- `aml_parser` parses the AML tables (still a work-in-progress, not that useful yet)
 
 ## Contributing
 Contributions are more than welcome! You can:
 - Write code - the ACPI spec is huge and there are bound to be things we don't support yet!
+- Documentation
+- Using the crates within your kernel and file bug reports and feature requests!
 
-## Resources
+Useful resources for contributing are:
 - [The ACPI specification](http://www.uefi.org/sites/default/files/resources/ACPI%206_2_A_Sept29.pdf)
 - [OSDev Wiki](https://wiki.osdev.org/ACPI)
 
