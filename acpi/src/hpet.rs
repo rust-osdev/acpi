@@ -5,9 +5,9 @@ use bit_field::BitField;
 pub enum PageProtection {
     None,
     /// Access to the adjacent 3KB to the base address will not generate a fault.
-    Protected_4K,
+    Protected4K,
     /// Access to the adjacent 64KB to the base address will not generate a fault.
-    Protected_64K,
+    Protected64K,
     Other,
 }
 
@@ -51,8 +51,8 @@ pub(crate) fn parse_hpet(
         clock_tick_unit: hpet.clock_tick_unit,
         page_protection: match hpet.page_protection_oem.get_bits(0..5) {
             0 => PageProtection::None,
-            1 => PageProtection::Protected_4K,
-            2 => PageProtection::Protected_64K,
+            1 => PageProtection::Protected4K,
+            2 => PageProtection::Protected64K,
             3..=15 => PageProtection::Other,
             _ => unreachable!(),
         },
