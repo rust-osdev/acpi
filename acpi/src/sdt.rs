@@ -137,8 +137,8 @@ where
     H: AcpiHandler,
 {
     let header = peek_at_sdt_header(handler, physical_address);
-    info!(
-        "Dispatching SDT with signature {:?} and length {:?}",
+    trace!(
+        "Found ACPI table with signature {:?} and length {:?}",
         header.signature(),
         header.length()
     );
@@ -168,6 +168,8 @@ where
             crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }
+
+        "SSDT" => acpi.ssdt_addresses.push(physical_address),
 
         signature => {
             /*

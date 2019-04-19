@@ -35,7 +35,6 @@ extern crate log;
 extern crate alloc;
 extern crate bit_field;
 
-mod aml;
 mod fadt;
 pub mod handler;
 mod hpet;
@@ -46,14 +45,13 @@ mod rsdp_search;
 mod sdt;
 
 pub use crate::{
-    aml::AmlError,
     handler::{AcpiHandler, PhysicalMapping},
     madt::MadtError,
     rsdp_search::search_for_rsdp_bios,
 };
 
-use crate::{aml::AmlValue, interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use crate::{interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
+use alloc::vec::Vec;
 use core::mem;
 
 #[derive(Debug)]
@@ -68,8 +66,6 @@ pub enum AcpiError {
     SdtInvalidOemId([u8; 4]),
     SdtInvalidTableId([u8; 4]),
     SdtInvalidChecksum([u8; 4]),
-
-    InvalidAmlTable([u8; 4], AmlError),
 
     InvalidMadt(MadtError),
 }
@@ -125,7 +121,6 @@ impl Processor {
 #[derive(Debug)]
 pub struct Acpi {
     acpi_revision: u8,
-    namespace: BTreeMap<String, AmlValue>,
     boot_processor: Option<Processor>,
     application_processors: Vec<Processor>,
 
@@ -133,6 +128,12 @@ pub struct Acpi {
     /// hardware. For simplicity and because hardware practically will only support one model, we
     /// just error in cases that the tables detail more than one.
     interrupt_model: Option<InterruptModel>,
+
+    /// The physical address of the DSDT, if we manage to find it.
+    dsdt_address: Option<usize>,
+
+    /// The physical addresses of the SSDTs, if there are any,
+    ssdt_addresses: Vec<usize>,
 }
 
 impl Acpi {
@@ -211,10 +212,11 @@ where
 {
     let mut acpi = Acpi {
         acpi_revision: revision,
-        namespace: BTreeMap::new(),
         boot_processor: None,
         application_processors: Vec::new(),
         interrupt_model: None,
+        dsdt_address: None,
+        ssdt_addresses: Vec::with_capacity(0),
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
@@ -252,8 +254,6 @@ where
                 as usize)?;
         }
     }
-
-    info!("Parsed namespace: {:#?}", acpi.namespace);
 
     handler.unmap_physical_region(mapping);
     Ok(acpi)
