@@ -1,8 +1,30 @@
+//! A library for parsing ACPI tables. This crate can be used by bootloaders and kernels for
+//! architectures that support ACPI. The crate is far from feature-complete, but can still be used
+//! for finding and parsing the static tables, which is enough to set up hardware such as the APIC
+//! and HPET on x86_64.
+//!
+//! The crate is designed for use in conjunction with the `aml_parser` crate, which is the (much
+//! less complete) AML parser used to parse the DSDT and SSDTs. These crates are separate because
+//! some kernels may want to detect the static tables, but delay AML parsing to a later stage.
+//!
+//! ### Usage
+//! To use the library, you will need to provide an implementation of the `AcpiHandler` trait,
+//! which allows the library to make requests such as mapping a particular region of physical
+//! memory into the virtual address space.
+//!
+//! You should then call one of the entry points, based on how much information you have:
+//!     * Call `parse_rsdp` if you have the physical address of the RSDP
+//!     * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
+//!     * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you
+//!     know you're running on BIOS, not UEFI**
+//!
+//! All of these methods return an instance of `Acpi`. This struct contains all the information
+//! gathered from the static tables, and can be queried to set up hardware etc.
+
 #![no_std]
 #![feature(nll)]
 #![feature(alloc)]
-#![feature(exclusive_range_pattern, range_contains)]
-#![feature(exhaustive_integer_patterns)]
+#![feature(exclusive_range_pattern)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -13,8 +35,8 @@ extern crate log;
 extern crate alloc;
 extern crate bit_field;
 
-mod aml;
 mod fadt;
+pub mod handler;
 mod hpet;
 pub mod interrupt;
 mod madt;
@@ -22,18 +44,15 @@ mod rsdp;
 mod rsdp_search;
 mod sdt;
 
-pub use crate::aml::AmlError;
-pub use crate::madt::MadtError;
-pub use crate::rsdp_search::search_for_rsdp_bios;
+pub use crate::{
+    handler::{AcpiHandler, PhysicalMapping},
+    madt::MadtError,
+    rsdp_search::search_for_rsdp_bios,
+};
 
-use crate::aml::AmlValue;
-use crate::interrupt::InterruptModel;
-use crate::rsdp::Rsdp;
-use crate::sdt::SdtHeader;
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use crate::{hpet::HpetInfo, interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
+use alloc::vec::Vec;
 use core::mem;
-use core::ops::Deref;
-use core::ptr::NonNull;
 
 #[derive(Debug)]
 // TODO: manually implement Debug to print signatures correctly etc.
@@ -48,11 +67,10 @@ pub enum AcpiError {
     SdtInvalidTableId([u8; 4]),
     SdtInvalidChecksum([u8; 4]),
 
-    InvalidAmlTable([u8; 4], AmlError),
-
     InvalidMadt(MadtError),
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub(crate) struct GenericAddress {
     address_space: u8,
@@ -62,7 +80,7 @@ pub(crate) struct GenericAddress {
     address: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
     /// A processor in this state is unusable, and you must not attempt to bring it up.
     Disabled,
@@ -75,7 +93,7 @@ pub enum ProcessorState {
     Running,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Processor {
     pub processor_uid: u8,
     pub local_apic_id: u8,
@@ -97,57 +115,13 @@ impl Processor {
         state: ProcessorState,
         is_ap: bool,
     ) -> Processor {
-        Processor {
-            processor_uid,
-            local_apic_id,
-            state,
-            is_ap,
-        }
+        Processor { processor_uid, local_apic_id, state, is_ap }
     }
-}
-
-/// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
-/// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `size_of::<T>()`
-/// bytes, but may be bigger.
-pub struct PhysicalMapping<T> {
-    pub physical_start: usize,
-    pub virtual_start: NonNull<T>,
-    pub region_length: usize, // Can be equal or larger than size_of::<T>()
-    pub mapped_length: usize, // Differs from `region_length` if padding is added for alignment
-}
-
-impl<T> Deref for PhysicalMapping<T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        unsafe { self.virtual_start.as_ref() }
-    }
-}
-
-/// An implementation of this trait must be provided to allow `acpi` to access platform-specific
-/// functionality, such as mapping regions of physical memory. You are free to implement these
-/// however you please, as long as they conform to the documentation of each function.
-pub trait AcpiHandler {
-    /// Given a starting physical address and a size, map a region of physical memory that contains
-    /// a `T` (but may be bigger than `size_of::<T>()`). The address doesn't have to be page-aligned,
-    /// so the implementation may have to add padding to either end. The given size must be greater
-    /// or equal to the size of a `T`. The virtual address the memory is mapped to does not matter,
-    /// as long as it is accessible from `acpi`.
-    fn map_physical_region<T>(
-        &mut self,
-        physical_address: usize,
-        size: usize,
-    ) -> PhysicalMapping<T>;
-
-    /// Unmap the given physical mapping. Safe because we consume the mapping, and so it can't be
-    /// used after being passed to this function.
-    fn unmap_physical_region<T>(&mut self, region: PhysicalMapping<T>);
 }
 
 #[derive(Debug)]
 pub struct Acpi {
     acpi_revision: u8,
-    namespace: BTreeMap<String, AmlValue>,
     boot_processor: Option<Processor>,
     application_processors: Vec<Processor>,
 
@@ -155,6 +129,13 @@ pub struct Acpi {
     /// hardware. For simplicity and because hardware practically will only support one model, we
     /// just error in cases that the tables detail more than one.
     interrupt_model: Option<InterruptModel>,
+    hpet: Option<HpetInfo>,
+
+    /// The physical address of the DSDT, if we manage to find it.
+    dsdt_address: Option<usize>,
+
+    /// The physical addresses of the SSDTs, if there are any,
+    ssdt_addresses: Vec<usize>,
 }
 
 impl Acpi {
@@ -233,10 +214,12 @@ where
 {
     let mut acpi = Acpi {
         acpi_revision: revision,
-        namespace: BTreeMap::new(),
         boot_processor: None,
         application_processors: Vec::new(),
         interrupt_model: None,
+        hpet: None,
+        dsdt_address: None,
+        ssdt_addresses: Vec::with_capacity(0),
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
@@ -255,11 +238,8 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(
-                &mut acpi,
-                handler,
-                unsafe { *tables_base.offset(i as isize) } as usize,
-            )?;
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
+                as usize)?;
         }
     } else {
         /*
@@ -273,15 +253,10 @@ where
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(
-                &mut acpi,
-                handler,
-                unsafe { *tables_base.offset(i as isize) } as usize,
-            )?;
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
+                as usize)?;
         }
     }
-
-    info!("Parsed namespace: {:#?}", acpi.namespace);
 
     handler.unmap_physical_region(mapping);
     Ok(acpi)

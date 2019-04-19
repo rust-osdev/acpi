@@ -1,12 +1,23 @@
-use crate::interrupt::{
-    InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode,
+use crate::{
+    interrupt::{
+        InterruptModel,
+        InterruptSourceOverride,
+        IoApic,
+        NmiSource,
+        Polarity,
+        TriggerMode,
+    },
+    sdt::SdtHeader,
+    Acpi,
+    AcpiError,
+    AcpiHandler,
+    PhysicalMapping,
+    Processor,
+    ProcessorState,
 };
-use crate::sdt::SdtHeader;
-use crate::{Acpi, AcpiError, AcpiHandler, PhysicalMapping, Processor, ProcessorState};
 use alloc::vec::Vec;
 use bit_field::BitField;
-use core::marker::PhantomData;
-use core::mem;
+use core::{marker::PhantomData, mem};
 
 #[derive(Debug)]
 pub enum MadtError {
@@ -200,7 +211,8 @@ struct LocalApicAddressOverrideEntry {
     local_apic_address: u64,
 }
 
-/// If this entry is present, the system has an I/O SAPIC, which must be used instead of the I/O APIC.
+/// If this entry is present, the system has an I/O SAPIC, which must be used instead of the I/O
+/// APIC.
 #[repr(C, packed)]
 struct IoSapicEntry {
     header: EntryHeader,
@@ -337,9 +349,10 @@ where
     (*mapping).header.validate(b"APIC")?;
 
     /*
-     * If the MADT doesn't contain another supported interrupt model (either APIC, SAPIC, X2APIC or
-     * GIC), and the system supports the legacy i8259 PIC, recommend that.
-     * TODO: It's not clear how trustworthy this field is - should we be relying on it in any way?
+     * If the MADT doesn't contain another supported interrupt model (either APIC, SAPIC, X2APIC
+     * or GIC), and the system supports the legacy i8259 PIC, recommend that.
+     * TODO: It's not clear how trustworthy this field is - should we be relying on it in any
+     * way?
      */
     if (*mapping).supports_8259() {
         acpi.interrupt_model = Some(InterruptModel::Pic);
@@ -402,8 +415,8 @@ fn parse_apic_model(
         match entry {
             MadtEntry::LocalApic(ref entry) => {
                 /*
-                 * The first processor is the BSP. Subsequent ones are APs. If we haven't found the
-                 * BSP yet, this must be it.
+                 * The first processor is the BSP. Subsequent ones are APs. If we haven't found
+                 * the BSP yet, this must be it.
                  */
                 let is_ap = acpi.boot_processor.is_some();
                 let is_disabled = !unsafe { entry.flags.get_bit(0) };

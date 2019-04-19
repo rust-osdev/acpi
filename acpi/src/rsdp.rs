@@ -5,7 +5,8 @@ use core::{mem, str};
 ///
 /// On BIOS systems, it is either found in the first 1KB of the Extended Bios Data Area, or between
 /// 0x000E0000 and 0x000FFFFF. The signature is always on a 16 byte boundary. On (U)EFI, it may not
-/// be located in these locations, and so an address should be found in the EFI_SYSTEM_TABLE instead.
+/// be located in these locations, and so an address should be found in the EFI_SYSTEM_TABLE
+/// instead.
 ///
 /// The recommended way of locating the RSDP is to let the bootloader do it - Multiboot2 can pass a
 /// tag with the physical address of it. If this is not possible, a manual scan can be done.
@@ -89,10 +90,7 @@ impl Rsdp {
     }
 
     pub(crate) fn xsdt_address(&self) -> u64 {
-        assert!(
-            self.revision > 0,
-            "Tried to read extended RSDP field with ACPI Version 1.0"
-        );
+        assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
         self.xsdt_address
     }
 }

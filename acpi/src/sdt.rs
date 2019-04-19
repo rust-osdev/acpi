@@ -1,7 +1,4 @@
-use crate::fadt::Fadt;
-use crate::hpet::Hpet;
-use crate::madt::Madt;
-use crate::{Acpi, AcpiError, AcpiHandler};
+use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler};
 use core::{mem, str};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -140,8 +137,8 @@ where
     H: AcpiHandler,
 {
     let header = peek_at_sdt_header(handler, physical_address);
-    info!(
-        "Dispatching SDT with signature {:?} and length {:?}",
+    trace!(
+        "Found ACPI table with signature {:?} and length {:?}",
         header.signature(),
         header.length()
     );
@@ -159,9 +156,9 @@ where
         }
 
         "HPET" => {
-            let hpet_mapping =
-                handler.map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
-            crate::hpet::parse_hpet(&hpet_mapping)?;
+            let hpet_mapping = handler
+                .map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>());
+            crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }
 
@@ -171,6 +168,8 @@ where
             crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }
+
+        "SSDT" => acpi.ssdt_addresses.push(physical_address),
 
         signature => {
             /*
