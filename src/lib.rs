@@ -62,7 +62,7 @@ pub(crate) struct GenericAddress {
     address: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
     /// A processor in this state is unusable, and you must not attempt to bring it up.
     Disabled,
@@ -75,7 +75,7 @@ pub enum ProcessorState {
     Running,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Processor {
     pub processor_uid: u8,
     pub local_apic_id: u8,
