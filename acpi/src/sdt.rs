@@ -1,4 +1,4 @@
-use crate::{fadt::Fadt, hpet::Hpet, madt::Madt, Acpi, AcpiError, AcpiHandler};
+use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler};
 use core::{mem, str};
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
@@ -156,9 +156,9 @@ where
         }
 
         "HPET" => {
-            let hpet_mapping =
-                handler.map_physical_region::<Hpet>(physical_address, mem::size_of::<Hpet>());
-            crate::hpet::parse_hpet(&hpet_mapping)?;
+            let hpet_mapping = handler
+                .map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>());
+            crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }
 

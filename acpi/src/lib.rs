@@ -50,7 +50,7 @@ pub use crate::{
     rsdp_search::search_for_rsdp_bios,
 };
 
-use crate::{interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
+use crate::{hpet::HpetInfo, interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
 use alloc::vec::Vec;
 use core::mem;
 
@@ -70,6 +70,7 @@ pub enum AcpiError {
     InvalidMadt(MadtError),
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub(crate) struct GenericAddress {
     address_space: u8,
@@ -128,6 +129,7 @@ pub struct Acpi {
     /// hardware. For simplicity and because hardware practically will only support one model, we
     /// just error in cases that the tables detail more than one.
     interrupt_model: Option<InterruptModel>,
+    hpet: Option<HpetInfo>,
 
     /// The physical address of the DSDT, if we manage to find it.
     dsdt_address: Option<usize>,
@@ -215,6 +217,7 @@ where
         boot_processor: None,
         application_processors: Vec::new(),
         interrupt_model: None,
+        hpet: None,
         dsdt_address: None,
         ssdt_addresses: Vec::with_capacity(0),
     };
