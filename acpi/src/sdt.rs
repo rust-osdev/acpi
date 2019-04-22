@@ -5,7 +5,6 @@ use typenum::Unsigned;
 
 /// A union that represents a field that is not necessarily present and is only present in a later
 /// ACPI version (represented by the compile time number and type parameter `R`)
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub union ExtendedField<T: Copy, R: Unsigned> {
@@ -15,10 +14,6 @@ pub union ExtendedField<T: Copy, R: Unsigned> {
 }
 
 impl<T: Copy, R: Unsigned> ExtendedField<T, R> {
-    fn new(field: T) -> Self {
-        ExtendedField { field }
-    }
-
     /// Checks that the given revision is greater than `R` (typenum revision number) and then
     /// returns the field, otherwise returning `None`.
     ///
