@@ -1,4 +1,4 @@
-use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler};
+use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler, AmlTable};
 use core::{marker::PhantomData, mem, str};
 use log::{trace, warn};
 use typenum::Unsigned;
@@ -198,7 +198,7 @@ where
             handler.unmap_physical_region(madt_mapping);
         }
 
-        "SSDT" => acpi.ssdt_addresses.push(physical_address),
+        "SSDT" => acpi.ssdts.push(AmlTable::new(physical_address, header.length())),
 
         signature => {
             /*

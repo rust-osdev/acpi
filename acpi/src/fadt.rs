@@ -1,4 +1,12 @@
-use crate::{sdt::SdtHeader, Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
+use crate::{
+    sdt::SdtHeader,
+    Acpi,
+    AcpiError,
+    AcpiHandler,
+    AmlTable,
+    GenericAddress,
+    PhysicalMapping,
+};
 
 type ExtendedField<T> = crate::sdt::ExtendedField<T, typenum::U2>;
 
@@ -84,15 +92,19 @@ where
     let fadt = &*mapping;
     fadt.header.validate(b"FACP")?;
 
-    unsafe {
-        acpi.dsdt_address = fadt
-            .x_dsdt_address
+    let dsdt_address = unsafe {
+        fadt.x_dsdt_address
             .get(fadt.header.revision())
             .filter(|p| *p != 0)
             .or(Some(fadt.dsdt_address as u64))
             .filter(|p| *p != 0)
-            .map(|p| p as usize);
-    }
+            .map(|p| p as usize)
+    };
+
+    acpi.dsdt = dsdt_address.map(|address| {
+        let dsdt_header = crate::sdt::peek_at_sdt_header(handler, address);
+        AmlTable::new(address, dsdt_header.length())
+    });
 
     Ok(())
 }

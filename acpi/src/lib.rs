@@ -104,6 +104,21 @@ pub struct Processor {
     pub is_ap: bool,
 }
 
+#[derive(Debug)]
+pub struct AmlTable {
+    /// Physical address of the start of the AML stream (excluding the table header).
+    pub address: usize,
+    /// Length (in bytes) of the AML stream.
+    pub length: u32,
+}
+
+impl AmlTable {
+    /// Create an `AmlTable` from the address and length of the table **including the SDT header**.
+    pub(crate) fn new(address: usize, length: u32) -> AmlTable {
+        AmlTable {
+            address: address + mem::size_of::<SdtHeader>(),
+            length: length - mem::size_of::<SdtHeader>() as u32,
+        }
     }
 }
 
@@ -119,11 +134,11 @@ pub struct Acpi {
     interrupt_model: Option<InterruptModel>,
     hpet: Option<HpetInfo>,
 
-    /// The physical address of the DSDT, if we manage to find it.
-    dsdt_address: Option<usize>,
+    /// Info about the DSDT, if we find it.
+    dsdt: Option<AmlTable>,
 
-    /// The physical addresses of the SSDTs, if there are any,
-    ssdt_addresses: Vec<usize>,
+    /// Info about any SSDTs, if there are any.
+    ssdts: Vec<AmlTable>,
 }
 
 impl Acpi {
@@ -206,8 +221,8 @@ where
         application_processors: Vec::new(),
         interrupt_model: None,
         hpet: None,
-        dsdt_address: None,
-        ssdt_addresses: Vec::with_capacity(0),
+        dsdt: None,
+        ssdts: Vec::with_capacity(0),
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
