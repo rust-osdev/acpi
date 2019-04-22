@@ -1,5 +1,7 @@
 use crate::{sdt::SdtHeader, Acpi, AcpiError, AcpiHandler, GenericAddress, PhysicalMapping};
 
+type ExtendedField<T> = crate::sdt::ExtendedField<T, typenum::U2>;
+
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
 /// the Differentiated Definition Block (DSDT).
@@ -15,7 +17,7 @@ pub struct Fadt {
     dsdt_address: u32,
 
     // used in acpi 1.0; compatibility only, should be zero
-    reserved: u8,
+    _reserved: u8,
 
     preferred_pm_profile: u8,
     sci_interrupt: u16,
@@ -50,25 +52,25 @@ pub struct Fadt {
     month_alarm: u8,
     century: u8,
     iapc_boot_arch: u16,
-    reserved2: u8, // must be 0
+    _reserved2: u8, // must be 0
     flags: u32,
     reset_reg: GenericAddress,
     reset_value: u8,
     arm_boot_arch: u16,
     fadt_minor_version: u8,
-    x_firmware_control: u64,
-    x_dsdt_address: u64,
-    x_pm1a_event_block: GenericAddress,
-    x_pm1b_event_block: GenericAddress,
-    x_pm1a_control_block: GenericAddress,
-    x_pm1b_control_block: GenericAddress,
-    x_pm2_control_block: GenericAddress,
-    x_pm_timer_block: GenericAddress,
-    x_gpe0_block: GenericAddress,
-    x_gpe1_block: GenericAddress,
-    sleep_control_reg: GenericAddress,
-    sleep_status_reg: GenericAddress,
-    hypervisor_vendor_id: u64,
+    x_firmware_ctrl: ExtendedField<u64>,
+    x_dsdt_address: ExtendedField<u64>,
+    x_pm1a_event_block: ExtendedField<GenericAddress>,
+    x_pm1b_event_block: ExtendedField<GenericAddress>,
+    x_pm1a_control_block: ExtendedField<GenericAddress>,
+    x_pm1b_control_block: ExtendedField<GenericAddress>,
+    x_pm2_control_block: ExtendedField<GenericAddress>,
+    x_pm_timer_block: ExtendedField<GenericAddress>,
+    x_gpe0_block: ExtendedField<GenericAddress>,
+    x_gpe1_block: ExtendedField<GenericAddress>,
+    sleep_control_reg: ExtendedField<GenericAddress>,
+    sleep_status_reg: ExtendedField<GenericAddress>,
+    hypervisor_vendor_id: ExtendedField<u64>,
 }
 
 pub(crate) fn parse_fadt<H>(
@@ -82,12 +84,15 @@ where
     let fadt = &*mapping;
     fadt.header.validate(b"FACP")?;
 
-    // TODO more generic typesafe way of accessing the x_ fields
-    acpi.dsdt_address = Some(if fadt.header.revision() > 1 && fadt.x_dsdt_address != 0 {
-        fadt.x_dsdt_address as usize
-    } else {
-        fadt.dsdt_address as usize
-    });
+    unsafe {
+        acpi.dsdt_address = fadt
+            .x_dsdt_address
+            .get(fadt.header.revision())
+            .filter(|p| *p != 0)
+            .or(Some(fadt.dsdt_address as u64))
+            .filter(|p| *p != 0)
+            .map(|p| p as usize);
+    }
 
     Ok(())
 }

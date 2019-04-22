@@ -34,6 +34,7 @@ extern crate std;
 extern crate log;
 extern crate alloc;
 extern crate bit_field;
+extern crate typenum;
 
 mod fadt;
 pub mod handler;

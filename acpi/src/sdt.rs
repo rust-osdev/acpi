@@ -1,5 +1,38 @@
 use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler};
-use core::{mem, str};
+use core::{marker::PhantomData, mem, str};
+use typenum::Unsigned;
+
+/// A union that represents a field that is not necessarily present and is only present in a later
+/// ACPI version (represented by the compile time number and type parameter `R`)
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+#[repr(C, packed)]
+pub union ExtendedField<T: Copy, R: Unsigned> {
+    field: T,
+    nothing: (),
+    _phantom: PhantomData<R>,
+}
+
+impl<T: Copy, R: Unsigned> ExtendedField<T, R> {
+    fn new(field: T) -> Self {
+        ExtendedField { field }
+    }
+
+    /// Checks that the given revision is greater than `R` (typenum revision number) and then
+    /// returns the field, otherwise returning `None`.
+    ///
+    /// # Unsafety
+    ///
+    /// This is unsafe as the given `revision` could be incorrect or fabricated. However, it should
+    /// be safe if it represents the revision of the table this field is present in.
+    pub unsafe fn get(&self, revision: u8) -> Option<T> {
+        if revision >= R::to_u8() {
+            Some(self.field)
+        } else {
+            None
+        }
+    }
+}
 
 /// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
 /// this is.
