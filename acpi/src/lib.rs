@@ -104,14 +104,6 @@ pub struct Processor {
     pub is_ap: bool,
 }
 
-impl Processor {
-    pub(crate) fn new(
-        processor_uid: u8,
-        local_apic_id: u8,
-        state: ProcessorState,
-        is_ap: bool,
-    ) -> Processor {
-        Processor { processor_uid, local_apic_id, state, is_ap }
     }
 }
 

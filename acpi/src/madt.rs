@@ -427,7 +427,12 @@ fn parse_apic_model(
                     (false, false) => ProcessorState::Running,
                 };
 
-                let processor = Processor::new(entry.processor_id, entry.apic_id, state, is_ap);
+                let processor = Processor {
+                    processor_uid: entry.processor_id,
+                    local_apic_id: entry.apic_id,
+                    state,
+                    is_ap,
+                };
 
                 if is_ap {
                     acpi.application_processors.push(processor);
