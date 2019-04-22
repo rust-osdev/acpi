@@ -26,15 +26,10 @@
 #![feature(alloc)]
 #![feature(exclusive_range_pattern)]
 
+extern crate alloc;
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
-
-#[macro_use]
-extern crate log;
-extern crate alloc;
-extern crate bit_field;
-extern crate typenum;
 
 mod fadt;
 pub mod handler;

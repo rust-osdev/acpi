@@ -1,5 +1,6 @@
 use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler};
 use core::{marker::PhantomData, mem, str};
+use log::{trace, warn};
 use typenum::Unsigned;
 
 /// A union that represents a field that is not necessarily present and is only present in a later
