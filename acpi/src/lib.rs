@@ -13,10 +13,10 @@
 //! memory into the virtual address space.
 //!
 //! You should then call one of the entry points, based on how much information you have:
-//!     * Call `parse_rsdp` if you have the physical address of the RSDP
-//!     * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
-//!     * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you
-//!     know you're running on BIOS, not UEFI**
+//! * Call `parse_rsdp` if you have the physical address of the RSDP
+//! * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
+//! * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you know
+//! you're running on BIOS, not UEFI**
 //!
 //! All of these methods return an instance of `Acpi`. This struct contains all the information
 //! gathered from the static tables, and can be queried to set up hardware etc.
