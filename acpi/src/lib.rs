@@ -124,41 +124,26 @@ impl AmlTable {
 
 #[derive(Debug)]
 pub struct Acpi {
-    acpi_revision: u8,
-    boot_processor: Option<Processor>,
-    application_processors: Vec<Processor>,
+    pub acpi_revision: u8,
+
+    /// The boot processor. Until you bring up any APs, this is the only processor running code.
+    pub boot_processor: Option<Processor>,
+
+    /// Application processes. These are not brought up until you do so, and must be brought up in
+    /// the order they appear in this list.
+    pub application_processors: Vec<Processor>,
 
     /// ACPI theoretically allows for more than one interrupt model to be supported by the same
     /// hardware. For simplicity and because hardware practically will only support one model, we
     /// just error in cases that the tables detail more than one.
-    interrupt_model: Option<InterruptModel>,
-    hpet: Option<HpetInfo>,
+    pub interrupt_model: Option<InterruptModel>,
+    pub hpet: Option<HpetInfo>,
 
     /// Info about the DSDT, if we find it.
-    dsdt: Option<AmlTable>,
+    pub dsdt: Option<AmlTable>,
 
     /// Info about any SSDTs, if there are any.
-    ssdts: Vec<AmlTable>,
-}
-
-impl Acpi {
-    /// A description of the boot processor. Until you bring any more up, this is the only processor
-    /// running code, even on SMP systems.
-    pub fn boot_processor<'a>(&'a self) -> &'a Option<Processor> {
-        &self.boot_processor
-    }
-
-    /// Descriptions of each of the application processors. These are not brought up until you do
-    /// so. The application processors must be brought up in the order that they appear in this
-    /// list.
-    pub fn application_processors<'a>(&'a self) -> &'a Vec<Processor> {
-        &self.application_processors
-    }
-
-    /// The interrupt model supported by this system.
-    pub fn interrupt_model<'a>(&'a self) -> &'a Option<InterruptModel> {
-        &self.interrupt_model
-    }
+    pub ssdts: Vec<AmlTable>,
 }
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
