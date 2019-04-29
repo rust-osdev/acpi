@@ -6,6 +6,12 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(test)]
+mod test_utils;
+
+pub(crate) mod opcode;
+pub(crate) mod parser;
+
 use alloc::{collections::BTreeMap, string::String};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
