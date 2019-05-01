@@ -1,8 +1,8 @@
 use crate::AmlError;
 
-pub(crate) type ParseResult<'a, R> = Result<(&'a [u8], R), (&'a [u8], AmlError)>;
+pub type ParseResult<'a, R> = Result<(&'a [u8], R), (&'a [u8], AmlError)>;
 
-pub(crate) trait Parser<'a, R> {
+pub trait Parser<'a, R>: Sized {
     fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R>;
 }
 
@@ -15,7 +15,7 @@ where
     }
 }
 
-pub(crate) fn pair<'a, P1, P2, R1, R2>(a: P1, b: P2) -> impl Parser<'a, (R1, R2)>
+pub fn pair<'a, P1, P2, R1, R2>(a: P1, b: P2) -> impl Parser<'a, (R1, R2)>
 where
     P1: Parser<'a, R1>,
     P2: Parser<'a, R2>,
@@ -27,7 +27,7 @@ where
     }
 }
 
-pub(crate) fn map<'a, P, F, A, B>(parser: P, map_fn: F) -> impl Parser<'a, B>
+pub fn map<'a, P, F, A, B>(parser: P, map_fn: F) -> impl Parser<'a, B>
 where
     P: Parser<'a, A>,
     F: Fn(A) -> B,
