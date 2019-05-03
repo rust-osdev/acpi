@@ -7,6 +7,16 @@ pub type ParseResult<'a, R> = Result<(&'a [u8], R), (&'a [u8], AmlError)>;
 pub trait Parser<'a, R>: Sized {
     fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R>;
 
+    fn map<F, A>(self, map_fn: F) -> Map<'a, Self, F, R, A>
+    where
+        F: Fn(R) -> A,
+    {
+        Map { parser: self, map_fn, _phantom: PhantomData }
+    }
+
+    /// Try parsing with `self`. If it fails, try parsing with `other`, returning the result of the
+    /// first of the two parsers to succeed. To `or` multiple parsers ergonomically, see the
+    /// `choice!` macro.
     fn or<OtherParser>(self, other: OtherParser) -> Or<'a, Self, OtherParser, R>
     where
         OtherParser: Parser<'a, R>,
@@ -24,6 +34,24 @@ where
     }
 }
 
+pub fn take<'a>() -> impl Parser<'a, u8> {
+    move |input: &'a [u8]| match input.first() {
+        Some(&byte) => Ok((&input[1..], byte)),
+        None => Err((input, AmlError::UnexpectedEndOfStream)),
+    }
+}
+
+pub fn consume<'a, F>(condition: F) -> impl Parser<'a, u8>
+where
+    F: Fn(u8) -> bool,
+{
+    move |input: &'a [u8]| match input.first() {
+        Some(&byte) if condition(byte) => Ok((&input[1..], byte)),
+        Some(&byte) => Err((input, AmlError::UnexpectedByte(byte))),
+        None => Err((input, AmlError::UnexpectedEndOfStream)),
+    }
+}
+
 pub fn pair<'a, P1, P2, R1, R2>(a: P1, b: P2) -> impl Parser<'a, (R1, R2)>
 where
     P1: Parser<'a, R1>,
@@ -36,12 +64,15 @@ where
     }
 }
 
-pub fn map<'a, P, F, A, B>(parser: P, map_fn: F) -> impl Parser<'a, B>
+// TODO: can we make this formattable with stuff from the parse result?
+pub fn comment<'a, P, R>(parser: P, comment: &'static str) -> impl Parser<'a, R>
 where
-    P: Parser<'a, A>,
-    F: Fn(A) -> B,
+    P: Parser<'a, R>,
 {
-    move |input| parser.parse(input).map(|(next_input, result)| (next_input, map_fn(result)))
+    move |input| {
+        trace!("{}", comment);
+        parser.parse(input)
+    }
 }
 
 pub struct Or<'a, P1, P2, R>
@@ -69,8 +100,28 @@ where
     }
 }
 
+pub struct Map<'a, P, F, R, A>
+where
+    P: Parser<'a, R>,
+    F: Fn(R) -> A,
+{
+    parser: P,
+    map_fn: F,
+    _phantom: PhantomData<&'a (R, A)>,
+}
+
+impl<'a, P, F, R, A> Parser<'a, A> for Map<'a, P, F, R, A>
+where
+    P: Parser<'a, R>,
+    F: Fn(R) -> A,
+{
+    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, A> {
+        self.parser.parse(input).map(|(new_input, result)| (new_input, (self.map_fn)(result)))
+    }
+}
+
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
-/// result of the first one that succeedes, or fails if all of them fail.
+/// result of the first one that succeeds, or fails if all of them fail.
 pub macro choice {
     ($first_parser: expr) => {
         $first_parser
