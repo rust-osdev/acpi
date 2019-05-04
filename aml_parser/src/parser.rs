@@ -23,6 +23,13 @@ pub trait Parser<'a, R>: Sized {
     {
         Or { p1: self, p2: other, _phantom: PhantomData }
     }
+
+    fn then<NextParser, NextR>(self, next: NextParser) -> Then<'a, Self, NextParser, R, NextR>
+    where
+        NextParser: Parser<'a, NextR>,
+    {
+        Then { p1: self, p2: next, _phantom: PhantomData }
+    }
 }
 
 impl<'a, F, R> Parser<'a, R> for F
@@ -60,18 +67,6 @@ where
         Some(&byte) if condition(byte) => Ok((&input[1..], byte)),
         Some(&byte) => Err((input, AmlError::UnexpectedByte(byte))),
         None => Err((input, AmlError::UnexpectedEndOfStream)),
-    }
-}
-
-pub fn pair<'a, P1, P2, R1, R2>(a: P1, b: P2) -> impl Parser<'a, (R1, R2)>
-where
-    P1: Parser<'a, R1>,
-    P2: Parser<'a, R2>,
-{
-    move |input| {
-        a.parse(input).and_then(|(next_input, result_a)| {
-            b.parse(next_input).map(|(final_input, result_b)| (final_input, (result_a, result_b)))
-        })
     }
 }
 
@@ -128,6 +123,30 @@ where
 {
     fn parse(&self, input: &'a [u8]) -> ParseResult<'a, A> {
         self.parser.parse(input).map(|(new_input, result)| (new_input, (self.map_fn)(result)))
+    }
+}
+
+pub struct Then<'a, P1, P2, R1, R2>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    p1: P1,
+    p2: P2,
+    _phantom: PhantomData<&'a (R1, R2)>,
+}
+
+impl<'a, P1, P2, R1, R2> Parser<'a, (R1, R2)> for Then<'a, P1, P2, R1, R2>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, (R1, R2)> {
+        self.p1.parse(input).and_then(|(next_input, result_a)| {
+            self.p2
+                .parse(next_input)
+                .map(|(final_input, result_b)| (final_input, (result_a, result_b)))
+        })
     }
 }
 

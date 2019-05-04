@@ -34,7 +34,7 @@ pub(crate) fn opcode<'a>(opcode: u8) -> impl Parser<'a, ()> {
 }
 
 pub(crate) fn ext_opcode<'a>(ext_opcode: u8) -> impl Parser<'a, ()> {
-    pair(opcode(EXT_OPCODE_PREFIX), opcode(ext_opcode)).map(|_| ())
+    opcode(EXT_OPCODE_PREFIX).then(opcode(ext_opcode)).map(|_| ())
 }
 
 #[cfg(test)]
