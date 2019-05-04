@@ -41,6 +41,17 @@ pub fn take<'a>() -> impl Parser<'a, u8> {
     }
 }
 
+pub fn take_n<'a>(n: usize) -> impl Parser<'a, &'a [u8]> {
+    move |input: &'a [u8]| {
+        if input.len() < n {
+            return Err((input, AmlError::UnexpectedEndOfStream));
+        }
+
+        let (result, new_input) = input.split_at(n);
+        Ok((new_input, result))
+    }
+}
+
 pub fn consume<'a, F>(condition: F) -> impl Parser<'a, u8>
 where
     F: Fn(u8) -> bool,
@@ -132,5 +143,21 @@ pub macro choice {
         $(
             .or($other_parser)
          )*
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::*;
+
+    #[test]
+    fn test_take_n() {
+        check_err!(take_n(1).parse(&[]), AmlError::UnexpectedEndOfStream, &[]);
+        check_err!(take_n(2).parse(&[0xf5]), AmlError::UnexpectedEndOfStream, &[0xf5]);
+
+        check_ok!(take_n(1).parse(&[0xff]), &[0xff], &[]);
+        check_ok!(take_n(1).parse(&[0xff, 0xf8]), &[0xff], &[0xf8]);
+        check_ok!(take_n(2).parse(&[0xff, 0xf8]), &[0xff, 0xf8], &[]);
     }
 }

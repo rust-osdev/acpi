@@ -11,6 +11,7 @@ mod test_utils;
 
 pub(crate) mod opcode;
 pub(crate) mod parser;
+pub(crate) mod pkg_length;
 
 use alloc::{collections::BTreeMap, string::String};
 
