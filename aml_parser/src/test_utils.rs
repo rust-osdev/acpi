@@ -11,8 +11,8 @@ pub(crate) macro check_err($parse: expr, $error: pat, $remains: expr) {
 
 pub(crate) macro check_ok($parse: expr, $expected: expr, $remains: expr) {
     match $parse {
-        Ok((remains, result)) if remains == *$remains && result == $expected => (),
-        Ok((remains, result)) if result == $expected => {
+        Ok((remains, ref result)) if remains == *$remains && result == &$expected => (),
+        Ok((remains, ref result)) if result == &$expected => {
             panic!("Correct result, incorrect slice returned: {:x?}", remains)
         }
         Ok(result) => panic!("Successfully parsed Ok, but it was wrong: {:#?}", result),

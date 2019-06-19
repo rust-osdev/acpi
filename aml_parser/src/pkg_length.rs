@@ -5,8 +5,7 @@ use crate::{
 use bit_field::BitField;
 use log::trace;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct PkgLength(u32);
+pub type PkgLength = u32;
 
 pub fn pkg_length<'a>() -> impl Parser<'a, PkgLength> {
     /*
@@ -23,7 +22,7 @@ pub fn pkg_length<'a>() -> impl Parser<'a, PkgLength> {
 
         if byte_count == 0 {
             let length = u32::from(lead_byte.get_bits(0..6));
-            return Ok((new_input, PkgLength(length)));
+            return Ok((new_input, length));
         }
 
         let (new_input, length): (&[u8], u32) = match take_n(byte_count as usize).parse(new_input) {
@@ -44,7 +43,7 @@ pub fn pkg_length<'a>() -> impl Parser<'a, PkgLength> {
             Err((_, err)) => return Err((input, AmlError::UnexpectedEndOfStream)),
         };
 
-        Ok((new_input, PkgLength(length)))
+        Ok((new_input, length))
     }
 }
 
@@ -56,11 +55,11 @@ mod tests {
     #[test]
     fn test_pkg_length() {
         check_err!(pkg_length().parse(&[]), AmlError::UnexpectedEndOfStream, &[]);
-        check_ok!(pkg_length().parse(&[0x00]), PkgLength(0), &[]);
-        check_ok!(pkg_length().parse(&[0x05, 0xf5, 0x7f]), PkgLength(5), &[0xf5, 0x7f]);
-        check_ok!(pkg_length().parse(&[0b01000101, 0x14]), PkgLength(325), &[]);
-        check_ok!(pkg_length().parse(&[0b01000111, 0x14, 0x46]), PkgLength(327), &[0x46]);
-        check_ok!(pkg_length().parse(&[0b10000111, 0x14, 0x46]), PkgLength(287047), &[]);
+        check_ok!(pkg_length().parse(&[0x00]), 0, &[]);
+        check_ok!(pkg_length().parse(&[0x05, 0xf5, 0x7f]), 5, &[0xf5, 0x7f]);
+        check_ok!(pkg_length().parse(&[0b01000101, 0x14]), 325, &[]);
+        check_ok!(pkg_length().parse(&[0b01000111, 0x14, 0x46]), 327, &[0x46]);
+        check_ok!(pkg_length().parse(&[0b10000111, 0x14, 0x46]), 287047, &[]);
         check_err!(
             pkg_length().parse(&[0b11000000, 0xff, 0x4f]),
             AmlError::UnexpectedEndOfStream,
