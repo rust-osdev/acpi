@@ -59,6 +59,28 @@ pub fn take_n<'a>(n: usize) -> impl Parser<'a, &'a [u8]> {
     }
 }
 
+// TODO: can we use const generics (e.g. [R; N]) to avoid allocating?
+pub fn n_of<'a, P, R>(parser: P, n: usize) -> impl Parser<'a, Vec<R>>
+where
+    P: Parser<'a, R>,
+{
+    move |input| {
+        let mut results = Vec::with_capacity(n);
+        let mut new_input = input;
+
+        for i in 0..n {
+            let (after_input, result) = match parser.parse(new_input) {
+                Ok((input, result)) => (input, result),
+                Err((_, err)) => return Err((input, err)),
+            };
+            results.push(result);
+            new_input = after_input;
+        }
+
+        Ok((new_input, results))
+    }
+}
+
 pub fn consume<'a, F>(condition: F) -> impl Parser<'a, u8>
 where
     F: Fn(u8) -> bool,

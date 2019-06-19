@@ -1,5 +1,5 @@
 #![no_std]
-#![feature(alloc, decl_macro)]
+#![feature(decl_macro)]
 
 extern crate alloc;
 
@@ -9,16 +9,21 @@ extern crate std;
 #[cfg(test)]
 mod test_utils;
 
+pub(crate) mod name_object;
 pub(crate) mod opcode;
 pub(crate) mod parser;
 pub(crate) mod pkg_length;
+pub mod value;
 
+pub use crate::value::AmlValue;
 use alloc::{collections::BTreeMap, string::String};
+use log::{error, trace};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmlError {
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
+    InvalidNameSeg([u8; 4]),
 }
 
 pub struct AmlNamespace {
@@ -35,7 +40,13 @@ impl AmlNamespace {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
-        log::info!("stream length: {}, {:#x}", stream.len(), stream[0]);
-        return Err(AmlError::UnexpectedEndOfStream);
+        match term_object::parse_term_list(stream, self) {
+            Ok(_) => Ok(()),
+            Err((remaining, err)) => {
+                error!("Failed to parse AML stream. Err = {:?}", err);
+                trace!("Remaining AML: {:02x?}", remaining);
+                Err(err)
+            }
+        }
     }
 }
