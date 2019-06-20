@@ -13,12 +13,15 @@ pub(crate) mod name_object;
 pub(crate) mod opcode;
 pub(crate) mod parser;
 pub(crate) mod pkg_length;
+pub(crate) mod term_object;
 pub mod value;
 
 pub use crate::value::AmlValue;
 
 use alloc::{collections::BTreeMap, string::String};
 use log::{error, trace};
+use parser::Parser;
+use pkg_length::PkgLength;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmlError {
@@ -41,7 +44,11 @@ impl AmlNamespace {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
-        match term_object::parse_term_list(stream, self) {
+        match term_object::term_list(
+            PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength
+        )
+        .parse(stream)
+        {
             Ok(_) => Ok(()),
             Err((remaining, err)) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
