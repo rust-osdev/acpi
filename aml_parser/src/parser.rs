@@ -1,4 +1,5 @@
 use crate::AmlError;
+use alloc::vec::Vec;
 use core::marker::PhantomData;
 use log::trace;
 
@@ -12,6 +13,10 @@ pub trait Parser<'a, R>: Sized {
         F: Fn(R) -> A,
     {
         Map { parser: self, map_fn, _phantom: PhantomData }
+    }
+
+    fn discard_result(self) -> DiscardResult<'a, Self, R> {
+        DiscardResult { parser: self, _phantom: PhantomData }
     }
 
     /// Try parsing with `self`. If it fails, try parsing with `other`, returning the result of the
@@ -29,6 +34,19 @@ pub trait Parser<'a, R>: Sized {
         NextParser: Parser<'a, NextR>,
     {
         Then { p1: self, p2: next, _phantom: PhantomData }
+    }
+
+    /// `feed` takes a function that takes the result of this parser (`self`) and creates another
+    /// parser, which is then used to parse the next part of the stream. This sounds convoluted,
+    /// but is useful for when the next parser's behaviour depends on a property of the result of
+    /// the first (e.g. the first parser might parse a length `n`, and the second parser then
+    /// consumes `n` bytes).
+    fn feed<F, P2, R2>(self, producer_fn: F) -> Feed<'a, Self, P2, F, R, R2>
+    where
+        P2: Parser<'a, R2>,
+        F: Fn(R) -> P2,
+    {
+        Feed { parser: self, producer_fn, _phantom: PhantomData }
     }
 }
 
@@ -103,6 +121,18 @@ where
     }
 }
 
+pub fn comment_scope<'a, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, R>
+where
+    P: Parser<'a, R>,
+{
+    move |input| {
+        trace!("--> {}", scope_name);
+        let result = parser.parse(input);
+        trace!("<-- {}", scope_name);
+        result
+    }
+}
+
 pub struct Or<'a, P1, P2, R>
 where
     P1: Parser<'a, R>,
@@ -148,6 +178,23 @@ where
     }
 }
 
+pub struct DiscardResult<'a, P, R>
+where
+    P: Parser<'a, R>,
+{
+    parser: P,
+    _phantom: PhantomData<&'a R>,
+}
+
+impl<'a, P, R> Parser<'a, ()> for DiscardResult<'a, P, R>
+where
+    P: Parser<'a, R>,
+{
+    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, ()> {
+        self.parser.parse(input).map(|(new_input, _)| (new_input, ()))
+    }
+}
+
 pub struct Then<'a, P1, P2, R1, R2>
 where
     P1: Parser<'a, R1>,
@@ -169,6 +216,32 @@ where
                 .parse(next_input)
                 .map(|(final_input, result_b)| (final_input, (result_a, result_b)))
         })
+    }
+}
+
+pub struct Feed<'a, P1, P2, F, R1, R2>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+    F: Fn(R1) -> P2,
+{
+    parser: P1,
+    producer_fn: F,
+    _phantom: PhantomData<&'a (R1, R2)>,
+}
+
+impl<'a, P1, P2, F, R1, R2> Parser<'a, R2> for Feed<'a, P1, P2, F, R1, R2>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+    F: Fn(R1) -> P2,
+{
+    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R2> {
+        let (input, first_result) = self.parser.parse(input)?;
+
+        // We can now produce the second parser, and parse using that.
+        let second_parser = (self.producer_fn)(first_result);
+        second_parser.parse(input)
     }
 }
 
