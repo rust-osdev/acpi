@@ -3,7 +3,6 @@ use crate::{
     AmlError,
 };
 use bit_field::BitField;
-use log::trace;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PkgLength {
@@ -49,8 +48,6 @@ pub fn raw_pkg_length<'a>() -> impl Parser<'a, u32> {
      * The length encoded by the PkgLength includes the number of bytes used to encode it.
      */
     move |input: &'a [u8]| {
-        let starting_len = input.len() as u32;
-
         let (new_input, lead_byte) = take().parse(input)?;
         let byte_count = lead_byte.get_bits(6..8);
 

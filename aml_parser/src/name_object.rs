@@ -1,6 +1,6 @@
 use crate::{
-    opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, ROOT_CHAR},
-    parser::{choice, consume, n_of, take, Parser},
+    opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
+    parser::{choice, comment_scope, consume, n_of, take, Parser},
     AmlError,
 };
 use alloc::string::String;
@@ -11,11 +11,24 @@ pub fn name_string<'a>() -> impl Parser<'a, String> {
      * NameString := <RootChar('\') NamePath> | <PrefixPath NamePath>
      * PrefixPath := Nothing | <'^' PrefixPath>
      */
-    // TODO: this does not yet parse <PrefixPath NamePath>
     let root_name_string =
         opcode(ROOT_CHAR).then(name_path()).map(|((), name_path)| String::from("\\") + &name_path);
 
-    choice!(root_name_string)
+    comment_scope("NameString", move |input: &'a [u8]| {
+        let first_char = *input.first().ok_or((input, AmlError::UnexpectedEndOfStream))?;
+        log::trace!("First char: {}, {:#x}", first_char, first_char);
+
+        match first_char {
+            ROOT_CHAR => root_name_string.parse(input),
+
+            PREFIX_CHAR => {
+                // TODO: parse <PrefixPath NamePath> where there are actually PrefixChars
+                unimplemented!();
+            }
+
+            _ => name_path().parse(input),
+        }
+    })
 }
 
 pub fn name_path<'a>() -> impl Parser<'a, String> {

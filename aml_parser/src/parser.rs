@@ -132,7 +132,7 @@ where
         let mut results = Vec::with_capacity(n);
         let mut new_input = input;
 
-        for i in 0..n {
+        for _ in 0..n {
             let (after_input, result) = match parser.parse(new_input) {
                 Ok((input, result)) => (input, result),
                 Err((_, err)) => return Err((input, err)),
@@ -153,17 +153,6 @@ where
         Some(&byte) if condition(byte) => Ok((&input[1..], byte)),
         Some(&byte) => Err((input, AmlError::UnexpectedByte(byte))),
         None => Err((input, AmlError::UnexpectedEndOfStream)),
-    }
-}
-
-// TODO: can we make this formattable with stuff from the parse result?
-pub fn comment<'a, P, R>(parser: P, comment: &'static str) -> impl Parser<'a, R>
-where
-    P: Parser<'a, R>,
-{
-    move |input| {
-        trace!("{}", comment);
-        parser.parse(input)
     }
 }
 

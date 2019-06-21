@@ -4,6 +4,7 @@ pub const NULL_NAME: u8 = 0x00;
 pub const DUAL_NAME_PREFIX: u8 = 0x2E;
 pub const MULTI_NAME_PREFIX: u8 = 0x2F;
 pub const ROOT_CHAR: u8 = b'\\';
+pub const PREFIX_CHAR: u8 = b'^';
 
 pub const ZERO_OP: u8 = 0x00;
 pub const ONE_OP: u8 = 0x01;
