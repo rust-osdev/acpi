@@ -127,9 +127,10 @@ where
 {
     move |input| {
         trace!("--> {}", scope_name);
-        let result = parser.parse(input);
+        // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
+        let (new_input, result) = parser.parse(input)?;
         trace!("<-- {}", scope_name);
-        result
+        Ok((new_input, result))
     }
 }
 
