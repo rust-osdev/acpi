@@ -16,16 +16,13 @@ pub fn name_string<'a>() -> impl Parser<'a, String> {
 
     comment_scope("NameString", move |input: &'a [u8]| {
         let first_char = *input.first().ok_or((input, AmlError::UnexpectedEndOfStream))?;
-        log::trace!("First char: {}, {:#x}", first_char, first_char);
 
         match first_char {
             ROOT_CHAR => root_name_string.parse(input),
-
             PREFIX_CHAR => {
                 // TODO: parse <PrefixPath NamePath> where there are actually PrefixChars
                 unimplemented!();
             }
-
             _ => name_path().parse(input),
         }
     })

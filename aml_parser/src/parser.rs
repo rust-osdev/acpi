@@ -158,13 +158,14 @@ where
 
 pub fn comment_scope<'a, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, R>
 where
+    R: core::fmt::Debug,
     P: Parser<'a, R>,
 {
     move |input| {
         trace!("--> {}", scope_name);
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, result) = parser.parse(input)?;
-        trace!("<-- {}", scope_name);
+        trace!("<-- {}({:?})", scope_name, result);
         Ok((new_input, result))
     }
 }
