@@ -66,6 +66,52 @@ pub fn take<'a>() -> impl Parser<'a, u8> {
     }
 }
 
+pub fn take_u16<'a>() -> impl Parser<'a, u16> {
+    move |input: &'a [u8]| {
+        if input.len() < 2 {
+            return Err((input, AmlError::UnexpectedEndOfStream));
+        }
+
+        Ok((&input[2..], input[0] as u16 + ((input[1] as u16) << 8)))
+    }
+}
+
+pub fn take_u32<'a>() -> impl Parser<'a, u32> {
+    move |input: &'a [u8]| {
+        if input.len() < 4 {
+            return Err((input, AmlError::UnexpectedEndOfStream));
+        }
+
+        Ok((
+            &input[4..],
+            input[0] as u32
+                + ((input[1] as u32) << 8)
+                + ((input[2] as u32) << 16)
+                + ((input[3] as u32) << 24),
+        ))
+    }
+}
+
+pub fn take_u64<'a>() -> impl Parser<'a, u64> {
+    move |input: &'a [u8]| {
+        if input.len() < 8 {
+            return Err((input, AmlError::UnexpectedEndOfStream));
+        }
+
+        Ok((
+            &input[8..],
+            input[0] as u64
+                + ((input[1] as u64) << 8)
+                + ((input[2] as u64) << 16)
+                + ((input[3] as u64) << 24)
+                + ((input[4] as u64) << 32)
+                + ((input[5] as u64) << 40)
+                + ((input[6] as u64) << 48)
+                + ((input[7] as u64) << 56),
+        ))
+    }
+}
+
 pub fn take_n<'a>(n: usize) -> impl Parser<'a, &'a [u8]> {
     move |input: &'a [u8]| {
         if input.len() < n {
@@ -274,5 +320,21 @@ mod tests {
         check_ok!(take_n(1).parse(&[0xff]), &[0xff], &[]);
         check_ok!(take_n(1).parse(&[0xff, 0xf8]), &[0xff], &[0xf8]);
         check_ok!(take_n(2).parse(&[0xff, 0xf8]), &[0xff, 0xf8], &[]);
+    }
+
+    #[test]
+    fn test_take_ux() {
+        check_err!(take_u16().parse(&[0x34]), AmlError::UnexpectedEndOfStream, &[0x34]);
+        check_ok!(take_u16().parse(&[0x34, 0x12]), 0x1234, &[]);
+
+        check_err!(take_u32().parse(&[0x34, 0x12]), AmlError::UnexpectedEndOfStream, &[0x34, 0x12]);
+        check_ok!(take_u32().parse(&[0x34, 0x12, 0xf4, 0xc3, 0x3e]), 0xc3f41234, &[0x3e]);
+
+        check_err!(take_u64().parse(&[0x34]), AmlError::UnexpectedEndOfStream, &[0x34]);
+        check_ok!(
+            take_u64().parse(&[0x34, 0x12, 0x35, 0x76, 0xd4, 0x43, 0xa3, 0xb6, 0xff, 0x00]),
+            0xb6a343d476351234,
+            &[0xff, 0x00]
+        );
     }
 }
