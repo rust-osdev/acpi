@@ -35,13 +35,13 @@ pub enum AmlError {
     InvalidFieldFlags,
 }
 
-pub struct AmlNamespace {
+pub struct AmlContext {
     namespace: BTreeMap<String, AmlValue>,
 }
 
-impl AmlNamespace {
-    pub fn new() -> AmlNamespace {
-        AmlNamespace { namespace: BTreeMap::new() }
+impl AmlContext {
+    pub fn new() -> AmlContext {
+        AmlContext { namespace: BTreeMap::new() }
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {
