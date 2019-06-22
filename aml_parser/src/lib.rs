@@ -32,6 +32,7 @@ pub enum AmlError {
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
     InvalidNameSeg([u8; 4]),
+    InvalidFieldFlags,
 }
 
 pub struct AmlNamespace {
