@@ -14,10 +14,12 @@ pub fn term_list<'a>(list_length: PkgLength) -> impl Parser<'a, ()> {
     /*
      * TermList := Nothing | <TermObj TermList>
      */
-    move |input: &'a [u8]| -> ParseResult<'a, ()> {
+    move |mut input: &'a [u8]| -> ParseResult<'a, ()> {
         while list_length.still_parsing(input) {
-            let (input, ()) = term_object().parse(input)?;
+            let (new_input, ()) = term_object().parse(input)?;
+            input = new_input;
         }
+
         Ok((input, ()))
     }
 }
