@@ -71,7 +71,7 @@ pub fn raw_pkg_length<'a>() -> impl Parser<'a, u32> {
              * The stream was too short. We return an error, making sure to return the
              * *original* stream (that we haven't consumed any of).
              */
-            Err((_, err)) => return Err((input, AmlError::UnexpectedEndOfStream)),
+            Err(_) => return Err((input, AmlError::UnexpectedEndOfStream)),
         };
 
         Ok((new_input, length))

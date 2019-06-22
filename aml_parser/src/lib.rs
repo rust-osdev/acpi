@@ -23,6 +23,10 @@ use log::{error, trace};
 use parser::Parser;
 use pkg_length::PkgLength;
 
+/// AML has a `RevisionOp` operator that returns the "AML interpreter revision". It's not clear
+/// what this is actually used for, but this is ours.
+pub const AML_INTERPRETER_REVISION: u64 = 0;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmlError {
     UnexpectedEndOfStream,
