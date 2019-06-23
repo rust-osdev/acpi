@@ -35,6 +35,7 @@ pub enum AmlError {
     InvalidFieldFlags,
 }
 
+#[derive(Debug)]
 pub struct AmlContext {
     namespace: BTreeMap<String, AmlValue>,
 }
@@ -52,10 +53,10 @@ impl AmlContext {
         match term_object::term_list(
             PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength
         )
-        .parse(stream)
+        .parse(stream, self)
         {
             Ok(_) => Ok(()),
-            Err((remaining, err)) => {
+            Err((remaining, _context, err)) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
                 trace!("Remaining AML: {:02x?}", remaining);
                 Err(err)

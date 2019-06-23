@@ -1,37 +1,41 @@
-use crate::AmlError;
+use crate::{AmlContext, AmlError};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use log::trace;
 
-pub type ParseResult<'a, R> = Result<(&'a [u8], R), (&'a [u8], AmlError)>;
+pub type ParseResult<'a, 'c, R> =
+    Result<(&'a [u8], &'c mut AmlContext, R), (&'a [u8], &'c mut AmlContext, AmlError)>;
 
-pub trait Parser<'a, R>: Sized {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R>;
+pub trait Parser<'a, 'c, R>: Sized
+where
+    'c: 'a,
+{
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R>;
 
-    fn map<F, A>(self, map_fn: F) -> Map<'a, Self, F, R, A>
+    fn map<F, A>(self, map_fn: F) -> Map<'a, 'c, Self, F, R, A>
     where
         F: Fn(R) -> A,
     {
         Map { parser: self, map_fn, _phantom: PhantomData }
     }
 
-    fn discard_result(self) -> DiscardResult<'a, Self, R> {
+    fn discard_result(self) -> DiscardResult<'a, 'c, Self, R> {
         DiscardResult { parser: self, _phantom: PhantomData }
     }
 
     /// Try parsing with `self`. If it fails, try parsing with `other`, returning the result of the
     /// first of the two parsers to succeed. To `or` multiple parsers ergonomically, see the
     /// `choice!` macro.
-    fn or<OtherParser>(self, other: OtherParser) -> Or<'a, Self, OtherParser, R>
+    fn or<OtherParser>(self, other: OtherParser) -> Or<'a, 'c, Self, OtherParser, R>
     where
-        OtherParser: Parser<'a, R>,
+        OtherParser: Parser<'a, 'c, R>,
     {
         Or { p1: self, p2: other, _phantom: PhantomData }
     }
 
-    fn then<NextParser, NextR>(self, next: NextParser) -> Then<'a, Self, NextParser, R, NextR>
+    fn then<NextParser, NextR>(self, next: NextParser) -> Then<'a, 'c, Self, NextParser, R, NextR>
     where
-        NextParser: Parser<'a, NextR>,
+        NextParser: Parser<'a, 'c, NextR>,
     {
         Then { p1: self, p2: next, _phantom: PhantomData }
     }
@@ -41,49 +45,60 @@ pub trait Parser<'a, R>: Sized {
     /// but is useful for when the next parser's behaviour depends on a property of the result of
     /// the first (e.g. the first parser might parse a length `n`, and the second parser then
     /// consumes `n` bytes).
-    fn feed<F, P2, R2>(self, producer_fn: F) -> Feed<'a, Self, P2, F, R, R2>
+    fn feed<F, P2, R2>(self, producer_fn: F) -> Feed<'a, 'c, Self, P2, F, R, R2>
     where
-        P2: Parser<'a, R2>,
+        P2: Parser<'a, 'c, R2>,
         F: Fn(R) -> P2,
     {
         Feed { parser: self, producer_fn, _phantom: PhantomData }
     }
 }
 
-impl<'a, F, R> Parser<'a, R> for F
+impl<'a, 'c, F, R> Parser<'a, 'c, R> for F
 where
-    F: Fn(&'a [u8]) -> ParseResult<'a, R>,
+    'c: 'a,
+    F: Fn(&'a [u8], &'c mut AmlContext) -> ParseResult<'a, 'c, R>,
 {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R> {
-        self(input)
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R> {
+        self(input, context)
     }
 }
 
-pub fn take<'a>() -> impl Parser<'a, u8> {
-    move |input: &'a [u8]| match input.first() {
-        Some(&byte) => Ok((&input[1..], byte)),
-        None => Err((input, AmlError::UnexpectedEndOfStream)),
+pub fn take<'a, 'c>() -> impl Parser<'a, 'c, u8>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
+        Some(&byte) => Ok((&input[1..], context, byte)),
+        None => Err((input, context, AmlError::UnexpectedEndOfStream)),
     }
 }
 
-pub fn take_u16<'a>() -> impl Parser<'a, u16> {
-    move |input: &'a [u8]| {
+pub fn take_u16<'a, 'c>() -> impl Parser<'a, 'c, u16>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| {
         if input.len() < 2 {
-            return Err((input, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
-        Ok((&input[2..], input[0] as u16 + ((input[1] as u16) << 8)))
+        Ok((&input[2..], context, input[0] as u16 + ((input[1] as u16) << 8)))
     }
 }
 
-pub fn take_u32<'a>() -> impl Parser<'a, u32> {
-    move |input: &'a [u8]| {
+pub fn take_u32<'a, 'c>() -> impl Parser<'a, 'c, u32>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| {
         if input.len() < 4 {
-            return Err((input, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
         Ok((
             &input[4..],
+            context,
             input[0] as u32
                 + ((input[1] as u32) << 8)
                 + ((input[2] as u32) << 16)
@@ -92,14 +107,18 @@ pub fn take_u32<'a>() -> impl Parser<'a, u32> {
     }
 }
 
-pub fn take_u64<'a>() -> impl Parser<'a, u64> {
-    move |input: &'a [u8]| {
+pub fn take_u64<'a, 'c>() -> impl Parser<'a, 'c, u64>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| {
         if input.len() < 8 {
-            return Err((input, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
         Ok((
             &input[8..],
+            context,
             input[0] as u64
                 + ((input[1] as u64) << 8)
                 + ((input[2] as u64) << 16)
@@ -112,178 +131,201 @@ pub fn take_u64<'a>() -> impl Parser<'a, u64> {
     }
 }
 
-pub fn take_n<'a>(n: usize) -> impl Parser<'a, &'a [u8]> {
-    move |input: &'a [u8]| {
+pub fn take_n<'a, 'c>(n: usize) -> impl Parser<'a, 'c, &'a [u8]>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context| {
         if input.len() < n {
-            return Err((input, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
         let (result, new_input) = input.split_at(n);
-        Ok((new_input, result))
+        Ok((new_input, context, result))
     }
 }
 
 // TODO: can we use const generics (e.g. [R; N]) to avoid allocating?
-pub fn n_of<'a, P, R>(parser: P, n: usize) -> impl Parser<'a, Vec<R>>
+pub fn n_of<'a, 'c, P, R>(parser: P, n: usize) -> impl Parser<'a, 'c, Vec<R>>
 where
-    P: Parser<'a, R>,
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
 {
-    move |input| {
+    // TODO: can we write this more nicely?
+    move |mut input, mut context| {
         let mut results = Vec::with_capacity(n);
-        let mut new_input = input;
 
         for _ in 0..n {
-            let (after_input, result) = match parser.parse(new_input) {
-                Ok((input, result)) => (input, result),
-                Err((_, err)) => return Err((input, err)),
+            let (new_input, new_context, result) = match parser.parse(input, context) {
+                Ok((input, context, result)) => (input, context, result),
+                Err((_, context, err)) => return Err((input, context, err)),
             };
             results.push(result);
-            new_input = after_input;
+            input = new_input;
+            context = new_context;
         }
 
-        Ok((new_input, results))
+        Ok((input, context, results))
     }
 }
 
-pub fn consume<'a, F>(condition: F) -> impl Parser<'a, u8>
+pub fn consume<'a, 'c, F>(condition: F) -> impl Parser<'a, 'c, u8>
 where
+    'c: 'a,
     F: Fn(u8) -> bool,
 {
-    move |input: &'a [u8]| match input.first() {
-        Some(&byte) if condition(byte) => Ok((&input[1..], byte)),
-        Some(&byte) => Err((input, AmlError::UnexpectedByte(byte))),
-        None => Err((input, AmlError::UnexpectedEndOfStream)),
+    move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
+        Some(&byte) if condition(byte) => Ok((&input[1..], context, byte)),
+        Some(&byte) => Err((input, context, AmlError::UnexpectedByte(byte))),
+        None => Err((input, context, AmlError::UnexpectedEndOfStream)),
     }
 }
 
-pub fn comment_scope<'a, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, R>
+pub fn comment_scope<'a, 'c, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, 'c, R>
 where
+    'c: 'a,
     R: core::fmt::Debug,
-    P: Parser<'a, R>,
+    P: Parser<'a, 'c, R>,
 {
-    move |input| {
+    move |input, context| {
         trace!("--> {}", scope_name);
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
-        let (new_input, result) = parser.parse(input)?;
+        let (new_input, context, result) = parser.parse(input, context)?;
         trace!("<-- {}({:?})", scope_name, result);
-        Ok((new_input, result))
+        Ok((new_input, context, result))
     }
 }
 
-pub struct Or<'a, P1, P2, R>
+pub struct Or<'a, 'c, P1, P2, R>
 where
-    P1: Parser<'a, R>,
-    P2: Parser<'a, R>,
+    'c: 'a,
+    P1: Parser<'a, 'c, R>,
+    P2: Parser<'a, 'c, R>,
 {
     p1: P1,
     p2: P2,
-    _phantom: PhantomData<&'a R>,
+    _phantom: PhantomData<(&'a R, &'c ())>,
 }
 
-impl<'a, P1, P2, R> Parser<'a, R> for Or<'a, P1, P2, R>
+impl<'a, 'c, P1, P2, R> Parser<'a, 'c, R> for Or<'a, 'c, P1, P2, R>
 where
-    P1: Parser<'a, R>,
-    P2: Parser<'a, R>,
+    'c: 'a,
+    P1: Parser<'a, 'c, R>,
+    P2: Parser<'a, 'c, R>,
 {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R> {
-        match self.p1.parse(input) {
-            Ok(result) => return Ok(result),
-            Err(_) => (),
-        }
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R> {
+        let context = match self.p1.parse(input, context) {
+            Ok(parse_result) => return Ok(parse_result),
+            Err((_, context, _)) => context,
+        };
 
-        self.p2.parse(input)
+        self.p2.parse(input, context)
     }
 }
 
-pub struct Map<'a, P, F, R, A>
+pub struct Map<'a, 'c, P, F, R, A>
 where
-    P: Parser<'a, R>,
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
     F: Fn(R) -> A,
 {
     parser: P,
     map_fn: F,
-    _phantom: PhantomData<&'a (R, A)>,
+    _phantom: PhantomData<(&'a (R, A), &'c ())>,
 }
 
-impl<'a, P, F, R, A> Parser<'a, A> for Map<'a, P, F, R, A>
+impl<'a, 'c, P, F, R, A> Parser<'a, 'c, A> for Map<'a, 'c, P, F, R, A>
 where
-    P: Parser<'a, R>,
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
     F: Fn(R) -> A,
 {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, A> {
-        self.parser.parse(input).map(|(new_input, result)| (new_input, (self.map_fn)(result)))
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
+        self.parser
+            .parse(input, context)
+            .map(|(new_input, new_context, result)| (new_input, new_context, (self.map_fn)(result)))
     }
 }
 
-pub struct DiscardResult<'a, P, R>
+pub struct DiscardResult<'a, 'c, P, R>
 where
-    P: Parser<'a, R>,
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
 {
     parser: P,
-    _phantom: PhantomData<&'a R>,
+    _phantom: PhantomData<(&'a R, &'c ())>,
 }
 
-impl<'a, P, R> Parser<'a, ()> for DiscardResult<'a, P, R>
+impl<'a, 'c, P, R> Parser<'a, 'c, ()> for DiscardResult<'a, 'c, P, R>
 where
-    P: Parser<'a, R>,
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
 {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, ()> {
-        self.parser.parse(input).map(|(new_input, _)| (new_input, ()))
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, ()> {
+        self.parser
+            .parse(input, context)
+            .map(|(new_input, new_context, _)| (new_input, new_context, ()))
     }
 }
 
-pub struct Then<'a, P1, P2, R1, R2>
+pub struct Then<'a, 'c, P1, P2, R1, R2>
 where
-    P1: Parser<'a, R1>,
-    P2: Parser<'a, R2>,
+    'c: 'a,
+    P1: Parser<'a, 'c, R1>,
+    P2: Parser<'a, 'c, R2>,
 {
     p1: P1,
     p2: P2,
-    _phantom: PhantomData<&'a (R1, R2)>,
+    _phantom: PhantomData<(&'a (R1, R2), &'c ())>,
 }
 
-impl<'a, P1, P2, R1, R2> Parser<'a, (R1, R2)> for Then<'a, P1, P2, R1, R2>
+impl<'a, 'c, P1, P2, R1, R2> Parser<'a, 'c, (R1, R2)> for Then<'a, 'c, P1, P2, R1, R2>
 where
-    P1: Parser<'a, R1>,
-    P2: Parser<'a, R2>,
+    'c: 'a,
+    P1: Parser<'a, 'c, R1>,
+    P2: Parser<'a, 'c, R2>,
 {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, (R1, R2)> {
-        self.p1.parse(input).and_then(|(next_input, result_a)| {
-            self.p2
-                .parse(next_input)
-                .map(|(final_input, result_b)| (final_input, (result_a, result_b)))
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, (R1, R2)> {
+        self.p1.parse(input, context).and_then(|(next_input, context, result_a)| {
+            self.p2.parse(next_input, context).map(|(final_input, context, result_b)| {
+                (final_input, context, (result_a, result_b))
+            })
         })
     }
 }
 
-pub struct Feed<'a, P1, P2, F, R1, R2>
+pub struct Feed<'a, 'c, P1, P2, F, R1, R2>
 where
-    P1: Parser<'a, R1>,
-    P2: Parser<'a, R2>,
+    'c: 'a,
+    P1: Parser<'a, 'c, R1>,
+    P2: Parser<'a, 'c, R2>,
     F: Fn(R1) -> P2,
 {
     parser: P1,
     producer_fn: F,
-    _phantom: PhantomData<&'a (R1, R2)>,
+    _phantom: PhantomData<(&'a (R1, R2), &'c ())>,
 }
 
-impl<'a, P1, P2, F, R1, R2> Parser<'a, R2> for Feed<'a, P1, P2, F, R1, R2>
+impl<'a, 'c, P1, P2, F, R1, R2> Parser<'a, 'c, R2> for Feed<'a, 'c, P1, P2, F, R1, R2>
 where
-    P1: Parser<'a, R1>,
-    P2: Parser<'a, R2>,
+    'c: 'a,
+    P1: Parser<'a, 'c, R1>,
+    P2: Parser<'a, 'c, R2>,
     F: Fn(R1) -> P2,
 {
-    fn parse(&self, input: &'a [u8]) -> ParseResult<'a, R2> {
-        let (input, first_result) = self.parser.parse(input)?;
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R2> {
+        let (input, context, first_result) = self.parser.parse(input, context)?;
 
         // We can now produce the second parser, and parse using that.
         let second_parser = (self.producer_fn)(first_result);
-        second_parser.parse(input)
+        second_parser.parse(input, context)
     }
 }
 
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
+// TODO: maybe this should emit a custom error at the end? "None of these parsers could parse
+// this?" Or maybe just a specific UnexpectedByte?
 pub macro choice {
     ($first_parser: expr) => {
         $first_parser
@@ -304,25 +346,48 @@ mod tests {
 
     #[test]
     fn test_take_n() {
-        check_err!(take_n(1).parse(&[]), AmlError::UnexpectedEndOfStream, &[]);
-        check_err!(take_n(2).parse(&[0xf5]), AmlError::UnexpectedEndOfStream, &[0xf5]);
+        let mut context = AmlContext::new();
+        check_err!(take_n(1).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
+        check_err!(
+            take_n(2).parse(&[0xf5], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[0xf5]
+        );
 
-        check_ok!(take_n(1).parse(&[0xff]), &[0xff], &[]);
-        check_ok!(take_n(1).parse(&[0xff, 0xf8]), &[0xff], &[0xf8]);
-        check_ok!(take_n(2).parse(&[0xff, 0xf8]), &[0xff, 0xf8], &[]);
+        check_ok!(take_n(1).parse(&[0xff], &mut context), &[0xff], &[]);
+        check_ok!(take_n(1).parse(&[0xff, 0xf8], &mut context), &[0xff], &[0xf8]);
+        check_ok!(take_n(2).parse(&[0xff, 0xf8], &mut context), &[0xff, 0xf8], &[]);
     }
 
     #[test]
     fn test_take_ux() {
-        check_err!(take_u16().parse(&[0x34]), AmlError::UnexpectedEndOfStream, &[0x34]);
-        check_ok!(take_u16().parse(&[0x34, 0x12]), 0x1234, &[]);
+        let mut context = AmlContext::new();
+        check_err!(
+            take_u16().parse(&[0x34], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[0x34]
+        );
+        check_ok!(take_u16().parse(&[0x34, 0x12], &mut context), 0x1234, &[]);
 
-        check_err!(take_u32().parse(&[0x34, 0x12]), AmlError::UnexpectedEndOfStream, &[0x34, 0x12]);
-        check_ok!(take_u32().parse(&[0x34, 0x12, 0xf4, 0xc3, 0x3e]), 0xc3f41234, &[0x3e]);
-
-        check_err!(take_u64().parse(&[0x34]), AmlError::UnexpectedEndOfStream, &[0x34]);
+        check_err!(
+            take_u32().parse(&[0x34, 0x12], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[0x34, 0x12]
+        );
         check_ok!(
-            take_u64().parse(&[0x34, 0x12, 0x35, 0x76, 0xd4, 0x43, 0xa3, 0xb6, 0xff, 0x00]),
+            take_u32().parse(&[0x34, 0x12, 0xf4, 0xc3, 0x3e], &mut context),
+            0xc3f41234,
+            &[0x3e]
+        );
+
+        check_err!(
+            take_u64().parse(&[0x34], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[0x34]
+        );
+        check_ok!(
+            take_u64()
+                .parse(&[0x34, 0x12, 0x35, 0x76, 0xd4, 0x43, 0xa3, 0xb6, 0xff, 0x00], &mut context),
             0xb6a343d476351234,
             &[0xff, 0x00]
         );

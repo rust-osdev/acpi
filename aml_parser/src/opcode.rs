@@ -1,4 +1,4 @@
-use crate::{parser::*, AmlError};
+use crate::{parser::*, AmlContext, AmlError};
 
 pub const NULL_NAME: u8 = 0x00;
 pub const DUAL_NAME_PREFIX: u8 = 0x2E;
@@ -32,15 +32,21 @@ pub const EXT_DEVICE_OP: u8 = 0x82;
 
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
-pub(crate) fn opcode<'a>(opcode: u8) -> impl Parser<'a, ()> {
-    move |stream: &'a [u8]| match stream.first() {
-        None => Err((stream, AmlError::UnexpectedEndOfStream)),
-        Some(&byte) if byte == opcode => Ok((&stream[1..], ())),
-        Some(&byte) => Err((stream, AmlError::UnexpectedByte(byte))),
+pub(crate) fn opcode<'a, 'c>(opcode: u8) -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
+        None => Err((input, context, AmlError::UnexpectedEndOfStream)),
+        Some(&byte) if byte == opcode => Ok((&input[1..], context, ())),
+        Some(&byte) => Err((input, context, AmlError::UnexpectedByte(byte))),
     }
 }
 
-pub(crate) fn ext_opcode<'a>(ext_opcode: u8) -> impl Parser<'a, ()> {
+pub(crate) fn ext_opcode<'a, 'c>(ext_opcode: u8) -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
     opcode(EXT_OPCODE_PREFIX).then(opcode(ext_opcode)).map(|_| ())
 }
 
@@ -51,23 +57,42 @@ mod tests {
 
     #[test]
     fn empty() {
-        check_err!(opcode(NULL_NAME).parse(&[]), AmlError::UnexpectedEndOfStream, &[]);
-        check_err!(ext_opcode(EXT_FIELD_OP).parse(&[]), AmlError::UnexpectedEndOfStream, &[]);
+        let mut context = AmlContext::new();
+        check_err!(
+            opcode(NULL_NAME).parse(&[], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[]
+        );
+        check_err!(
+            ext_opcode(EXT_FIELD_OP).parse(&[], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[]
+        );
     }
 
     #[test]
     fn simple_opcodes() {
-        check_ok!(opcode(SCOPE_OP).parse(&[SCOPE_OP]), (), &[]);
-        check_ok!(opcode(NAME_OP).parse(&[NAME_OP, 0x31, 0x55, 0xf3]), (), &[0x31, 0x55, 0xf3]);
+        let mut context = AmlContext::new();
+        check_ok!(opcode(SCOPE_OP).parse(&[SCOPE_OP], &mut context), (), &[]);
+        check_ok!(
+            opcode(NAME_OP).parse(&[NAME_OP, 0x31, 0x55, 0xf3], &mut context),
+            (),
+            &[0x31, 0x55, 0xf3]
+        );
     }
 
     #[test]
     fn extended_opcodes() {
+        let mut context = AmlContext::new();
         check_err!(
-            ext_opcode(EXT_FIELD_OP).parse(&[EXT_FIELD_OP, EXT_FIELD_OP]),
+            ext_opcode(EXT_FIELD_OP).parse(&[EXT_FIELD_OP, EXT_FIELD_OP], &mut context),
             AmlError::UnexpectedByte(EXT_FIELD_OP),
             &[EXT_FIELD_OP, EXT_FIELD_OP]
         );
-        check_ok!(ext_opcode(EXT_FIELD_OP).parse(&[EXT_OPCODE_PREFIX, EXT_FIELD_OP]), (), &[]);
+        check_ok!(
+            ext_opcode(EXT_FIELD_OP).parse(&[EXT_OPCODE_PREFIX, EXT_FIELD_OP], &mut context),
+            (),
+            &[]
+        );
     }
 }
