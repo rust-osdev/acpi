@@ -19,6 +19,13 @@ where
         Map { parser: self, map_fn, _phantom: PhantomData }
     }
 
+    fn map_with_context<F, A>(self, map_fn: F) -> MapWithContext<'a, 'c, Self, F, R, A>
+    where
+        F: Fn(R, &'c mut AmlContext) -> (A, &'c mut AmlContext),
+    {
+        MapWithContext { parser: self, map_fn, _phantom: PhantomData }
+    }
+
     fn discard_result(self) -> DiscardResult<'a, 'c, Self, R> {
         DiscardResult { parser: self, _phantom: PhantomData }
     }
@@ -243,7 +250,32 @@ where
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
         self.parser
             .parse(input, context)
-            .map(|(new_input, new_context, result)| (new_input, new_context, (self.map_fn)(result)))
+            .map(|(new_input, context, result)| (new_input, context, (self.map_fn)(result)))
+    }
+}
+
+pub struct MapWithContext<'a, 'c, P, F, R, A>
+where
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
+    F: Fn(R, &'c mut AmlContext) -> (A, &'c mut AmlContext),
+{
+    parser: P,
+    map_fn: F,
+    _phantom: PhantomData<(&'a (R, A), &'c ())>,
+}
+
+impl<'a, 'c, P, F, R, A> Parser<'a, 'c, A> for MapWithContext<'a, 'c, P, F, R, A>
+where
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
+    F: Fn(R, &'c mut AmlContext) -> (A, &'c mut AmlContext),
+{
+    fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
+        self.parser.parse(input, context).map(|(new_input, context, result)| {
+            let (mapped_result, context) = (self.map_fn)(result, context);
+            (new_input, context, mapped_result)
+        })
     }
 }
 

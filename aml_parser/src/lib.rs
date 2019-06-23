@@ -37,7 +37,7 @@ pub enum AmlError {
 
 #[derive(Debug)]
 pub struct AmlContext {
-    namespace: BTreeMap<String, AmlValue>,
+    pub namespace: BTreeMap<String, AmlValue>,
 }
 
 impl AmlContext {
@@ -50,15 +50,12 @@ impl AmlContext {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
-        match term_object::term_list(
-            PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength
-        )
-        .parse(stream, self)
-        {
+
+        let table_length = PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength;
+        match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
             Err((remaining, _context, err)) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
-                trace!("Remaining AML: {:02x?}", remaining);
                 Err(err)
             }
         }
