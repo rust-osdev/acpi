@@ -68,6 +68,28 @@ impl FieldFlags {
         }
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MethodFlags(u8);
+
+impl MethodFlags {
+    pub fn new(value: u8) -> MethodFlags {
+        MethodFlags(value)
+    }
+
+    pub fn arg_count(&self) -> u8 {
+        self.0.get_bits(0..3)
+    }
+
+    pub fn serialize(&self) -> bool {
+        self.0.get_bit(3)
+    }
+
+    pub fn sync_level(&self) -> u8 {
+        self.0.get_bits(4..8)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlValue {
     Integer(u64),

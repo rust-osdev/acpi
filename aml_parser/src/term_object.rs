@@ -1,7 +1,17 @@
 use crate::{
     name_object::{name_seg, name_string},
     opcode::{self, ext_opcode, opcode},
-    parser::{choice, comment_scope, take, take_u16, take_u32, take_u64, ParseResult, Parser},
+    parser::{
+        choice,
+        comment_scope,
+        take,
+        take_to_end_of_pkglength,
+        take_u16,
+        take_u32,
+        take_u64,
+        ParseResult,
+        Parser,
+    },
     pkg_length::{pkg_length, PkgLength},
     value::{AmlValue, FieldFlags},
     AmlContext,
@@ -30,7 +40,6 @@ where
     }
 }
 
-// TODO: maybe return `AmlValue` on success
 pub fn term_object<'a, 'c>() -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
@@ -39,7 +48,23 @@ where
      * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
      * NamespaceModifierObj := DefAlias | DefName | DefScope
      */
-    comment_scope("TermObj", choice!(def_scope(), def_op_region(), def_field()))
+    comment_scope("TermObj", choice!(def_scope(), named_obj()))
+}
+
+pub fn named_obj<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField | DefCreateDWordField |
+     *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
+     *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone |
+     *             DefMethod | DefMutex
+     *
+     * XXX: DefMethod and DefMutex (at least) are not included in any rule in the AML grammar,
+     * but are defined in the NamedObj section so we assume they're part of NamedObj
+     */
+    comment_scope("NamedObj", choice!(def_op_region(), def_field(), def_method()))
 }
 
 pub fn def_scope<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -172,6 +197,39 @@ where
     });
 
     choice!(reserved_field, access_field, named_field)
+}
+
+pub fn def_method<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefMethod := 0x14 PkgLength NameString MethodFlags TermList
+     * MethodFlags := ByteData (where bits 0-2: ArgCount (0 to 7)
+     *                                bit 3: SerializeFlag (0 = Not Serialized, 1 = Serialized)
+     *                                bits 4-7: SyncLevel (0x00 to 0x0f))
+     */
+    opcode(opcode::METHOD_OP)
+        .then(comment_scope(
+            "DefMethod",
+            pkg_length()
+                .then(name_string())
+                .then(take())
+                .feed(|((length, name), flags)| {
+                    take_to_end_of_pkglength(length).map(move |code| (name.clone(), flags, code))
+                })
+                .map_with_context(|(name, flags, code), context| {
+                    // TODO: put it in the namespace
+                    trace!(
+                        "Method with name {} with flags {:#b}, length = {}",
+                        name,
+                        flags,
+                        code.len()
+                    );
+                    ((), context)
+                }),
+        ))
+        .discard_result()
 }
 
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

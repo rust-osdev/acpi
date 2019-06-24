@@ -1,4 +1,4 @@
-use crate::{AmlContext, AmlError};
+use crate::{pkg_length::PkgLength, AmlContext, AmlError};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 use log::trace;
@@ -138,17 +138,27 @@ where
     }
 }
 
-pub fn take_n<'a, 'c>(n: usize) -> impl Parser<'a, 'c, &'a [u8]>
+pub fn take_n<'a, 'c>(n: u32) -> impl Parser<'a, 'c, &'a [u8]>
 where
     'c: 'a,
 {
     move |input: &'a [u8], context| {
-        if input.len() < n {
+        if (input.len() as u32) < n {
             return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
-        let (result, new_input) = input.split_at(n);
+        let (result, new_input) = input.split_at(n as usize);
         Ok((new_input, context, result))
+    }
+}
+
+pub fn take_to_end_of_pkglength<'a, 'c>(length: PkgLength) -> impl Parser<'a, 'c, &'a [u8]>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context| {
+        let bytes_to_take = (input.len() as u32) - length.end_offset;
+        take_n(bytes_to_take).parse(input, context)
     }
 }
 

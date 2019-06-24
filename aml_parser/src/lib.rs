@@ -50,7 +50,6 @@ impl AmlContext {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
-
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength;
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),

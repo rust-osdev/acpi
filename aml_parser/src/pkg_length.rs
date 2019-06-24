@@ -64,7 +64,7 @@ where
         }
 
         let (new_input, context, length): (&[u8], &mut AmlContext, u32) =
-            match take_n(byte_count as usize).parse(new_input, context) {
+            match take_n(byte_count as u32).parse(new_input, context) {
                 Ok((new_input, context, bytes)) => {
                     let initial_length = u32::from(lead_byte.get_bits(0..4));
                     (
