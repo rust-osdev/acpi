@@ -20,15 +20,15 @@ pub const DWORD_CONST: u8 = 0x0c;
 pub const STRING_PREFIX: u8 = 0x0d;
 pub const QWORD_CONST: u8 = 0x0e;
 
-pub const NAME_OP: u8 = 0x08;
-pub const SCOPE_OP: u8 = 0x10;
-pub const BUFFER_OP: u8 = 0x11;
-pub const PACKAGE_OP: u8 = 0x12;
-pub const METHOD_OP: u8 = 0x14;
+pub const DEF_NAME_OP: u8 = 0x08;
+pub const DEF_SCOPE_OP: u8 = 0x10;
+pub const DEF_BUFFER_OP: u8 = 0x11;
+pub const DEF_PACKAGE_OP: u8 = 0x12;
+pub const DEF_METHOD_OP: u8 = 0x14;
 pub const EXT_REVISION_OP: u8 = 0x30;
-pub const EXT_OP_REGION_OP: u8 = 0x80;
-pub const EXT_FIELD_OP: u8 = 0x81;
-pub const EXT_DEVICE_OP: u8 = 0x82;
+pub const EXT_DEF_OP_REGION_OP: u8 = 0x80;
+pub const EXT_DEF_FIELD_OP: u8 = 0x81;
+pub const EXT_DEF_DEVICE_OP: u8 = 0x82;
 
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
@@ -64,7 +64,7 @@ mod tests {
             &[]
         );
         check_err!(
-            ext_opcode(EXT_FIELD_OP).parse(&[], &mut context),
+            ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context),
             AmlError::UnexpectedEndOfStream,
             &[]
         );
@@ -73,9 +73,9 @@ mod tests {
     #[test]
     fn simple_opcodes() {
         let mut context = AmlContext::new();
-        check_ok!(opcode(SCOPE_OP).parse(&[SCOPE_OP], &mut context), (), &[]);
+        check_ok!(opcode(DEF_SCOPE_OP).parse(&[DEF_SCOPE_OP], &mut context), (), &[]);
         check_ok!(
-            opcode(NAME_OP).parse(&[NAME_OP, 0x31, 0x55, 0xf3], &mut context),
+            opcode(DEF_NAME_OP).parse(&[DEF_NAME_OP, 0x31, 0x55, 0xf3], &mut context),
             (),
             &[0x31, 0x55, 0xf3]
         );
@@ -85,12 +85,13 @@ mod tests {
     fn extended_opcodes() {
         let mut context = AmlContext::new();
         check_err!(
-            ext_opcode(EXT_FIELD_OP).parse(&[EXT_FIELD_OP, EXT_FIELD_OP], &mut context),
-            AmlError::UnexpectedByte(EXT_FIELD_OP),
-            &[EXT_FIELD_OP, EXT_FIELD_OP]
+            ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP], &mut context),
+            AmlError::UnexpectedByte(EXT_DEF_FIELD_OP),
+            &[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP]
         );
         check_ok!(
-            ext_opcode(EXT_FIELD_OP).parse(&[EXT_OPCODE_PREFIX, EXT_FIELD_OP], &mut context),
+            ext_opcode(EXT_DEF_FIELD_OP)
+                .parse(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP], &mut context),
             (),
             &[]
         );

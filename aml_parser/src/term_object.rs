@@ -18,7 +18,7 @@ use crate::{
     AmlError,
 };
 use alloc::string::String;
-use log::{debug, trace};
+use log::trace;
 
 /// `TermList`s are usually found within explicit-length objects (so they have a `PkgLength`
 /// elsewhere in the structure), so this takes a number of bytes to parse.
@@ -46,9 +46,18 @@ where
 {
     /*
      * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
+     */
+    comment_scope("TermObj", choice!(namespace_modifier(), named_obj()))
+}
+
+pub fn namespace_modifier<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
      * NamespaceModifierObj := DefAlias | DefName | DefScope
      */
-    comment_scope("TermObj", choice!(def_scope(), named_obj()))
+    choice!(def_name(), def_scope())
 }
 
 pub fn named_obj<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -64,7 +73,28 @@ where
      * XXX: DefMethod and DefMutex (at least) are not included in any rule in the AML grammar,
      * but are defined in the NamedObj section so we assume they're part of NamedObj
      */
-    comment_scope("NamedObj", choice!(def_op_region(), def_field(), def_method()))
+    comment_scope("NamedObj", choice!(def_op_region(), def_field(), def_method(), def_device()))
+}
+
+pub fn def_name<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefName := 0x08 NameString DataRefObject
+     */
+    opcode(opcode::DEF_NAME_OP)
+        .then(comment_scope(
+            "DefName",
+            name_string().then(data_ref_object()).map_with_context(
+                |(name, data_ref_object), context| {
+                    // TODO: add to namespace
+                    trace!("Defined name: {}", name);
+                    ((), context)
+                },
+            ),
+        ))
+        .discard_result()
 }
 
 pub fn def_scope<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -74,13 +104,25 @@ where
     /*
      * DefScope := 0x10 PkgLength NameString TermList
      */
-    opcode(opcode::SCOPE_OP)
+    opcode(opcode::DEF_SCOPE_OP)
         .then(comment_scope(
             "DefScope",
-            pkg_length().then(name_string()).feed(move |(pkg_length, name)| {
-                debug!("Scope with name: {}, length: {:?}", name, pkg_length);
-                term_list(pkg_length)
-            }),
+            pkg_length()
+                .then(name_string())
+                .map_with_context(|(length, name), context| {
+                    // TODO: change scope in `context`
+                    trace!("Moving to scope: {:?}", name);
+                    ((length, name), context)
+                })
+                .feed(move |(pkg_length, name)| {
+                    trace!("Scope with name: {}, length: {:?}", name, pkg_length);
+                    term_list(pkg_length).map(move |_| name.clone())
+                })
+                .map_with_context(|name, context| {
+                    // TODO: remove scope
+                    trace!("Exiting scope: {}", name);
+                    ((), context)
+                }),
         ))
         .discard_result()
 }
@@ -106,13 +148,14 @@ where
      * RegionOffset := TermArg => Integer
      * RegionLen := TermArg => Integer
      */
-    ext_opcode(opcode::EXT_OP_REGION_OP)
+    ext_opcode(opcode::EXT_DEF_OP_REGION_OP)
         .then(comment_scope(
             "DefOpRegion",
-            name_string().then(take()).then(term_arg()).then(term_arg()).map(
-                |(((name, space), offset), region_len)| {
+            name_string().then(take()).then(term_arg()).then(term_arg()).map_with_context(
+                |(((name, space), offset), region_len), context| {
                     trace!("Op region: {}, {}, {:?}, {:?}", name, space, offset, region_len);
-                    ()
+                    // TODO: add to namespace
+                    ((), context)
                 },
             ),
         ))
@@ -127,7 +170,7 @@ where
      * DefField = ExtOpPrefix 0x81 PkgLength NameString FieldFlags FieldList
      * FieldFlags := ByteData
      */
-    ext_opcode(opcode::EXT_FIELD_OP)
+    ext_opcode(opcode::EXT_DEF_FIELD_OP)
         .then(comment_scope(
             "DefField",
             pkg_length().then(name_string()).then(take()).feed(
@@ -177,10 +220,13 @@ where
      */
     // TODO: replace these maps with `with_context` and register the fields in the namespace
     // TODO: parse ConnectField and ExtendedAccessField
-    let reserved_field =
-        opcode(opcode::RESERVED_FIELD).then(pkg_length()).map(|((), pkg_length)| {
+    let reserved_field = opcode(opcode::RESERVED_FIELD).then(pkg_length()).map_with_context(
+        |((), pkg_length), context| {
             trace!("Adding reserved field with length: {}", pkg_length.raw_length);
-        });
+            // TODO: put it in the namespace
+            ((), context)
+        },
+    );
 
     let access_field = opcode(opcode::ACCESS_FIELD).then(take()).then(take()).map(
         |(((), access_type), access_attrib)| {
@@ -189,11 +235,14 @@ where
                 access_type,
                 access_attrib
             );
+            // TODO: put it in the namespace
         },
     );
 
-    let named_field = name_seg().then(pkg_length()).map(|(name, length)| {
+    let named_field = name_seg().then(pkg_length()).map_with_context(|(name, length), context| {
         trace!("Named field with name {} and length {}", name.as_str(), length.raw_length);
+        // TODO: put it in the namespace
+        ((), context)
     });
 
     choice!(reserved_field, access_field, named_field)
@@ -209,7 +258,7 @@ where
      *                                bit 3: SerializeFlag (0 = Not Serialized, 1 = Serialized)
      *                                bits 4-7: SyncLevel (0x00 to 0x0f))
      */
-    opcode(opcode::METHOD_OP)
+    opcode(opcode::DEF_METHOD_OP)
         .then(comment_scope(
             "DefMethod",
             pkg_length()
@@ -232,6 +281,28 @@ where
         .discard_result()
 }
 
+pub fn def_device<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefDevice := ExtOpPrefix 0x82 PkgLength NameString TermList
+     */
+    ext_opcode(opcode::EXT_DEF_DEVICE_OP)
+        .then(comment_scope(
+            "DefDevice",
+            pkg_length()
+                .then(name_string())
+                .feed(|(length, name)| term_list(length).map(move |result| (name.clone(), result)))
+                .map_with_context(|(name, result), context| {
+                    // TODO: add to namespace
+                    trace!("Device with name: {}", name);
+                    ((), context)
+                }),
+        ))
+        .discard_result()
+}
+
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
@@ -241,6 +312,16 @@ where
      */
     // TODO: this doesn't yet parse Term2Opcode, ArgObj, or LocalObj
     comment_scope("TermArg", choice!(data_object()))
+}
+
+pub fn data_ref_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DataRefObject := DataObject | ObjectReference | DDBHandle
+     */
+    comment_scope("DataRefObject", choice!(data_object()))
 }
 
 pub fn data_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
