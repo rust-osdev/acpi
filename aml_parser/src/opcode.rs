@@ -29,6 +29,7 @@ pub const EXT_REVISION_OP: u8 = 0x30;
 pub const EXT_DEF_OP_REGION_OP: u8 = 0x80;
 pub const EXT_DEF_FIELD_OP: u8 = 0x81;
 pub const EXT_DEF_DEVICE_OP: u8 = 0x82;
+pub const EXT_DEF_PROCESSOR_OP: u8 = 0x83;
 
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 

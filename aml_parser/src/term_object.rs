@@ -83,6 +83,9 @@ where
             def_field(),
             def_method(),
             def_device(),
+            def_processor(),
+        ),
+    )
 }
 
 pub fn def_name<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -376,6 +379,32 @@ where
     'c: 'a,
 {
     choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string))))
+}
+
+pub fn def_processor<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefProcessor := ExtOpPrefix 0x83 PkgLength NameString ProcID PblkAddress PblkLen TermList
+     * ProcID := ByteData
+     * PblkAddress := DWordData
+     * PblkLen := ByteData
+     */
+    // TODO: do something sensible with the result of this
+    ext_opcode(opcode::EXT_DEF_PROCESSOR_OP)
+        .then(comment_scope(
+            "DefProcessor",
+            pkg_length().then(name_string()).then(take()).then(take_u32()).then(take()).feed(
+                |((((pkg_length, name), proc_id), pblk_address), pblk_len)| {
+                    trace!("Defined processor called {} with id {}", name, proc_id);
+                    term_list(pkg_length).map(move |result| {
+                        Ok((result, name.clone(), proc_id, pblk_address, pblk_len))
+                    })
+                },
+            ),
+        ))
+        .discard_result()
 }
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
