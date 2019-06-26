@@ -96,4 +96,30 @@ pub enum AmlValue {
     Integer(u64),
     String(String),
     Field { flags: FieldFlags, offset: u64, length: u64 },
+impl AmlValue {
+    pub fn as_integer(&self) -> Result<u64, AmlError> {
+        match self {
+            AmlValue::Integer(value) => Ok(*value),
+
+            AmlValue::Buffer { size, ref bytes } => {
+                /*
+                 * "The first 8 bytes of the buffer are converted to an integer, taking the first
+                 * byte as the least significant byte of the integer. A zero-length buffer is
+                 * illegal." - §19.6.140
+                 *
+                 * XXX: We return `0` for zero-length buffers because they literally occur in
+                 * the reference implementation.
+                 */
+                let bytes = if bytes.len() > 8 { &bytes[0..8] } else { bytes };
+
+                Ok(bytes.iter().rev().fold(0: u64, |mut i, &popped| {
+                    i <<= 8;
+                    i += popped as u64;
+                    i
+                }))
+            }
+
+            _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
 }

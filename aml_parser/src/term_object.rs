@@ -5,6 +5,7 @@ use crate::{
         choice,
         comment_scope,
         comment_scope_verbose,
+        make_parser_concrete,
         take,
         take_to_end_of_pkglength,
         take_u16,
@@ -18,7 +19,8 @@ use crate::{
     AmlContext,
     AmlError,
 };
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
+use core::str;
 use log::trace;
 
 /// `TermList`s are usually found within explicit-length objects (so they have a `PkgLength`
@@ -313,6 +315,28 @@ where
         .discard_result()
 }
 
+pub fn def_buffer<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefBuffer := 0x11 PkgLength BufferSize ByteList
+     * BufferSize := TermArg => Integer
+     *
+     * XXX: The spec says that zero-length buffers (e.g. the PkgLength is 0) are illegal, but
+     * we've encountered them in QEMU-generated tables, so we return an empty buffer in these
+     * cases.
+     */
+    opcode(opcode::DEF_BUFFER_OP)
+        .then(comment_scope(
+            "DefBuffer",
+            pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
+                take_to_end_of_pkglength(pkg_length)
+                    .map(move |bytes| Ok((bytes.to_vec(), buffer_size.as_integer()?)))
+            }),
+        ))
+        .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
+}
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
@@ -410,7 +434,8 @@ where
         choice!(
             ext_opcode(opcode::EXT_REVISION_OP)
                 .map(|_| Ok(AmlValue::Integer(crate::AML_INTERPRETER_REVISION))),
-            const_parser //TODO: parse DefBuffer here too
+            const_parser,
+            make_parser_concrete!(def_buffer())
         ),
     )
 }
