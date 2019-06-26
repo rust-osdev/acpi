@@ -364,8 +364,25 @@ where
      * RevisionOp := ExtOpPrefix(0x5b) 0x30
      */
     let const_parser = |input: &'a [u8], context: &'c mut AmlContext| {
-        let (new_input, context, op) = take().parse(input, context)?;
+        let string_parser = |input: &'a [u8], context| -> ParseResult<'a, 'c, AmlValue> {
+            /*
+             * Using `position` isn't very efficient here, but is probably fine because the
+             * strings are usually quite short.
+             */
+            let nul_position = match input.iter().position(|&c| c == b'\0') {
+                Some(position) => position,
+                None => return Err((input, context, AmlError::UnterminatedStringConstant)),
+            };
 
+            let string = String::from(match str::from_utf8(&input[0..nul_position]) {
+                Ok(string) => string,
+                Err(_) => return Err((input, context, AmlError::InvalidStringConstant)),
+            });
+
+            Ok((&input[(nul_position + 1)..], context, AmlValue::String(string)))
+        };
+
+        let (new_input, context, op) = take().parse(input, context)?;
         match op {
             opcode::BYTE_CONST => {
                 take().map(|value| Ok(AmlValue::Integer(value as u64))).parse(new_input, context)
@@ -379,7 +396,7 @@ where
             opcode::QWORD_CONST => {
                 take_u64().map(|value| Ok(AmlValue::Integer(value))).parse(new_input, context)
             }
-            // TODO: implement String
+            opcode::STRING_PREFIX => string_parser.parse(new_input, context),
             opcode::ZERO_OP => Ok((new_input, context, AmlValue::Integer(0))),
             opcode::ONE_OP => Ok((new_input, context, AmlValue::Integer(1))),
             opcode::ONES_OP => Ok((new_input, context, AmlValue::Integer(u64::max_value()))),
@@ -446,6 +463,12 @@ mod test {
                 .parse(&[0x0e, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00, 0x67, 0xde, 0x28], &mut context),
             AmlValue::Integer(0xde6700ff651235f3),
             &[0x28]
+        );
+        check_ok!(
+            computational_data()
+                .parse(&[0x0d, b'A', b'B', b'C', b'D', b'\0', 0xff, 0xf5], &mut context),
+            AmlValue::String(String::from("ABCD")),
+            &[0xff, 0xf5]
         );
     }
 }

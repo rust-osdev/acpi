@@ -1,4 +1,5 @@
 use crate::AmlError;
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use bit_field::BitField;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,5 +94,6 @@ impl MethodFlags {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlValue {
     Integer(u64),
+    String(String),
     Field { flags: FieldFlags, offset: u64, length: u64 },
 }

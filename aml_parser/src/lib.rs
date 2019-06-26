@@ -33,6 +33,8 @@ pub enum AmlError {
     UnexpectedByte(u8),
     InvalidNameSeg([u8; 4]),
     InvalidFieldFlags,
+    UnterminatedStringConstant,
+    InvalidStringConstant,
 }
 
 #[derive(Debug)]
