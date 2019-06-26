@@ -1,5 +1,5 @@
 #![no_std]
-#![feature(decl_macro)]
+#![feature(decl_macro, type_ascription)]
 
 extern crate alloc;
 

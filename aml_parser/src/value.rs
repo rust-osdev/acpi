@@ -95,7 +95,11 @@ impl MethodFlags {
 pub enum AmlValue {
     Integer(u64),
     String(String),
+    Scope(BTreeMap<String, AmlValue>),
+    OpRegion { region: RegionSpace, offset: u64, length: u64 },
     Field { flags: FieldFlags, offset: u64, length: u64 },
+    Method { flags: MethodFlags, code: Vec<u8> },
+    Buffer { bytes: Vec<u8>, size: u64 },
     Package(Vec<AmlValue>),
 }
 

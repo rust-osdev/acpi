@@ -227,24 +227,23 @@ where
      * object (it seems to be defined in ASL). We treat BufferData as if it was encoded like
      * DefBuffer, and this seems to work so far.
      */
-    // TODO: replace these maps with `with_context` and register the fields in the namespace
     // TODO: parse ConnectField and ExtendedAccessField
-    let reserved_field = opcode(opcode::RESERVED_FIELD).then(pkg_length()).map_with_context(
-        |((), pkg_length), context| {
-            trace!("Adding reserved field with length: {}", pkg_length.raw_length);
-            // TODO: put it in the namespace
-            ((), context)
-        },
-    );
 
-    let access_field = opcode(opcode::ACCESS_FIELD).then(take()).then(take()).map(
-        |(((), access_type), access_attrib)| {
+    /*
+     * Reserved fields shouldn't actually be added to the namespace; they seem to show gaps in
+     * the operation region that aren't used for anything.
+     */
+    let reserved_field = opcode(opcode::RESERVED_FIELD).then(pkg_length()).discard_result();
+
+    let access_field = opcode(opcode::ACCESS_FIELD).then(take()).then(take()).map_with_context(
+        |(((), access_type), access_attrib), context| {
             trace!(
                 "Adding access field with access_type: {}, access_attrib: {}",
                 access_type,
                 access_attrib
             );
             // TODO: put it in the namespace
+            ((), context)
         },
     );
 
