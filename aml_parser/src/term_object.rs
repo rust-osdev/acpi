@@ -337,6 +337,47 @@ where
         ))
         .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
 }
+
+pub fn def_package<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefPackage := 0x12 PkgLength NumElements PackageElementList
+     * NumElements := ByteData
+     * PackageElementList := Nothing | <PackageElement PackageElementList>
+     * PackageElement := DataRefObject | NameString
+     */
+    opcode(opcode::DEF_PACKAGE_OP)
+        .then(comment_scope(
+            "DefPackage",
+            pkg_length().then(take()).feed(|(pkg_length, num_elements)| {
+                move |mut input, mut context| {
+                    let mut package_contents = Vec::new();
+
+                    while pkg_length.still_parsing(input) {
+                        let (new_input, new_context, value) =
+                            package_element().parse(input, context)?;
+                        input = new_input;
+                        context = new_context;
+
+                        package_contents.push(value);
+                    }
+
+                    assert_eq!(package_contents.len(), num_elements as usize);
+                    Ok((input, context, AmlValue::Package(package_contents)))
+                }
+            }),
+        ))
+        .map(|((), package)| Ok(package))
+}
+
+pub fn package_element<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string))))
+}
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
@@ -368,8 +409,8 @@ where
      * The order of the parsers are important here, as DefPackage and DefVarPackage can be
      * accidently parsed as ComputationalDatas.
      */
-    // TODO: this doesn't yet parse DefPackage or DefVarPackage
-    comment_scope("DataObject", choice!(computational_data()))
+    // TODO: this doesn't yet parse DefVarPackage
+    comment_scope_verbose("DataObject", choice!(def_package(), computational_data()))
 }
 
 pub fn computational_data<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

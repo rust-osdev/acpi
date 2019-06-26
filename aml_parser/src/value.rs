@@ -96,6 +96,9 @@ pub enum AmlValue {
     Integer(u64),
     String(String),
     Field { flags: FieldFlags, offset: u64, length: u64 },
+    Package(Vec<AmlValue>),
+}
+
 impl AmlValue {
     pub fn as_integer(&self) -> Result<u64, AmlError> {
         match self {
