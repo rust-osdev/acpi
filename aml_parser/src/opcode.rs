@@ -47,7 +47,7 @@ pub(crate) fn ext_opcode<'a, 'c>(ext_opcode: u8) -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
 {
-    opcode(EXT_OPCODE_PREFIX).then(opcode(ext_opcode)).map(|_| ())
+    opcode(EXT_OPCODE_PREFIX).then(opcode(ext_opcode)).discard_result()
 }
 
 #[cfg(test)]

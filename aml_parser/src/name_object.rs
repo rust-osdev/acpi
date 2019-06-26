@@ -15,8 +15,9 @@ where
      * NameString := <RootChar('\') NamePath> | <PrefixPath NamePath>
      * PrefixPath := Nothing | <'^' PrefixPath>
      */
-    let root_name_string =
-        opcode(ROOT_CHAR).then(name_path()).map(|((), name_path)| String::from("\\") + &name_path);
+    let root_name_string = opcode(ROOT_CHAR)
+        .then(name_path())
+        .map(|((), name_path)| Ok(String::from("\\") + &name_path));
 
     comment_scope_verbose("NameString", move |input: &'a [u8], context: &'c mut AmlContext| {
         let first_char = match input.first() {
@@ -46,7 +47,7 @@ where
         null_name(),
         dual_name_path(),
         multi_name_path(),
-        name_seg().map(|seg| String::from(seg.as_str()))
+        name_seg().map(|seg| Ok(String::from(seg.as_str())))
     )
 }
 
@@ -57,7 +58,7 @@ where
     /*
      * NullName := 0x00
      */
-    opcode(NULL_NAME).map(|_| String::from(""))
+    opcode(NULL_NAME).map(|_| Ok(String::from("")))
 }
 
 pub fn dual_name_path<'a, 'c>() -> impl Parser<'a, 'c, String>
@@ -70,7 +71,7 @@ where
     opcode(DUAL_NAME_PREFIX)
         .then(name_seg())
         .then(name_seg())
-        .map(|(((), first), second)| String::from(first.as_str()) + second.as_str())
+        .map(|(((), first), second)| Ok(String::from(first.as_str()) + second.as_str()))
 }
 
 pub fn multi_name_path<'a, 'c>() -> impl Parser<'a, 'c, String>

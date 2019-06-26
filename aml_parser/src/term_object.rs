@@ -123,7 +123,7 @@ where
                 })
                 .feed(move |(pkg_length, name)| {
                     trace!("Scope with name: {}, length: {:?}", name, pkg_length);
-                    term_list(pkg_length).map(move |_| name.clone())
+                    term_list(pkg_length).map(move |_| Ok(name.clone()))
                 })
                 .map_with_context(|name, context| {
                     // TODO: remove scope
@@ -272,7 +272,8 @@ where
                 .then(name_string())
                 .then(take())
                 .feed(|((length, name), flags)| {
-                    take_to_end_of_pkglength(length).map(move |code| (name.clone(), flags, code))
+                    take_to_end_of_pkglength(length)
+                        .map(move |code| Ok((name.clone(), flags, code)))
                 })
                 .map_with_context(|(name, flags, code), context| {
                     // TODO: put it in the namespace
@@ -300,7 +301,9 @@ where
             "DefDevice",
             pkg_length()
                 .then(name_string())
-                .feed(|(length, name)| term_list(length).map(move |result| (name.clone(), result)))
+                .feed(|(length, name)| {
+                    term_list(length).map(move |result| Ok((name.clone(), result)))
+                })
                 .map_with_context(|(name, result), context| {
                     // TODO: add to namespace
                     trace!("Device with name: {}", name);
@@ -365,16 +368,16 @@ where
 
         match op {
             opcode::BYTE_CONST => {
-                take().map(|value| AmlValue::Integer(value as u64)).parse(new_input, context)
+                take().map(|value| Ok(AmlValue::Integer(value as u64))).parse(new_input, context)
             }
-            opcode::WORD_CONST => {
-                take_u16().map(|value| AmlValue::Integer(value as u64)).parse(new_input, context)
-            }
-            opcode::DWORD_CONST => {
-                take_u32().map(|value| AmlValue::Integer(value as u64)).parse(new_input, context)
-            }
+            opcode::WORD_CONST => take_u16()
+                .map(|value| Ok(AmlValue::Integer(value as u64)))
+                .parse(new_input, context),
+            opcode::DWORD_CONST => take_u32()
+                .map(|value| Ok(AmlValue::Integer(value as u64)))
+                .parse(new_input, context),
             opcode::QWORD_CONST => {
-                take_u64().map(|value| AmlValue::Integer(value)).parse(new_input, context)
+                take_u64().map(|value| Ok(AmlValue::Integer(value))).parse(new_input, context)
             }
             // TODO: implement String
             opcode::ZERO_OP => Ok((new_input, context, AmlValue::Integer(0))),
@@ -389,7 +392,7 @@ where
         "ComputationalData",
         choice!(
             ext_opcode(opcode::EXT_REVISION_OP)
-                .map(|_| AmlValue::Integer(crate::AML_INTERPRETER_REVISION)),
+                .map(|_| Ok(AmlValue::Integer(crate::AML_INTERPRETER_REVISION))),
             const_parser //TODO: parse DefBuffer here too
         ),
     )

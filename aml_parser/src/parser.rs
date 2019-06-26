@@ -14,7 +14,7 @@ where
 
     fn map<F, A>(self, map_fn: F) -> Map<'a, 'c, Self, F, R, A>
     where
-        F: Fn(R) -> A,
+        F: Fn(R) -> Result<A, AmlError>,
     {
         Map { parser: self, map_fn, _phantom: PhantomData }
     }
@@ -269,7 +269,7 @@ pub struct Map<'a, 'c, P, F, R, A>
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R) -> A,
+    F: Fn(R) -> Result<A, AmlError>,
 {
     parser: P,
     map_fn: F,
@@ -280,12 +280,16 @@ impl<'a, 'c, P, F, R, A> Parser<'a, 'c, A> for Map<'a, 'c, P, F, R, A>
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R) -> A,
+    F: Fn(R) -> Result<A, AmlError>,
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
-        self.parser
-            .parse(input, context)
-            .map(|(new_input, context, result)| (new_input, context, (self.map_fn)(result)))
+        match self.parser.parse(input, context) {
+            Ok((new_input, context, result)) => match (self.map_fn)(result) {
+                Ok(result_value) => Ok((new_input, context, result_value)),
+                Err(err) => Err((input, context, err)),
+            },
+            Err(result) => Err(result),
+        }
     }
 }
 
