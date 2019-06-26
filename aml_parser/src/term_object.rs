@@ -4,6 +4,7 @@ use crate::{
     parser::{
         choice,
         comment_scope,
+        comment_scope_verbose,
         take,
         take_to_end_of_pkglength,
         take_u16,
@@ -47,7 +48,7 @@ where
     /*
      * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
      */
-    comment_scope("TermObj", choice!(namespace_modifier(), named_obj()))
+    comment_scope_verbose("TermObj", choice!(namespace_modifier(), named_obj()))
 }
 
 pub fn namespace_modifier<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -73,7 +74,13 @@ where
      * XXX: DefMethod and DefMutex (at least) are not included in any rule in the AML grammar,
      * but are defined in the NamedObj section so we assume they're part of NamedObj
      */
-    comment_scope("NamedObj", choice!(def_op_region(), def_field(), def_method(), def_device()))
+    comment_scope_verbose(
+        "NamedObj",
+        choice!(
+            def_op_region(),
+            def_field(),
+            def_method(),
+            def_device(),
 }
 
 pub fn def_name<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -311,7 +318,7 @@ where
      * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
      */
     // TODO: this doesn't yet parse Term2Opcode, ArgObj, or LocalObj
-    comment_scope("TermArg", choice!(data_object()))
+    comment_scope_verbose("TermArg", choice!(data_object()))
 }
 
 pub fn data_ref_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -321,7 +328,7 @@ where
     /*
      * DataRefObject := DataObject | ObjectReference | DDBHandle
      */
-    comment_scope("DataRefObject", choice!(data_object()))
+    comment_scope_verbose("DataRefObject", choice!(data_object()))
 }
 
 pub fn data_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -378,7 +385,7 @@ where
         }
     };
 
-    comment_scope(
+    comment_scope_verbose(
         "ComputationalData",
         choice!(
             ext_opcode(opcode::EXT_REVISION_OP)

@@ -205,10 +205,35 @@ where
     P: Parser<'a, 'c, R>,
 {
     move |input, context| {
+        #[cfg(feature = "debug_parser")]
         trace!("--> {}", scope_name);
+
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, context, result) = parser.parse(input, context)?;
-        trace!("<-- {}({:?})", scope_name, result);
+
+        #[cfg(feature = "debug_parser")]
+        trace!("<-- {}", scope_name);
+
+        Ok((new_input, context, result))
+    }
+}
+
+pub fn comment_scope_verbose<'a, 'c, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, 'c, R>
+where
+    'c: 'a,
+    R: core::fmt::Debug,
+    P: Parser<'a, 'c, R>,
+{
+    move |input, context| {
+        #[cfg(feature = "debug_parser_verbose")]
+        trace!("--> {}", scope_name);
+
+        // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
+        let (new_input, context, result) = parser.parse(input, context)?;
+
+        #[cfg(feature = "debug_parser_verbose")]
+        trace!("<-- {}", scope_name);
+
         Ok((new_input, context, result))
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
-    parser::{choice, comment_scope, consume, n_of, take, Parser},
+    parser::{choice, comment_scope_verbose, consume, n_of, take, Parser},
     AmlContext,
     AmlError,
 };
@@ -18,7 +18,7 @@ where
     let root_name_string =
         opcode(ROOT_CHAR).then(name_path()).map(|((), name_path)| String::from("\\") + &name_path);
 
-    comment_scope("NameString", move |input: &'a [u8], context: &'c mut AmlContext| {
+    comment_scope_verbose("NameString", move |input: &'a [u8], context: &'c mut AmlContext| {
         let first_char = match input.first() {
             Some(&c) => c,
             None => return Err((input, context, AmlError::UnexpectedEndOfStream)),
