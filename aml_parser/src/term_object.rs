@@ -84,6 +84,7 @@ where
             def_method(),
             def_device(),
             def_processor(),
+            def_mutex()
         ),
     )
 }
@@ -406,6 +407,27 @@ where
         ))
         .discard_result()
 }
+
+pub fn def_mutex<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefMutex := ExtOpPrefix 0x01 NameString SyncFlags
+     * SyncFlags := ByteData (where bits 0-3: SyncLevel
+     *                              bits 4-7: Reserved)
+     */
+    ext_opcode(opcode::EXT_DEF_MUTEX_OP)
+        .then(comment_scope(
+            "DefMutex",
+            name_string().then(take()).map(|(name, sync_flags)| {
+                trace!("Defined mutex with name {} and sync flags {:b}", name, sync_flags);
+                Ok(())
+            }),
+        ))
+        .discard_result()
+}
+
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
