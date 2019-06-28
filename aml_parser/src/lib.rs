@@ -36,6 +36,9 @@ pub enum AmlError {
     IncompatibleValueConversion,
     UnterminatedStringConstant,
     InvalidStringConstant,
+    /// Error produced when none of the parsers in a `choice!` could parse the next part of the
+    /// stream. Contains the next two bytes to make debugging missing extended opcodes easier.
+    NoParsersCouldParse([u8; 2]),
 }
 
 #[derive(Debug)]

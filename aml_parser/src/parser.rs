@@ -395,13 +395,21 @@ where
     }
 }
 
+pub(crate) fn emit_no_parsers_could_parse<'a, 'c, R>() -> impl Parser<'a, 'c, R>
+where
+    'c: 'a,
+{
+    |input: &'a [u8], context| {
+        Err((input, context, AmlError::NoParsersCouldParse([input[0], input[1]])))
+    }
+}
+
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
-// TODO: maybe this should emit a custom error at the end? "None of these parsers could parse
-// this?" Or maybe just a specific UnexpectedByte?
 pub macro choice {
     ($first_parser: expr) => {
         $first_parser
+        .or(emit_no_parsers_could_parse())
     },
 
     ($first_parser: expr, $($other_parser: expr),*) => {
@@ -409,6 +417,7 @@ pub macro choice {
         $(
             .or($other_parser)
          )*
+        .or(emit_no_parsers_could_parse())
     }
 }
 
