@@ -103,7 +103,7 @@ where
                 |(name, data_ref_object), context| {
                     // TODO: add to namespace
                     trace!("Defined name: {}", name);
-                    ((), context)
+                    (Ok(()), context)
                 },
             ),
         ))
@@ -125,16 +125,16 @@ where
                 .map_with_context(|(length, name), context| {
                     // TODO: change scope in `context`
                     trace!("Moving to scope: {:?}", name);
-                    ((length, name), context)
+                    (Ok((length, name, previous_scope)), context)
                 })
                 .feed(move |(pkg_length, name)| {
                     trace!("Scope with name: {}, length: {:?}", name, pkg_length);
                     term_list(pkg_length).map(move |_| Ok(name.clone()))
                 })
-                .map_with_context(|name, context| {
+                .map_with_context(|(name, previous_scope), context| {
                     // TODO: remove scope
                     trace!("Exiting scope: {}", name);
-                    ((), context)
+                    (Ok(()), context)
                 }),
         ))
         .discard_result()
@@ -168,7 +168,7 @@ where
                 |(((name, space), offset), region_len), context| {
                     trace!("Op region: {}, {}, {:?}, {:?}", name, space, offset, region_len);
                     // TODO: add to namespace
-                    ((), context)
+                    (Ok(()), context)
                 },
             ),
         ))
@@ -247,14 +247,14 @@ where
                 access_attrib
             );
             // TODO: put it in the namespace
-            ((), context)
+            (Ok(()), context)
         },
     );
 
     let named_field = name_seg().then(pkg_length()).map_with_context(|(name, length), context| {
         trace!("Named field with name {} and length {}", name.as_str(), length.raw_length);
         // TODO: put it in the namespace
-        ((), context)
+        (Ok(()), context)
     });
 
     choice!(reserved_field, access_field, named_field)
@@ -288,7 +288,7 @@ where
                         flags,
                         code.len()
                     );
-                    ((), context)
+                    (Ok(()), context)
                 }),
         ))
         .discard_result()
@@ -312,7 +312,7 @@ where
                 .map_with_context(|(name, result), context| {
                     // TODO: add to namespace
                     trace!("Device with name: {}", name);
-                    ((), context)
+                    (Ok(()), context)
                 }),
         ))
         .discard_result()

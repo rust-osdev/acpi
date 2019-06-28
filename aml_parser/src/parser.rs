@@ -1,7 +1,6 @@
 use crate::{pkg_length::PkgLength, AmlContext, AmlError};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use log::trace;
 
 pub type ParseResult<'a, 'c, R> =
     Result<(&'a [u8], &'c mut AmlContext, R), (&'a [u8], &'c mut AmlContext, AmlError)>;
@@ -21,7 +20,7 @@ where
 
     fn map_with_context<F, A>(self, map_fn: F) -> MapWithContext<'a, 'c, Self, F, R, A>
     where
-        F: Fn(R, &'c mut AmlContext) -> (A, &'c mut AmlContext),
+        F: Fn(R, &'c mut AmlContext) -> (Result<A, AmlError>, &'c mut AmlContext),
     {
         MapWithContext { parser: self, map_fn, _phantom: PhantomData }
     }
@@ -297,7 +296,7 @@ pub struct MapWithContext<'a, 'c, P, F, R, A>
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R, &'c mut AmlContext) -> (A, &'c mut AmlContext),
+    F: Fn(R, &'c mut AmlContext) -> (Result<A, AmlError>, &'c mut AmlContext),
 {
     parser: P,
     map_fn: F,
@@ -308,13 +307,16 @@ impl<'a, 'c, P, F, R, A> Parser<'a, 'c, A> for MapWithContext<'a, 'c, P, F, R, A
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R, &'c mut AmlContext) -> (A, &'c mut AmlContext),
+    F: Fn(R, &'c mut AmlContext) -> (Result<A, AmlError>, &'c mut AmlContext),
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
-        self.parser.parse(input, context).map(|(new_input, context, result)| {
-            let (mapped_result, context) = (self.map_fn)(result, context);
-            (new_input, context, mapped_result)
-        })
+        match self.parser.parse(input, context) {
+            Ok((new_input, context, result)) => match (self.map_fn)(result, context) {
+                (Ok(result_value), context) => Ok((new_input, context, result_value)),
+                (Err(err), context) => Err((input, context, err)),
+            },
+            Err(result) => Err(result),
+        }
     }
 }
 
