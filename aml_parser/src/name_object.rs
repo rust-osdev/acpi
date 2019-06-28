@@ -4,10 +4,51 @@ use crate::{
     AmlContext,
     AmlError,
 };
-use alloc::string::String;
-use core::str;
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{fmt, str};
 
-pub fn name_string<'a, 'c>() -> impl Parser<'a, 'c, String>
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct AmlName(pub(crate) Vec<NameComponent>);
+
+impl AmlName {
+    pub fn root() -> AmlName {
+        AmlName(alloc::vec![NameComponent::Root])
+    }
+
+    pub fn as_string(&self) -> String {
+        self.0
+            .iter()
+            .fold(String::new(), |name, component| match component {
+                NameComponent::Root => name + "\\",
+                NameComponent::Prefix => name + "^",
+                NameComponent::Segment(seg) => name + seg.as_str() + ".",
+            })
+            .trim_end_matches('.')
+            .to_string()
+    }
+
+    pub fn is_absolute(&self) -> bool {
+        self.0.first() == Some(&NameComponent::Root)
+    }
+}
+
+impl fmt::Display for AmlName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_string())
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum NameComponent {
+    Root,
+    Prefix,
+    Segment(NameSeg),
+}
+
+pub fn name_string<'a, 'c>() -> impl Parser<'a, 'c, AmlName>
 where
     'c: 'a,
 {
@@ -15,28 +56,29 @@ where
      * NameString := <RootChar('\') NamePath> | <PrefixPath NamePath>
      * PrefixPath := Nothing | <'^' PrefixPath>
      */
-    let root_name_string = opcode(ROOT_CHAR)
-        .then(name_path())
-        .map(|((), name_path)| Ok(String::from("\\") + &name_path));
+    let root_name_string = opcode(ROOT_CHAR).then(name_path()).map(|((), ref name_path)| {
+        let mut name = alloc::vec![NameComponent::Root];
+        name.extend_from_slice(name_path);
+        Ok(AmlName(name))
+    });
 
-    comment_scope_verbose("NameString", move |input: &'a [u8], context: &'c mut AmlContext| {
+    // TODO: combinator to select a parser based on a peeked byte?
+    comment_scope_verbose("NameString", move |input: &'a [u8], context| {
         let first_char = match input.first() {
             Some(&c) => c,
             None => return Err((input, context, AmlError::UnexpectedEndOfStream)),
         };
 
+        // TODO: parse <PrefixPath NamePath> where there are actually PrefixChars
         match first_char {
             ROOT_CHAR => root_name_string.parse(input, context),
-            PREFIX_CHAR => {
-                // TODO: parse <PrefixPath NamePath> where there are actually PrefixChars
-                unimplemented!();
-            }
-            _ => name_path().parse(input, context),
+            PREFIX_CHAR => unimplemented!(),
+            _ => name_path().map(|path| Ok(AmlName(path))).parse(input, context),
         }
     })
 }
 
-pub fn name_path<'a, 'c>() -> impl Parser<'a, 'c, String>
+pub fn name_path<'a, 'c>() -> impl Parser<'a, 'c, Vec<NameComponent>>
 where
     'c: 'a,
 {
@@ -47,34 +89,35 @@ where
         null_name(),
         dual_name_path(),
         multi_name_path(),
-        name_seg().map(|seg| Ok(String::from(seg.as_str())))
+        name_seg().map(|seg| Ok(alloc::vec![NameComponent::Segment(seg)]))
     )
 }
 
-pub fn null_name<'a, 'c>() -> impl Parser<'a, 'c, String>
+pub fn null_name<'a, 'c>() -> impl Parser<'a, 'c, Vec<NameComponent>>
 where
     'c: 'a,
 {
     /*
      * NullName := 0x00
+     *
+     * This doesn't actually allocate because the `Vec`'s capacity is zero.
      */
-    opcode(NULL_NAME).map(|_| Ok(String::from("")))
+    opcode(NULL_NAME).map(|_| Ok(Vec::with_capacity(0)))
 }
 
-pub fn dual_name_path<'a, 'c>() -> impl Parser<'a, 'c, String>
+pub fn dual_name_path<'a, 'c>() -> impl Parser<'a, 'c, Vec<NameComponent>>
 where
     'c: 'a,
 {
     /*
      * DualNamePath := 0x2e NameSeg NameSeg
      */
-    opcode(DUAL_NAME_PREFIX)
-        .then(name_seg())
-        .then(name_seg())
-        .map(|(((), first), second)| Ok(String::from(first.as_str()) + second.as_str()))
+    opcode(DUAL_NAME_PREFIX).then(name_seg()).then(name_seg()).map(|(((), first), second)| {
+        Ok(alloc::vec![NameComponent::Segment(first), NameComponent::Segment(second)])
+    })
 }
 
-pub fn multi_name_path<'a, 'c>() -> impl Parser<'a, 'c, String>
+pub fn multi_name_path<'a, 'c>() -> impl Parser<'a, 'c, Vec<NameComponent>>
 where
     'c: 'a,
 {
@@ -88,7 +131,7 @@ where
             Ok((new_input, context, name_segs)) => Ok((
                 new_input,
                 context,
-                name_segs.iter().fold(String::new(), |name, name_seg| name + name_seg.as_str()),
+                name_segs.iter().map(|&seg| NameComponent::Segment(seg)).collect(),
             )),
             // Correct returned input to the one we haven't touched
             Err((_, context, err)) => Err((input, context, err)),
@@ -96,7 +139,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NameSeg([u8; 4]);
 
 impl NameSeg {
@@ -108,6 +151,13 @@ impl NameSeg {
          * `NameSeg` will be valid UTF8.
          */
         unsafe { str::from_utf8_unchecked(&self.0) }
+    }
+}
+
+// A list of ASCII codes is pretty much never useful, so we always just show it as a string
+impl fmt::Debug for NameSeg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.as_str())
     }
 }
 

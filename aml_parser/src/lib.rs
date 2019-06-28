@@ -18,8 +18,9 @@ pub mod value;
 
 pub use crate::value::AmlValue;
 
-use alloc::{collections::BTreeMap, string::String};
+use alloc::collections::BTreeMap;
 use log::{error, trace};
+use name_object::AmlName;
 use parser::Parser;
 use pkg_length::PkgLength;
 
@@ -43,7 +44,7 @@ pub enum AmlError {
 
 #[derive(Debug)]
 pub struct AmlContext {
-    pub namespace: BTreeMap<String, AmlValue>,
+    namespace: BTreeMap<AmlName, AmlValue>,
 }
 
 impl AmlContext {
@@ -63,6 +64,27 @@ impl AmlContext {
                 error!("Failed to parse AML stream. Err = {:?}", err);
                 Err(err)
             }
+
+    /// Resolves a given path relative to the current scope (if the given path is not absolute).
+    /// The returned path can be used to index the namespace.
+    pub fn resolve_path(&mut self, path: &AmlName) -> AmlName {
+        // TODO: we should normalize the path by resolving prefix chars etc.
+
+        // If the path is absolute, just return it.
+        if path.is_absolute() {
+            return path.clone();
         }
+
+        // Otherwise, it's relative to the current scope so append it onto that.
+        let mut new_path = self.current_scope.clone();
+        new_path.0.extend_from_slice(&(path.0));
+        new_path
+    }
+
+    /// Add an `AmlValue` to the namespace. `path` can either be absolute, or relative (in which
+    /// case it's treated as relative to the current scope).
+    pub fn add_to_namespace(&mut self, path: AmlName, value: AmlValue) {
+        let resolved_path = self.resolve_path(&path);
+        self.namespace.insert(resolved_path, value);
     }
 }

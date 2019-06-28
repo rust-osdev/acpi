@@ -1,5 +1,5 @@
 use crate::{
-    name_object::{name_seg, name_string},
+    name_object::{name_seg, name_string, AmlName},
     opcode::{self, ext_opcode, opcode},
     parser::{
         choice,
