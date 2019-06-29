@@ -15,7 +15,7 @@ use crate::{
         Parser,
     },
     pkg_length::{pkg_length, PkgLength},
-    value::{AmlValue, FieldFlags},
+    value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
 };
@@ -101,8 +101,7 @@ where
             "DefName",
             name_string().then(data_ref_object()).map_with_context(
                 |(name, data_ref_object), context| {
-                    // TODO: add to namespace
-                    trace!("Defined name: {}", name);
+                    context.add_to_namespace(name, AmlValue::Name(box data_ref_object));
                     (Ok(()), context)
                 },
             ),
@@ -123,17 +122,15 @@ where
             pkg_length()
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
-                    // TODO: change scope in `context`
-                    trace!("Moving to scope: {:?}", name);
+                    let previous_scope = context.current_scope.clone();
+                    context.current_scope = context.resolve_path(&name);
                     (Ok((length, name, previous_scope)), context)
                 })
-                .feed(move |(pkg_length, name)| {
-                    trace!("Scope with name: {}, length: {:?}", name, pkg_length);
-                    term_list(pkg_length).map(move |_| Ok(name.clone()))
+                .feed(|(pkg_length, name, previous_scope)| {
+                    term_list(pkg_length).map(move |_| Ok((name.clone(), previous_scope.clone())))
                 })
                 .map_with_context(|(name, previous_scope), context| {
-                    // TODO: remove scope
-                    trace!("Exiting scope: {}", name);
+                    context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),
         ))
@@ -165,9 +162,31 @@ where
         .then(comment_scope(
             "DefOpRegion",
             name_string().then(take()).then(term_arg()).then(term_arg()).map_with_context(
-                |(((name, space), offset), region_len), context| {
-                    trace!("Op region: {}, {}, {:?}, {:?}", name, space, offset, region_len);
-                    // TODO: add to namespace
+                |(((name, space), offset), length), context| {
+                    let region = match space {
+                        0x00 => RegionSpace::SystemMemory,
+                        0x01 => RegionSpace::SystemIo,
+                        0x02 => RegionSpace::PciConfig,
+                        0x03 => RegionSpace::EmbeddedControl,
+                        0x04 => RegionSpace::SMBus,
+                        0x05 => RegionSpace::SystemCmos,
+                        0x06 => RegionSpace::PciBarTarget,
+                        0x07 => RegionSpace::IPMI,
+                        0x08 => RegionSpace::GeneralPurposeIo,
+                        0x09 => RegionSpace::GenericSerialBus,
+                        space @ 0x80..=0xff => RegionSpace::OemDefined(space),
+                        byte => return (Err(AmlError::InvalidRegionSpace(byte)), context),
+                    };
+                    let offset = match offset.as_integer() {
+                        Ok(offset) => offset,
+                        Err(err) => return (Err(err), context),
+                    };
+                    let length = match length.as_integer() {
+                        Ok(length) => length,
+                        Err(err) => return (Err(err), context),
+                    };
+
+                    context.add_to_namespace(name, AmlValue::OpRegion { region, offset, length });
                     (Ok(()), context)
                 },
             ),
@@ -195,12 +214,17 @@ where
                          * FieldList := Nothing | <FieldElement FieldList>
                          */
                         // TODO: can this pattern be expressed as a combinator
+                        let mut current_offset = 0;
                         while list_length.still_parsing(input) {
-                            let (new_input, new_context, ()) =
-                                field_element(&region_name, FieldFlags::new(flags))
-                                    .parse(input, context)?;
+                            let (new_input, new_context, field_length) = field_element(
+                                region_name.clone(),
+                                FieldFlags::new(flags),
+                                current_offset,
+                            )
+                            .parse(input, context)?;
                             input = new_input;
                             context = new_context;
+                            current_offset += field_length;
                         }
 
                         Ok((input, context, ()))
@@ -211,7 +235,13 @@ where
         .discard_result()
 }
 
-pub fn field_element<'a, 'c>(region_name: &String, flags: FieldFlags) -> impl Parser<'a, 'c, ()>
+/// Parses a `FieldElement`. Takes the current offset within the field list, and returns the length
+/// of the field element parsed.
+pub fn field_element<'a, 'c>(
+    region_name: AmlName,
+    flags: FieldFlags,
+    current_offset: u64,
+) -> impl Parser<'a, 'c, u64>
 where
     'c: 'a,
 {
@@ -237,27 +267,32 @@ where
      * Reserved fields shouldn't actually be added to the namespace; they seem to show gaps in
      * the operation region that aren't used for anything.
      */
-    let reserved_field = opcode(opcode::RESERVED_FIELD).then(pkg_length()).discard_result();
+    let reserved_field = opcode(opcode::RESERVED_FIELD)
+        .then(pkg_length())
+        .map(|((), length)| Ok(length.raw_length as u64));
 
-    let access_field = opcode(opcode::ACCESS_FIELD).then(take()).then(take()).map_with_context(
-        |(((), access_type), access_attrib), context| {
-            trace!(
-                "Adding access field with access_type: {}, access_attrib: {}",
-                access_type,
-                access_attrib
+    // TODO: work out what to do with an access field
+    // let access_field = opcode(opcode::ACCESS_FIELD)
+    //     .then(take())
+    //     .then(take())
+    //     .map_with_context(|(((), access_type), access_attrib), context| (Ok(    , context));
+
+    let named_field =
+        name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
+            context.add_to_namespace(
+                AmlName::from_name_seg(name_seg),
+                AmlValue::Field {
+                    region: region_name.clone(),
+                    flags,
+                    offset: current_offset,
+                    length: length.raw_length as u64,
+                },
             );
-            // TODO: put it in the namespace
-            (Ok(()), context)
-        },
-    );
 
-    let named_field = name_seg().then(pkg_length()).map_with_context(|(name, length), context| {
-        trace!("Named field with name {} and length {}", name.as_str(), length.raw_length);
-        // TODO: put it in the namespace
-        (Ok(()), context)
-    });
+            (Ok(length.raw_length as u64), context)
+        });
 
-    choice!(reserved_field, access_field, named_field)
+    choice!(reserved_field, named_field)
 }
 
 pub fn def_method<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -281,12 +316,9 @@ where
                         .map(move |code| Ok((name.clone(), flags, code)))
                 })
                 .map_with_context(|(name, flags, code), context| {
-                    // TODO: put it in the namespace
-                    trace!(
-                        "Method with name {} with flags {:#b}, length = {}",
+                    context.add_to_namespace(
                         name,
-                        flags,
-                        code.len()
+                        AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
                     );
                     (Ok(()), context)
                 }),
@@ -306,14 +338,72 @@ where
             "DefDevice",
             pkg_length()
                 .then(name_string())
-                .feed(|(length, name)| {
-                    term_list(length).map(move |result| Ok((name.clone(), result)))
+                .map_with_context(|(length, name), context| {
+                    context.add_to_namespace(name.clone(), AmlValue::Device);
+
+                    let previous_scope = context.current_scope.clone();
+                    context.current_scope = context.resolve_path(&name);
+
+                    (Ok((length, previous_scope)), context)
                 })
-                .map_with_context(|(name, result), context| {
-                    // TODO: add to namespace
-                    trace!("Device with name: {}", name);
+                .feed(|(length, previous_scope)| {
+                    term_list(length).map(move |_| Ok(previous_scope.clone()))
+                })
+                .map_with_context(|previous_scope, context| {
+                    context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),
+        ))
+        .discard_result()
+}
+
+pub fn def_processor<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefProcessor := ExtOpPrefix 0x83 PkgLength NameString ProcID PblkAddress PblkLen TermList
+     * ProcID := ByteData
+     * PblkAddress := DWordData
+     * PblkLen := ByteData
+     */
+    ext_opcode(opcode::EXT_DEF_PROCESSOR_OP)
+        .then(comment_scope(
+            "DefProcessor",
+            pkg_length()
+                .then(name_string())
+                .then(take())
+                .then(take_u32())
+                .then(take())
+                .feed(|((((pkg_length, name), proc_id), pblk_address), pblk_len)| {
+                    term_list(pkg_length)
+                        .map(move |_| Ok((name.clone(), proc_id, pblk_address, pblk_len)))
+                })
+                .map_with_context(|(name, id, pblk_address, pblk_len), context| {
+                    context
+                        .add_to_namespace(name, AmlValue::Processor { id, pblk_address, pblk_len });
+                    (Ok(()), context)
+                }),
+        ))
+        .discard_result()
+}
+
+pub fn def_mutex<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefMutex := ExtOpPrefix 0x01 NameString SyncFlags
+     * SyncFlags := ByteData (where bits 0-3: SyncLevel
+     *                              bits 4-7: Reserved)
+     */
+    ext_opcode(opcode::EXT_DEF_MUTEX_OP)
+        .then(comment_scope(
+            "DefMutex",
+            name_string().then(take()).map_with_context(|(name, sync_level), context| {
+                context.add_to_namespace(name, AmlValue::Mutex { sync_level });
+                (Ok(()), context)
+            }),
         ))
         .discard_result()
 }
@@ -379,53 +469,7 @@ pub fn package_element<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
 {
-    choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string))))
-}
-
-pub fn def_processor<'a, 'c>() -> impl Parser<'a, 'c, ()>
-where
-    'c: 'a,
-{
-    /*
-     * DefProcessor := ExtOpPrefix 0x83 PkgLength NameString ProcID PblkAddress PblkLen TermList
-     * ProcID := ByteData
-     * PblkAddress := DWordData
-     * PblkLen := ByteData
-     */
-    // TODO: do something sensible with the result of this
-    ext_opcode(opcode::EXT_DEF_PROCESSOR_OP)
-        .then(comment_scope(
-            "DefProcessor",
-            pkg_length().then(name_string()).then(take()).then(take_u32()).then(take()).feed(
-                |((((pkg_length, name), proc_id), pblk_address), pblk_len)| {
-                    trace!("Defined processor called {} with id {}", name, proc_id);
-                    term_list(pkg_length).map(move |result| {
-                        Ok((result, name.clone(), proc_id, pblk_address, pblk_len))
-                    })
-                },
-            ),
-        ))
-        .discard_result()
-}
-
-pub fn def_mutex<'a, 'c>() -> impl Parser<'a, 'c, ()>
-where
-    'c: 'a,
-{
-    /*
-     * DefMutex := ExtOpPrefix 0x01 NameString SyncFlags
-     * SyncFlags := ByteData (where bits 0-3: SyncLevel
-     *                              bits 4-7: Reserved)
-     */
-    ext_opcode(opcode::EXT_DEF_MUTEX_OP)
-        .then(comment_scope(
-            "DefMutex",
-            name_string().then(take()).map(|(name, sync_flags)| {
-                trace!("Defined mutex with name {} and sync flags {:b}", name, sync_flags);
-                Ok(())
-            }),
-        ))
-        .discard_result()
+    choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string.as_string()))))
 }
 
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

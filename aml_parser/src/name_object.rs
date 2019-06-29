@@ -18,6 +18,10 @@ impl AmlName {
         AmlName(alloc::vec![NameComponent::Root])
     }
 
+    pub fn from_name_seg(seg: NameSeg) -> AmlName {
+        AmlName(alloc::vec![NameComponent::Segment(seg)])
+    }
+
     pub fn as_string(&self) -> String {
         self.0
             .iter()

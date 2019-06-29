@@ -1,5 +1,5 @@
 #![no_std]
-#![feature(decl_macro, type_ascription)]
+#![feature(decl_macro, type_ascription, box_syntax)]
 
 extern crate alloc;
 
@@ -37,6 +37,7 @@ pub enum AmlError {
     IncompatibleValueConversion,
     UnterminatedStringConstant,
     InvalidStringConstant,
+    InvalidRegionSpace(u8),
     /// Error produced when none of the parsers in a `choice!` could parse the next part of the
     /// stream. Contains the next two bytes to make debugging missing extended opcodes easier.
     NoParsersCouldParse([u8; 2]),
@@ -45,11 +46,12 @@ pub enum AmlError {
 #[derive(Debug)]
 pub struct AmlContext {
     namespace: BTreeMap<AmlName, AmlValue>,
+    current_scope: AmlName,
 }
 
 impl AmlContext {
     pub fn new() -> AmlContext {
-        AmlContext { namespace: BTreeMap::new() }
+        AmlContext { namespace: BTreeMap::new(), current_scope: AmlName::root() }
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {

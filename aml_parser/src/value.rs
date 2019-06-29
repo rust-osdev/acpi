@@ -1,5 +1,5 @@
-use crate::AmlError;
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use crate::{name_object::AmlName, AmlError};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use bit_field::BitField;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,11 +95,14 @@ impl MethodFlags {
 pub enum AmlValue {
     Integer(u64),
     String(String),
-    Scope(BTreeMap<String, AmlValue>),
+    Name(Box<AmlValue>),
     OpRegion { region: RegionSpace, offset: u64, length: u64 },
-    Field { flags: FieldFlags, offset: u64, length: u64 },
+    Field { region: AmlName, flags: FieldFlags, offset: u64, length: u64 },
+    Device,
     Method { flags: MethodFlags, code: Vec<u8> },
     Buffer { bytes: Vec<u8>, size: u64 },
+    Processor { id: u8, pblk_address: u32, pblk_len: u8 },
+    Mutex { sync_level: u8 },
     Package(Vec<AmlValue>),
 }
 
