@@ -21,7 +21,6 @@ use crate::{
 };
 use alloc::{string::String, vec::Vec};
 use core::str;
-use log::trace;
 
 /// `TermList`s are usually found within explicit-length objects (so they have a `PkgLength`
 /// elsewhere in the structure), so this takes a number of bytes to parse.
