@@ -399,9 +399,7 @@ pub(crate) fn emit_no_parsers_could_parse<'a, 'c, R>() -> impl Parser<'a, 'c, R>
 where
     'c: 'a,
 {
-    |input: &'a [u8], context| {
-        Err((input, context, AmlError::NoParsersCouldParse([input[0], input[1]])))
-    }
+    |input: &'a [u8], context| Err((input, context, AmlError::NoParsersCouldParse))
 }
 
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
