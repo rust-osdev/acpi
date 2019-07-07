@@ -1,10 +1,10 @@
-use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler};
+use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler, AmlTable};
 use core::{marker::PhantomData, mem, str};
+use log::{trace, warn};
 use typenum::Unsigned;
 
 /// A union that represents a field that is not necessarily present and is only present in a later
 /// ACPI version (represented by the compile time number and type parameter `R`)
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub union ExtendedField<T: Copy, R: Unsigned> {
@@ -14,10 +14,6 @@ pub union ExtendedField<T: Copy, R: Unsigned> {
 }
 
 impl<T: Copy, R: Unsigned> ExtendedField<T, R> {
-    fn new(field: T) -> Self {
-        ExtendedField { field }
-    }
-
     /// Checks that the given revision is greater than `R` (typenum revision number) and then
     /// returns the field, otherwise returning `None`.
     ///
@@ -202,7 +198,7 @@ where
             handler.unmap_physical_region(madt_mapping);
         }
 
-        "SSDT" => acpi.ssdt_addresses.push(physical_address),
+        "SSDT" => acpi.ssdts.push(AmlTable::new(physical_address, header.length())),
 
         signature => {
             /*

@@ -13,10 +13,10 @@
 //! memory into the virtual address space.
 //!
 //! You should then call one of the entry points, based on how much information you have:
-//!     * Call `parse_rsdp` if you have the physical address of the RSDP
-//!     * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
-//!     * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you
-//!     know you're running on BIOS, not UEFI**
+//! * Call `parse_rsdp` if you have the physical address of the RSDP
+//! * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
+//! * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you know
+//! you're running on BIOS, not UEFI**
 //!
 //! All of these methods return an instance of `Acpi`. This struct contains all the information
 //! gathered from the static tables, and can be queried to set up hardware etc.
@@ -26,15 +26,10 @@
 #![feature(alloc)]
 #![feature(exclusive_range_pattern)]
 
+extern crate alloc;
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
-
-#[macro_use]
-extern crate log;
-extern crate alloc;
-extern crate bit_field;
-extern crate typenum;
 
 mod fadt;
 pub mod handler;
@@ -109,54 +104,46 @@ pub struct Processor {
     pub is_ap: bool,
 }
 
-impl Processor {
-    pub(crate) fn new(
-        processor_uid: u8,
-        local_apic_id: u8,
-        state: ProcessorState,
-        is_ap: bool,
-    ) -> Processor {
-        Processor { processor_uid, local_apic_id, state, is_ap }
+#[derive(Debug)]
+pub struct AmlTable {
+    /// Physical address of the start of the AML stream (excluding the table header).
+    pub address: usize,
+    /// Length (in bytes) of the AML stream.
+    pub length: u32,
+}
+
+impl AmlTable {
+    /// Create an `AmlTable` from the address and length of the table **including the SDT header**.
+    pub(crate) fn new(address: usize, length: u32) -> AmlTable {
+        AmlTable {
+            address: address + mem::size_of::<SdtHeader>(),
+            length: length - mem::size_of::<SdtHeader>() as u32,
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct Acpi {
-    acpi_revision: u8,
-    boot_processor: Option<Processor>,
-    application_processors: Vec<Processor>,
+    pub acpi_revision: u8,
+
+    /// The boot processor. Until you bring up any APs, this is the only processor running code.
+    pub boot_processor: Option<Processor>,
+
+    /// Application processes. These are not brought up until you do so, and must be brought up in
+    /// the order they appear in this list.
+    pub application_processors: Vec<Processor>,
 
     /// ACPI theoretically allows for more than one interrupt model to be supported by the same
     /// hardware. For simplicity and because hardware practically will only support one model, we
     /// just error in cases that the tables detail more than one.
-    interrupt_model: Option<InterruptModel>,
-    hpet: Option<HpetInfo>,
+    pub interrupt_model: Option<InterruptModel>,
+    pub hpet: Option<HpetInfo>,
 
-    /// The physical address of the DSDT, if we manage to find it.
-    dsdt_address: Option<usize>,
+    /// Info about the DSDT, if we find it.
+    pub dsdt: Option<AmlTable>,
 
-    /// The physical addresses of the SSDTs, if there are any,
-    ssdt_addresses: Vec<usize>,
-}
-
-impl Acpi {
-    /// A description of the boot processor. Until you bring any more up, this is the only processor
-    /// running code, even on SMP systems.
-    pub fn boot_processor<'a>(&'a self) -> &'a Option<Processor> {
-        &self.boot_processor
-    }
-
-    /// Descriptions of each of the application processors. These are not brought up until you do
-    /// so. The application processors must be brought up in the order that they appear in this
-    /// list.
-    pub fn application_processors<'a>(&'a self) -> &'a Vec<Processor> {
-        &self.application_processors
-    }
-
-    /// The interrupt model supported by this system.
-    pub fn interrupt_model<'a>(&'a self) -> &'a Option<InterruptModel> {
-        &self.interrupt_model
-    }
+    /// Info about any SSDTs, if there are any.
+    pub ssdts: Vec<AmlTable>,
 }
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
@@ -219,8 +206,8 @@ where
         application_processors: Vec::new(),
         interrupt_model: None,
         hpet: None,
-        dsdt_address: None,
-        ssdt_addresses: Vec::with_capacity(0),
+        dsdt: None,
+        ssdts: Vec::with_capacity(0),
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);

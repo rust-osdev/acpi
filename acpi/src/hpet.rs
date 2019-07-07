@@ -43,7 +43,6 @@ pub(crate) fn parse_hpet(
     // Make sure the HPET's in system memory
     assert_eq!(hpet.base_address.address_space, 0);
 
-    info!("HPET address: {:#?}", hpet.base_address);
     acpi.hpet = Some(HpetInfo {
         event_timer_block_id: hpet.event_timer_block_id,
         base_address: hpet.base_address.address as usize,
