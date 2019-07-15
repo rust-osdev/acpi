@@ -1,4 +1,13 @@
-use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, Acpi, AcpiError, AcpiHandler, AmlTable};
+use crate::{
+    fadt::Fadt,
+    hpet::HpetTable,
+    madt::Madt,
+    mcfg::Mcfg,
+    Acpi,
+    AcpiError,
+    AcpiHandler,
+    AmlTable,
+};
 use core::{marker::PhantomData, mem, str};
 use log::{trace, warn};
 use typenum::Unsigned;
@@ -196,6 +205,13 @@ where
                 handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
             crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
+        }
+
+        "MCFG" => {
+            let mcfg_mapping =
+                handler.map_physical_region::<Mcfg>(physical_address, header.length() as usize);
+            crate::mcfg::parse_mcfg(acpi, &mcfg_mapping)?;
+            handler.unmap_physical_region(mcfg_mapping);
         }
 
         "SSDT" => acpi.ssdts.push(AmlTable::new(physical_address, header.length())),
