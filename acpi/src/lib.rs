@@ -22,9 +22,7 @@
 //! gathered from the static tables, and can be queried to set up hardware etc.
 
 #![no_std]
-#![feature(nll)]
-#![feature(alloc)]
-#![feature(exclusive_range_pattern)]
+#![feature(nll, exclusive_range_pattern)]
 
 extern crate alloc;
 #[cfg_attr(test, macro_use)]
@@ -36,17 +34,21 @@ pub mod handler;
 mod hpet;
 pub mod interrupt;
 mod madt;
+mod mcfg;
 mod rsdp;
 mod rsdp_search;
 mod sdt;
 
 pub use crate::{
     handler::{AcpiHandler, PhysicalMapping},
+    hpet::HpetInfo,
+    interrupt::InterruptModel,
     madt::MadtError,
+    mcfg::PciConfigRegions,
     rsdp_search::search_for_rsdp_bios,
 };
 
-use crate::{hpet::HpetInfo, interrupt::InterruptModel, rsdp::Rsdp, sdt::SdtHeader};
+use crate::{rsdp::Rsdp, sdt::SdtHeader};
 use alloc::vec::Vec;
 use core::mem;
 
@@ -144,6 +146,9 @@ pub struct Acpi {
 
     /// Info about any SSDTs, if there are any.
     pub ssdts: Vec<AmlTable>,
+
+    /// Info about the PCI-E configuration memory regions, collected from the MCFG.
+    pub pci_config_regions: Option<PciConfigRegions>,
 }
 
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
@@ -208,6 +213,7 @@ where
         hpet: None,
         dsdt: None,
         ssdts: Vec::with_capacity(0),
+        pci_config_regions: None,
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
