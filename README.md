@@ -7,7 +7,7 @@
 
 A library to parse ACPI tables and AML, written in pure Rust. Designed to be easy to use from Rust bootloaders and kernels. The library is split into two crates:
 - `acpi` parses the static tables (useful but not feature-complete)
-- `aml_parser` parses the AML tables (still a work-in-progress, not that useful yet)
+- `aml_parser` parses the AML tables (can parse some namespaces, cannot yet execute methods)
 
 ## Contributing
 Contributions are more than welcome! You can:
