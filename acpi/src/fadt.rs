@@ -1,12 +1,4 @@
-use crate::{
-    sdt::SdtHeader,
-    Acpi,
-    AcpiError,
-    AcpiHandler,
-    AmlTable,
-    GenericAddress,
-    PhysicalMapping,
-};
+use crate::{sdt::SdtHeader, Acpi, AcpiError, AcpiHandler, AmlTable, GenericAddress, PhysicalMapping};
 
 type ExtendedField<T> = crate::sdt::ExtendedField<T, typenum::U2>;
 

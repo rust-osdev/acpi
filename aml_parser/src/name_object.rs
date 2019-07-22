@@ -152,11 +152,9 @@ where
         let (new_input, context, ((), seg_count)) =
             opcode(MULTI_NAME_PREFIX).then(take()).parse(input, context)?;
         match n_of(name_seg(), usize::from(seg_count)).parse(new_input, context) {
-            Ok((new_input, context, name_segs)) => Ok((
-                new_input,
-                context,
-                name_segs.iter().map(|&seg| NameComponent::Segment(seg)).collect(),
-            )),
+            Ok((new_input, context, name_segs)) => {
+                Ok((new_input, context, name_segs.iter().map(|&seg| NameComponent::Segment(seg)).collect()))
+            }
             // Correct returned input to the one we haven't touched
             Err((_, context, err)) => Err((input, context, err)),
         }
@@ -281,8 +279,7 @@ mod tests {
             &[0x2e, b'A']
         );
         check_ok!(
-            name_path()
-                .parse(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G'], &mut context),
+            name_path().parse(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G'], &mut context),
             alloc::vec![
                 NameComponent::Segment(NameSeg([b'A', b'B', b'C', b'D'])),
                 NameComponent::Segment(NameSeg([b'E', b'_', b'F', b'G']))

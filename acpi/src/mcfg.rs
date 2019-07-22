@@ -15,13 +15,7 @@ pub struct PciConfigRegions {
 impl PciConfigRegions {
     /// Get the physical address of the start of the configuration space for a given PCI-E device
     /// function. Returns `None` if there isn't an entry in the MCFG that manages that device.
-    pub fn physical_address(
-        &self,
-        segment_group_no: u16,
-        bus: u8,
-        device: u8,
-        function: u8,
-    ) -> Option<u64> {
+    pub fn physical_address(&self, segment_group_no: u16, bus: u8, device: u8, function: u8) -> Option<u64> {
         // First, find the memory region that handles this segment and bus. This method is fine
         // because there should only be one region that handles each segment group + bus
         // combination.
@@ -70,10 +64,7 @@ struct McfgEntry {
     _reserved: u32,
 }
 
-pub(crate) fn parse_mcfg(
-    acpi: &mut Acpi,
-    mapping: &PhysicalMapping<Mcfg>,
-) -> Result<(), AcpiError> {
+pub(crate) fn parse_mcfg(acpi: &mut Acpi, mapping: &PhysicalMapping<Mcfg>) -> Result<(), AcpiError> {
     (*mapping).header.validate(b"MCFG")?;
 
     acpi.pci_config_regions =

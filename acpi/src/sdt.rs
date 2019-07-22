@@ -1,13 +1,4 @@
-use crate::{
-    fadt::Fadt,
-    hpet::HpetTable,
-    madt::Madt,
-    mcfg::Mcfg,
-    Acpi,
-    AcpiError,
-    AcpiHandler,
-    AmlTable,
-};
+use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, Acpi, AcpiError, AcpiHandler, AmlTable};
 use core::{marker::PhantomData, mem, str};
 use log::{trace, warn};
 use typenum::Unsigned;
@@ -156,8 +147,7 @@ pub(crate) fn peek_at_sdt_header<H>(handler: &mut H, physical_address: usize) ->
 where
     H: AcpiHandler,
 {
-    let mapping =
-        handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>());
+    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>());
     let header = (*mapping).clone();
     handler.unmap_physical_region(mapping);
 
@@ -175,11 +165,7 @@ where
     H: AcpiHandler,
 {
     let header = peek_at_sdt_header(handler, physical_address);
-    trace!(
-        "Found ACPI table with signature {:?} and length {:?}",
-        header.signature(),
-        header.length()
-    );
+    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature(), header.length());
 
     /*
      * For a recognised signature, a new physical mapping should be created with the correct type
@@ -187,15 +173,14 @@ where
      */
     match header.signature() {
         "FACP" => {
-            let fadt_mapping =
-                handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
+            let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
             crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
             handler.unmap_physical_region(fadt_mapping);
         }
 
         "HPET" => {
-            let hpet_mapping = handler
-                .map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>());
+            let hpet_mapping =
+                handler.map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>());
             crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }

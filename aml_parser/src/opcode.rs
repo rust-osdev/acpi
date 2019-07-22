@@ -60,11 +60,7 @@ mod tests {
     #[test]
     fn empty() {
         let mut context = AmlContext::new();
-        check_err!(
-            opcode(NULL_NAME).parse(&[], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[]
-        );
+        check_err!(opcode(NULL_NAME).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_err!(
             ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context),
             AmlError::UnexpectedEndOfStream,
@@ -92,8 +88,7 @@ mod tests {
             &[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP]
         );
         check_ok!(
-            ext_opcode(EXT_DEF_FIELD_OP)
-                .parse(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP], &mut context),
+            ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP], &mut context),
             (),
             &[]
         );

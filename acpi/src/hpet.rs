@@ -33,10 +33,7 @@ pub(crate) struct HpetTable {
     page_protection_oem: u8,
 }
 
-pub(crate) fn parse_hpet(
-    acpi: &mut Acpi,
-    mapping: &PhysicalMapping<HpetTable>,
-) -> Result<(), AcpiError> {
+pub(crate) fn parse_hpet(acpi: &mut Acpi, mapping: &PhysicalMapping<HpetTable>) -> Result<(), AcpiError> {
     (*mapping).header.validate(b"HPET")?;
     let hpet = &*mapping;
 

@@ -27,11 +27,7 @@ pub trait AcpiHandler {
     /// page-aligned, so the implementation may have to add padding to either end. The given
     /// size must be greater or equal to the size of a `T`. The virtual address the memory is
     /// mapped to does not matter, as long as it is accessible from `acpi`.
-    fn map_physical_region<T>(
-        &mut self,
-        physical_address: usize,
-        size: usize,
-    ) -> PhysicalMapping<T>;
+    fn map_physical_region<T>(&mut self, physical_address: usize, size: usize) -> PhysicalMapping<T>;
 
     /// Unmap the given physical mapping. Safe because we consume the mapping, and so it can't be
     /// used after being passed to this function.

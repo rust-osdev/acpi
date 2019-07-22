@@ -164,10 +164,7 @@ where
     parse_validated_rsdp(handler, rsdp_mapping)
 }
 
-fn parse_validated_rsdp<H>(
-    handler: &mut H,
-    rsdp_mapping: PhysicalMapping<Rsdp>,
-) -> Result<Acpi, AcpiError>
+fn parse_validated_rsdp<H>(handler: &mut H, rsdp_mapping: PhysicalMapping<Rsdp>) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -197,11 +194,7 @@ where
 ///
 /// If the given revision is 0, an address to the RSDT is expected. Otherwise, an address to
 /// the XSDT is expected.
-pub fn parse_rsdt<H>(
-    handler: &mut H,
-    revision: u8,
-    physical_address: usize,
-) -> Result<Acpi, AcpiError>
+pub fn parse_rsdt<H>(handler: &mut H, revision: u8, physical_address: usize) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -217,8 +210,7 @@ where
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping =
-        handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
+    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
 
     if revision == 0 {
         /*
@@ -226,14 +218,12 @@ where
          */
         (*mapping).validate(b"RSDT")?;
 
-        let num_tables =
-            ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
+        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
         let tables_base =
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
-                as usize)?;
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
         }
     } else {
         /*
@@ -241,14 +231,12 @@ where
          */
         (*mapping).validate(b"XSDT")?;
 
-        let num_tables =
-            ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
+        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
         let tables_base =
             ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) }
-                as usize)?;
+            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
         }
     }
 
