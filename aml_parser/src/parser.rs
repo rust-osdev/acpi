@@ -404,7 +404,7 @@ where
 
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
-pub macro choice {
+pub(crate) macro choice {
     ($first_parser: expr) => {
         $first_parser
         .or(emit_no_parsers_could_parse())
@@ -429,7 +429,7 @@ pub macro choice {
 ///     help: consider adding a a '#![recursion_limit="128"] attribute to your crate`
 /// Note: Increasing the recursion limit will not fix the issue, as the cycle will just continue
 /// until you either hit the new recursion limit or `rustc` overflows its stack.
-pub macro make_parser_concrete($parser: expr) {
+pub(crate) macro make_parser_concrete($parser: expr) {
     |input, context| ($parser).parse(input, context)
 }
 
