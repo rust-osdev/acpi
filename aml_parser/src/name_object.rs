@@ -22,6 +22,26 @@ impl AmlName {
         AmlName(alloc::vec![NameComponent::Segment(seg)])
     }
 
+    /// Convert a string representation of an AML name into an `AmlName`. Returns `None` if the
+    /// passed string is not a valid AML path.
+    pub fn from_str(mut string: &str) -> Option<AmlName> {
+        let mut components = Vec::new();
+
+        // If it starts with a \, make it an absolute name
+        if string.starts_with('\\') {
+            components.push(NameComponent::Root);
+            string = &string[1..];
+        }
+
+        // Divide the rest of it into segments, and parse those
+        for part in string.split('.') {
+            // TODO: handle prefix chars
+            components.push(NameComponent::Segment(NameSeg::from_str(part)?));
+        }
+
+        Some(AmlName(components))
+    }
+
     pub fn as_string(&self) -> String {
         self.0
             .iter()
@@ -147,6 +167,33 @@ where
 pub struct NameSeg([u8; 4]);
 
 impl NameSeg {
+    pub(crate) fn from_str(string: &str) -> Option<NameSeg> {
+        // Each NameSeg can only have four chars, and must have at least one
+        if string.len() < 1 || string.len() > 4 {
+            return None;
+        }
+
+        // We pre-fill the array with '_', so it will already be correct if the length is < 4
+        let mut seg = [b'_'; 4];
+        let bytes = string.as_bytes();
+
+        // Manually do the first one, because we have to check it's a LeadNameChar
+        if !is_lead_name_char(bytes[0]) {
+            return None;
+        }
+        seg[0] = bytes[0];
+
+        // Copy the rest of the chars, checking that they're NameChars
+        for i in 1..bytes.len() {
+            if !is_name_char(bytes[i]) {
+                return None;
+            }
+            seg[i] = bytes[i];
+        }
+
+        Some(NameSeg(seg))
+    }
+
     /// Turn a `NameSeg` into a `&str`. Returns it in a `ParseResult` so it's easy to use from
     /// inside parsers.
     pub fn as_str(&self) -> &str {

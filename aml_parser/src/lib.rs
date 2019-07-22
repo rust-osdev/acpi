@@ -11,6 +11,11 @@
 //! unmap the memory the table was mapped into - all the information needed will be extracted and
 //! allocated on the heap.
 //!
+//! You can then access specific objects by name like so: e.g.
+//! ```
+//! let my_aml_value = aml_context.lookup(&AmlName::from_str("\\_SB.PCI0.S08._ADR").unwrap());
+//! ```
+//!
 //! ### About the parser
 //! The parser is written using a set of custom parser combinators - the code can be confusing on
 //! first reading, but provides an extensible and type-safe way to write parsers. For an easy
@@ -44,11 +49,10 @@ pub(crate) mod pkg_length;
 pub(crate) mod term_object;
 pub mod value;
 
-pub use crate::value::AmlValue;
+pub use crate::{name_object::AmlName, value::AmlValue};
 
 use alloc::collections::BTreeMap;
 use log::error;
-use name_object::AmlName;
 use parser::Parser;
 use pkg_length::PkgLength;
 
@@ -73,7 +77,7 @@ pub enum AmlError {
 
 #[derive(Debug)]
 pub struct AmlContext {
-    namespace: BTreeMap<AmlName, AmlValue>,
+    pub namespace: BTreeMap<AmlName, AmlValue>,
     current_scope: AmlName,
 }
 
@@ -99,7 +103,7 @@ impl AmlContext {
 
     /// Resolves a given path relative to the current scope (if the given path is not absolute).
     /// The returned path can be used to index the namespace.
-    pub fn resolve_path(&mut self, path: &AmlName) -> AmlName {
+    pub fn resolve_path(&self, path: &AmlName) -> AmlName {
         // TODO: we should normalize the path by resolving prefix chars etc.
 
         // If the path is absolute, just return it.
@@ -111,6 +115,13 @@ impl AmlContext {
         let mut new_path = self.current_scope.clone();
         new_path.0.extend_from_slice(&(path.0));
         new_path
+    }
+
+    /// Lookup the object at the given path of the namespace. If the given path is not absolute, it
+    /// is resolved against the current scope. Returns `None` if no object exists at that path.
+    pub fn lookup(&self, path: &AmlName) -> Option<&AmlValue> {
+        let resolved_path = self.resolve_path(&path);
+        self.namespace.get(&resolved_path)
     }
 
     /// Add an `AmlValue` to the namespace. `path` can either be absolute, or relative (in which
