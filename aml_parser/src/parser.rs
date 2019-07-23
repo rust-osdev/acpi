@@ -205,13 +205,13 @@ where
 {
     move |input, context| {
         #[cfg(feature = "debug_parser")]
-        trace!("--> {}", scope_name);
+        log::trace!("--> {}", scope_name);
 
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, context, result) = parser.parse(input, context)?;
 
         #[cfg(feature = "debug_parser")]
-        trace!("<-- {}", scope_name);
+        log::trace!("<-- {}", scope_name);
 
         Ok((new_input, context, result))
     }
@@ -225,13 +225,13 @@ where
 {
     move |input, context| {
         #[cfg(feature = "debug_parser_verbose")]
-        trace!("--> {}", scope_name);
+        log::trace!("--> {}", scope_name);
 
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, context, result) = parser.parse(input, context)?;
 
         #[cfg(feature = "debug_parser_verbose")]
-        trace!("<-- {}", scope_name);
+        log::trace!("<-- {}", scope_name);
 
         Ok((new_input, context, result))
     }
