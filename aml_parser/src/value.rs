@@ -1,6 +1,14 @@
-use crate::{name_object::AmlName, AmlError};
+use crate::{
+    name_object::AmlName,
+    parser::Parser,
+    pkg_length::PkgLength,
+    term_object::term_list,
+    AmlContext,
+    AmlError,
+};
 use alloc::{boxed::Box, string::String, vec::Vec};
 use bit_field::BitField;
+use log::info;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -132,4 +140,56 @@ impl AmlValue {
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }
+
+    /// If this value is a control method, invoke it. Returns `AmlError::IncompatibleValueConversion` if this
+    /// is not a method.
+    pub fn invoke(&self, context: &mut AmlContext, args: Args) -> Result<AmlValue, AmlError> {
+        if let AmlValue::Method { flags, ref code } = self {
+            /*
+             * First, set up the state we expect to enter the method with, but clearing local
+             * variables to "null" and setting the arguments.
+             */
+            context.current_args = Some(args);
+            context.local_0 = None;
+            context.local_1 = None;
+            context.local_2 = None;
+            context.local_3 = None;
+            context.local_4 = None;
+            context.local_5 = None;
+            context.local_6 = None;
+            context.local_7 = None;
+
+            let result = term_list(PkgLength::from_raw_length(code, code.len() as u32)).parse(code, context);
+
+            /*
+             * Now clear the state.
+             */
+            context.current_args = None;
+            context.local_0 = None;
+            context.local_1 = None;
+            context.local_2 = None;
+            context.local_3 = None;
+            context.local_4 = None;
+            context.local_5 = None;
+            context.local_6 = None;
+            context.local_7 = None;
+
+            // TODO: return the real return value
+            Ok(AmlValue::Integer(0))
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
+        }
+    }
+}
+
+/// A control method can take up to 7 arguments, each of which can be an `AmlValue`.
+#[derive(Clone, Debug, Default)]
+pub struct Args {
+    arg_0: Option<AmlValue>,
+    arg_1: Option<AmlValue>,
+    arg_2: Option<AmlValue>,
+    arg_3: Option<AmlValue>,
+    arg_4: Option<AmlValue>,
+    arg_5: Option<AmlValue>,
+    arg_6: Option<AmlValue>,
 }

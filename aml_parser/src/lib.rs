@@ -55,6 +55,7 @@ use alloc::collections::BTreeMap;
 use log::error;
 use parser::Parser;
 use pkg_length::PkgLength;
+use value::Args;
 
 /// AML has a `RevisionOp` operator that returns the "AML interpreter revision". It's not clear
 /// what this is actually used for, but this is ours.
@@ -62,6 +63,9 @@ pub const AML_INTERPRETER_REVISION: u64 = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AmlError {
+    /*
+     * Errors produced parsing the AML stream.
+     */
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
     InvalidNameSeg([u8; 4]),
@@ -73,17 +77,52 @@ pub enum AmlError {
     /// Error produced when none of the parsers in a `choice!` could parse the next part of the
     /// stream.
     NoParsersCouldParse,
+
+    /*
+     * Errors produced querying the namespace.
+     */
+    /// Produced when a path is given that does not point to an object in the AML namespace.
+    ObjectDoesNotExist,
 }
 
 #[derive(Debug)]
 pub struct AmlContext {
     pub namespace: BTreeMap<AmlName, AmlValue>,
     current_scope: AmlName,
+
+    /*
+     * AML local variables. These are used when we invoke a control method. A `None` value
+     * represents a null AML object.
+     */
+    local_0: Option<AmlValue>,
+    local_1: Option<AmlValue>,
+    local_2: Option<AmlValue>,
+    local_3: Option<AmlValue>,
+    local_4: Option<AmlValue>,
+    local_5: Option<AmlValue>,
+    local_6: Option<AmlValue>,
+    local_7: Option<AmlValue>,
+
+    /// If we're currently invoking a control method, this stores the arguments that were passed to
+    /// it. It's `None` if we aren't invoking a method.
+    current_args: Option<Args>,
 }
 
 impl AmlContext {
     pub fn new() -> AmlContext {
-        AmlContext { namespace: BTreeMap::new(), current_scope: AmlName::root() }
+        AmlContext {
+            namespace: BTreeMap::new(),
+            current_scope: AmlName::root(),
+            local_0: None,
+            local_1: None,
+            local_2: None,
+            local_3: None,
+            local_4: None,
+            local_5: None,
+            local_6: None,
+            local_7: None,
+            current_args: None,
+        }
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {
@@ -99,6 +138,17 @@ impl AmlContext {
                 Err(err)
             }
         }
+    }
+
+    /// Invoke a method referred to by its path in the namespace, with the given arguments.
+    pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
+        let method = match self.lookup(path) {
+            // Unfortunately, we have to clone the method object to end the borrow on the context.
+            Some(object) => object.clone(),
+            None => return Err(AmlError::ObjectDoesNotExist),
+        };
+
+        method.invoke(self, args)
     }
 
     /// Resolves a given path relative to the current scope (if the given path is not absolute).
