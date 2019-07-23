@@ -15,6 +15,8 @@ use crate::{
         Parser,
     },
     pkg_length::{pkg_length, PkgLength},
+    type1::type1_opcode,
+    type2::type2_opcode,
     value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
@@ -33,7 +35,9 @@ where
      */
     move |mut input: &'a [u8], mut context: &'c mut AmlContext| {
         while list_length.still_parsing(input) {
-            let (new_input, new_context, ()) = term_object().parse(input, context)?;
+            // TODO: currently, we ignore the value of the expression. We may need to propagate
+            // this.
+            let (new_input, new_context, _) = term_object().parse(input, context)?;
             input = new_input;
             context = new_context;
         }
@@ -42,14 +46,22 @@ where
     }
 }
 
-pub fn term_object<'a, 'c>() -> impl Parser<'a, 'c, ()>
+pub fn term_object<'a, 'c>() -> impl Parser<'a, 'c, Option<AmlValue>>
 where
     'c: 'a,
 {
     /*
      * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
      */
-    comment_scope_verbose("TermObj", choice!(namespace_modifier(), named_obj()))
+    comment_scope_verbose(
+        "TermObj",
+        choice!(
+            namespace_modifier().map(|()| Ok(None)),
+            named_obj().map(|()| Ok(None)),
+            type1_opcode().map(|()| Ok(None)),
+            type2_opcode().map(|value| Ok(Some(value)))
+        ),
+    )
 }
 
 pub fn namespace_modifier<'a, 'c>() -> impl Parser<'a, 'c, ()>

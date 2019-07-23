@@ -47,6 +47,8 @@ pub(crate) mod opcode;
 pub(crate) mod parser;
 pub(crate) mod pkg_length;
 pub(crate) mod term_object;
+pub(crate) mod type1;
+pub(crate) mod type2;
 pub mod value;
 
 pub use crate::{name_object::AmlName, value::AmlValue};

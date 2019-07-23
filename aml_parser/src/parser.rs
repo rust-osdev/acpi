@@ -403,6 +403,10 @@ where
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
 pub(crate) macro choice {
+    () => {
+        emit_no_parsers_could_parse()
+    },
+
     ($first_parser: expr) => {
         $first_parser
         .or(emit_no_parsers_could_parse())
