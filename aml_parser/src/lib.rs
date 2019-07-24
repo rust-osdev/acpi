@@ -12,7 +12,7 @@
 //! allocated on the heap.
 //!
 //! You can then access specific objects by name like so: e.g.
-//! ```
+//! ```ignore
 //! let my_aml_value = aml_context.lookup(&AmlName::from_str("\\_SB.PCI0.S08._ADR").unwrap());
 //! ```
 //!
