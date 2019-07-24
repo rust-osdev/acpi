@@ -466,8 +466,8 @@ where
     /*
      * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
      */
-    // TODO: this doesn't yet parse Term2Opcode, ArgObj, or LocalObj
-    comment_scope_verbose("TermArg", choice!(data_object()))
+    // TODO: this doesn't yet parse ArgObj, or LocalObj
+    comment_scope_verbose("TermArg", choice!(data_object(), make_parser_concrete!(type2_opcode())))
 }
 
 pub fn data_ref_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

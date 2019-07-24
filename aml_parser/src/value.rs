@@ -101,6 +101,7 @@ impl MethodFlags {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlValue {
+    Boolean(bool),
     Integer(u64),
     String(String),
     Name(Box<AmlValue>),
@@ -115,6 +116,13 @@ pub enum AmlValue {
 }
 
 impl AmlValue {
+    pub fn as_bool(&self) -> Result<bool, AmlError> {
+        match self {
+            AmlValue::Boolean(value) => Ok(*value),
+            _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
     pub fn as_integer(&self) -> Result<u64, AmlError> {
         match self {
             AmlValue::Integer(value) => Ok(*value),

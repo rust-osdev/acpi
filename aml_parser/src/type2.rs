@@ -24,7 +24,25 @@ where
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
      *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
      */
-    comment_scope_verbose("Type2Opcode", choice!(method_invocation()))
+    comment_scope_verbose("Type2Opcode", choice!(def_l_equal(), method_invocation()))
+}
+
+fn def_l_equal<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLEqual := 0x93 Operand Operand
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_L_EQUAL)
+        .then(comment_scope_verbose(
+            "DefLEqual",
+            term_arg().then(term_arg()).map(|(left_arg, right_arg)| {
+                Ok(AmlValue::Boolean(left_arg.as_integer()? == right_arg.as_integer()?))
+            }),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 fn method_invocation<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

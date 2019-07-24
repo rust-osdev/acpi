@@ -32,6 +32,11 @@ pub const EXT_DEF_FIELD_OP: u8 = 0x81;
 pub const EXT_DEF_DEVICE_OP: u8 = 0x82;
 pub const EXT_DEF_PROCESSOR_OP: u8 = 0x83;
 
+/*
+ * Type 2 opcodes
+ */
+pub const DEF_L_EQUAL: u8 = 0x93;
+
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
 pub(crate) fn opcode<'a, 'c>(opcode: u8) -> impl Parser<'a, 'c, ()>
