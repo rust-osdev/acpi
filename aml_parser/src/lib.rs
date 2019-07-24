@@ -53,7 +53,7 @@ pub mod value;
 
 pub use crate::{name_object::AmlName, value::AmlValue};
 
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, string::String};
 use log::error;
 use parser::Parser;
 use pkg_length::PkgLength;
@@ -63,7 +63,7 @@ use value::Args;
 /// what this is actually used for, but this is ours.
 pub const AML_INTERPRETER_REVISION: u64 = 0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AmlError {
     /*
      * Errors produced parsing the AML stream.
@@ -84,7 +84,7 @@ pub enum AmlError {
      * Errors produced querying the namespace.
      */
     /// Produced when a path is given that does not point to an object in the AML namespace.
-    ObjectDoesNotExist,
+    ObjectDoesNotExist(String),
 }
 
 #[derive(Debug)]
@@ -147,7 +147,7 @@ impl AmlContext {
         let method = match self.lookup(path) {
             // Unfortunately, we have to clone the method object to end the borrow on the context.
             Some(object) => object.clone(),
-            None => return Err(AmlError::ObjectDoesNotExist),
+            None => return Err(AmlError::ObjectDoesNotExist(path.as_string())),
         };
 
         method.invoke(self, args)
