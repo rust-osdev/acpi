@@ -151,7 +151,7 @@ impl AmlContext {
             None => return Err(AmlError::ObjectDoesNotExist(path.as_string())),
         };
 
-        method.invoke(self, args)
+        method.invoke(self, args, path.clone())
     }
 
     /// Resolves a given path relative to the current scope (if the given path is not absolute).

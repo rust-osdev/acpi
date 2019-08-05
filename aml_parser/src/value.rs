@@ -8,7 +8,7 @@ use crate::{
 };
 use alloc::{boxed::Box, string::String, vec::Vec};
 use bit_field::BitField;
-use log::info;
+use log::{error, info};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -151,12 +151,13 @@ impl AmlValue {
 
     /// If this value is a control method, invoke it. Returns `AmlError::IncompatibleValueConversion` if this
     /// is not a method.
-    pub fn invoke(&self, context: &mut AmlContext, args: Args) -> Result<AmlValue, AmlError> {
+    pub fn invoke(&self, context: &mut AmlContext, args: Args, scope: AmlName) -> Result<AmlValue, AmlError> {
         if let AmlValue::Method { flags, ref code } = self {
             /*
              * First, set up the state we expect to enter the method with, but clearing local
              * variables to "null" and setting the arguments.
              */
+            context.current_scope = scope;
             context.current_args = Some(args);
             context.local_0 = None;
             context.local_1 = None;
@@ -167,7 +168,10 @@ impl AmlValue {
             context.local_6 = None;
             context.local_7 = None;
 
-            let result = term_list(PkgLength::from_raw_length(code, code.len() as u32)).parse(code, context);
+            match term_list(PkgLength::from_raw_length(code, code.len() as u32)).parse(code, context) {
+                Ok((remaining, context, result)) => {}
+                Err((remaining, context, err)) => error!("Failed to execute control method: {:?}", err),
+            }
 
             /*
              * Now clear the state.
