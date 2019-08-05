@@ -25,6 +25,10 @@ impl AmlName {
     /// Convert a string representation of an AML name into an `AmlName`. Returns `None` if the
     /// passed string is not a valid AML path.
     pub fn from_str(mut string: &str) -> Option<AmlName> {
+        if string.len() == 0 {
+            return None;
+        }
+
         let mut components = Vec::new();
 
         // If it starts with a \, make it an absolute name
@@ -33,10 +37,17 @@ impl AmlName {
             string = &string[1..];
         }
 
-        // Divide the rest of it into segments, and parse those
-        for part in string.split('.') {
-            // TODO: handle prefix chars
-            components.push(NameComponent::Segment(NameSeg::from_str(part)?));
+        if string.len() > 0 {
+            // Divide the rest of it into segments, and parse those
+            for mut part in string.split('.') {
+                // Handle prefix chars
+                while part.starts_with('^') {
+                    components.push(NameComponent::Prefix);
+                    part = &part[1..];
+                }
+
+                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
+            }
         }
 
         Some(AmlName(components))
@@ -285,6 +296,31 @@ mod tests {
                 NameComponent::Segment(NameSeg([b'E', b'_', b'F', b'G']))
             ],
             &[]
+        );
+    }
+
+    #[test]
+    fn test_aml_name_from_str() {
+        assert_eq!(AmlName::from_str(""), None);
+        assert_eq!(AmlName::from_str("\\"), Some(AmlName::root()));
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0"),
+            Some(AmlName(alloc::vec![
+                NameComponent::Root,
+                NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
+                NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
+            ]))
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.^^^PCI0"),
+            Some(AmlName(alloc::vec![
+                NameComponent::Root,
+                NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
+                NameComponent::Prefix,
+                NameComponent::Prefix,
+                NameComponent::Prefix,
+                NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
+            ]))
         );
     }
 }
