@@ -270,12 +270,12 @@ mod tests {
     fn test_name_path() {
         let mut context = AmlContext::new();
 
-        check_err!(name_path().parse(&[], &mut context), AmlError::NoParsersCouldParse, &[]);
+        check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
         check_ok!(name_path().parse(&[0x00, 0x00], &mut context), alloc::vec![], &[0x00]);
         check_err!(
             name_path().parse(&[0x2e, b'A'], &mut context),
-            AmlError::NoParsersCouldParse,
+            AmlError::UnexpectedEndOfStream,
             &[0x2e, b'A']
         );
         check_ok!(

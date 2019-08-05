@@ -52,7 +52,7 @@ where
     move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
         None => Err((input, context, AmlError::UnexpectedEndOfStream)),
         Some(&byte) if byte == opcode => Ok((&input[1..], context, ())),
-        Some(&byte) => Err((input, context, AmlError::UnexpectedByte(byte))),
+        Some(_) => Err((input, context, AmlError::WrongParser)),
     }
 }
 
@@ -95,7 +95,7 @@ mod tests {
         let mut context = AmlContext::new();
         check_err!(
             ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP], &mut context),
-            AmlError::UnexpectedByte(EXT_DEF_FIELD_OP),
+            AmlError::WrongParser,
             &[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP]
         );
         check_ok!(

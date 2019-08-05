@@ -76,9 +76,10 @@ pub enum AmlError {
     UnterminatedStringConstant,
     InvalidStringConstant,
     InvalidRegionSpace(u8),
-    /// Error produced when none of the parsers in a `choice!` could parse the next part of the
-    /// stream.
-    NoParsersCouldParse,
+    /// Emitted by a parser when it's clear that the stream doesn't encode the object parsed by
+    /// that parser (e.g. the wrong opcode starts the stream). This is handled specially by some
+    /// parsers such as `or` and `choice!`.
+    WrongParser,
 
     /*
      * Errors produced querying the namespace.

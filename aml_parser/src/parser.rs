@@ -29,9 +29,10 @@ where
         DiscardResult { parser: self, _phantom: PhantomData }
     }
 
-    /// Try parsing with `self`. If it fails, try parsing with `other`, returning the result of the
-    /// first of the two parsers to succeed. To `or` multiple parsers ergonomically, see the
-    /// `choice!` macro.
+    /// Try parsing with `self`. If it succeeds, return its result. If it returns `AmlError::WrongParser`, try
+    /// parsing with `other`, returning the result of that parser in all cases. Other errors from the first
+    /// parser are propagated without attempting the second parser. To chain more than two parsers using
+    /// `or`, see the `choice!` macro.
     fn or<OtherParser>(self, other: OtherParser) -> Or<'a, 'c, Self, OtherParser, R>
     where
         OtherParser: Parser<'a, 'c, R>,
@@ -255,12 +256,11 @@ where
     P2: Parser<'a, 'c, R>,
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R> {
-        let context = match self.p1.parse(input, context) {
-            Ok(parse_result) => return Ok(parse_result),
-            Err((_, context, _)) => context,
-        };
-
-        self.p2.parse(input, context)
+        match self.p1.parse(input, context) {
+            Ok(parse_result) => Ok(parse_result),
+            Err((_, context, AmlError::WrongParser)) => self.p2.parse(input, context),
+            Err((_, context, err)) => Err((input, context, err)),
+        }
     }
 }
 
@@ -393,23 +393,25 @@ where
     }
 }
 
-pub(crate) fn emit_no_parsers_could_parse<'a, 'c, R>() -> impl Parser<'a, 'c, R>
+/// This is a helper parser used in the `choice` macro to emit `AmlError::WrongParser`
+/// unconditionally. It should not be used directly.
+pub(crate) fn no_parsers_could_parse<'a, 'c, R>() -> impl Parser<'a, 'c, R>
 where
     'c: 'a,
 {
-    |input: &'a [u8], context| Err((input, context, AmlError::NoParsersCouldParse))
+    |input: &'a [u8], context| Err((input, context, AmlError::WrongParser))
 }
 
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
 pub(crate) macro choice {
     () => {
-        emit_no_parsers_could_parse()
+        no_parsers_could_parse()
     },
 
     ($first_parser: expr) => {
         $first_parser
-        .or(emit_no_parsers_could_parse())
+        .or(no_parsers_could_parse())
     },
 
     ($first_parser: expr, $($other_parser: expr),*) => {
@@ -417,7 +419,7 @@ pub(crate) macro choice {
         $(
             .or($other_parser)
          )*
-        .or(emit_no_parsers_could_parse())
+        .or(no_parsers_could_parse())
     }
 }
 

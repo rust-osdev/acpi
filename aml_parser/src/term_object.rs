@@ -547,7 +547,7 @@ where
             opcode::ONE_OP => Ok((new_input, context, AmlValue::Integer(1))),
             opcode::ONES_OP => Ok((new_input, context, AmlValue::Integer(u64::max_value()))),
 
-            _ => Err((input, context, AmlError::UnexpectedByte(op))),
+            _ => Err((input, context, AmlError::WrongParser)),
         }
     };
 
