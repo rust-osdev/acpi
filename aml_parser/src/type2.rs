@@ -35,7 +35,7 @@ where
      * DefLEqual := 0x93 Operand Operand
      * Operand := TermArg => Integer
      */
-    opcode(opcode::DEF_L_EQUAL)
+    opcode(opcode::DEF_L_EQUAL_OP)
         .then(comment_scope_verbose(
             "DefLEqual",
             term_arg().then(term_arg()).map(|(left_arg, right_arg)| {

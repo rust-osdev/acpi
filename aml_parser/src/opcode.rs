@@ -33,9 +33,15 @@ pub const EXT_DEF_DEVICE_OP: u8 = 0x82;
 pub const EXT_DEF_PROCESSOR_OP: u8 = 0x83;
 
 /*
+ * Type 1 opcodes
+ */
+pub const DEF_IF_ELSE_OP: u8 = 0xa0;
+pub const DEF_ELSE_OP: u8 = 0xa1;
+
+/*
  * Type 2 opcodes
  */
-pub const DEF_L_EQUAL: u8 = 0x93;
+pub const DEF_L_EQUAL_OP: u8 = 0x93;
 
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
