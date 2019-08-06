@@ -168,10 +168,16 @@ impl AmlValue {
             context.local_6 = None;
             context.local_7 = None;
 
-            match term_list(PkgLength::from_raw_length(code, code.len() as u32)).parse(code, context) {
-                Ok((remaining, context, result)) => {}
-                Err((remaining, context, err)) => error!("Failed to execute control method: {:?}", err),
-            }
+            let return_value =
+                match term_list(PkgLength::from_raw_length(code, code.len() as u32)).parse(code, context) {
+                    // If the method doesn't return a value, we implicitly return `0`
+                    Ok((remaining, context, result)) => Ok(AmlValue::Integer(0)),
+                    Err((remaining, context, AmlError::Return(result))) => Ok(result),
+                    Err((remaining, context, err)) => {
+                        error!("Failed to execute control method: {:?}", err);
+                        Err(err)
+                    }
+                };
 
             /*
              * Now clear the state.
@@ -186,8 +192,7 @@ impl AmlValue {
             context.local_6 = None;
             context.local_7 = None;
 
-            // TODO: return the real return value
-            Ok(AmlValue::Integer(0))
+            return_value
         } else {
             Err(AmlError::IncompatibleValueConversion)
         }

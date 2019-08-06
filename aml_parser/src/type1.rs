@@ -16,7 +16,7 @@ where
      *                DefNotify | DefRelease | DefReset | DefReturn | DefSignal | DefSleep | DefStall |
      *                DefWhile
      */
-    comment_scope_verbose("Type1Opcode", choice!(def_if_else())
+    comment_scope_verbose("Type1Opcode", choice!(def_if_else(), def_return()))
 }
 
 fn def_if_else<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -55,7 +55,6 @@ where
                 ))
                 .map_with_context(|((predicate, then_branch), else_branch), context| {
                     let branch = if predicate { then_branch } else { else_branch };
-                    info!("Executing branch: {:x?}", branch);
 
                     match term_list(PkgLength::from_raw_length(branch, branch.len() as u32))
                         .parse(branch, context)
@@ -64,6 +63,30 @@ where
                         Err((_, context, err)) => (Err(err), context),
                     }
                 }),
+        ))
+        .discard_result()
+}
+
+fn def_return<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefReturn := 0xa4 ArgObject
+     * ArgObject := TermArg => DataRefObject
+     */
+    opcode(opcode::DEF_RETURN_OP)
+        .then(comment_scope_verbose(
+            "DefReturn",
+            term_arg().map(|return_arg| -> Result<(), AmlError> {
+                /*
+                 * To return a value, we want to halt execution of the method and propagate the
+                 * return value all the way up to the start of the method invocation. To do this,
+                 * we emit a special error that is intercepted during method invocation and turned
+                 * into a valid result.
+                 */
+                Err(AmlError::Return(return_arg))
+            }),
         ))
         .discard_result()
 }

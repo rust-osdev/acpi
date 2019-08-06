@@ -86,6 +86,15 @@ pub enum AmlError {
      */
     /// Produced when a path is given that does not point to an object in the AML namespace.
     ObjectDoesNotExist(String),
+
+    /*
+     * Errors produced executing control methods.
+     */
+    /// This is not a real error, but is used to propagate return values from within the deep
+    /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
+    /// error system here because the way errors are propagated matches how we want to handle
+    /// return values.
+    Return(AmlValue),
 }
 
 #[derive(Debug)]

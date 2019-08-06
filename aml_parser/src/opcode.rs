@@ -37,6 +37,7 @@ pub const EXT_DEF_PROCESSOR_OP: u8 = 0x83;
  */
 pub const DEF_IF_ELSE_OP: u8 = 0xa0;
 pub const DEF_ELSE_OP: u8 = 0xa1;
+pub const DEF_RETURN_OP: u8 = 0xa4;
 
 /*
  * Type 2 opcodes
