@@ -437,6 +437,18 @@ pub(crate) macro make_parser_concrete($parser: expr) {
     |input, context| ($parser).parse(input, context)
 }
 
+/// Helper macro for use within `map_with_context` as an alternative to "trying" an expression.
+///
+/// ### Example
+/// Problem: `expr?` won't work because the expected return type is `(Result<R, AmlError>, &mut AmlContext)`
+/// Solution: use `try_with_context!(context, expr)` instead.
+pub(crate) macro try_with_context($context: expr, $expr: expr) {
+    match $expr {
+        Ok(result) => result,
+        Err(err) => return (Err(err), $context),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

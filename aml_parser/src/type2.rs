@@ -1,7 +1,7 @@
 use crate::{
     name_object::name_string,
     opcode::{self, opcode},
-    parser::{choice, comment_scope_verbose, ParseResult, Parser},
+    parser::{choice, comment_scope_verbose, try_with_context, ParseResult, Parser},
     term_object::term_arg,
     value::AmlValue,
     AmlError,
@@ -66,11 +66,9 @@ where
         "MethodInvocation",
         name_string()
             .map_with_context(move |name, context| {
-                let object = match context.lookup(&name) {
-                    Some(object) => (*object).clone(),
-                    None => return (Err(AmlError::ObjectDoesNotExist(name.as_string())), context),
-                };
-
+                let object =
+                    try_with_context!(context, context.namespace.search(&name, &context.current_scope))
+                        .clone();
                 (Ok(object), context)
             })
             .feed(|object| {

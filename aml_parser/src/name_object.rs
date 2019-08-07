@@ -1,138 +1,12 @@
 use crate::{
+    namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
     parser::{choice, comment_scope_verbose, consume, n_of, take, Parser},
     AmlContext,
     AmlError,
 };
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
-use core::{fmt, ops::Add, str};
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct AmlName(pub(crate) Vec<NameComponent>);
-
-impl AmlName {
-    pub fn root() -> AmlName {
-        AmlName(alloc::vec![NameComponent::Root])
-    }
-
-    pub fn from_name_seg(seg: NameSeg) -> AmlName {
-        AmlName(alloc::vec![NameComponent::Segment(seg)])
-    }
-
-    /// Convert a string representation of an AML name into an `AmlName`. Returns `None` if the
-    /// passed string is not a valid AML path.
-    pub fn from_str(mut string: &str) -> Option<AmlName> {
-        if string.len() == 0 {
-            return None;
-        }
-
-        let mut components = Vec::new();
-
-        // If it starts with a \, make it an absolute name
-        if string.starts_with('\\') {
-            components.push(NameComponent::Root);
-            string = &string[1..];
-        }
-
-        if string.len() > 0 {
-            // Divide the rest of it into segments, and parse those
-            for mut part in string.split('.') {
-                // Handle prefix chars
-                while part.starts_with('^') {
-                    components.push(NameComponent::Prefix);
-                    part = &part[1..];
-                }
-
-                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
-            }
-        }
-
-        Some(AmlName(components))
-    }
-
-    pub fn as_string(&self) -> String {
-        self.0
-            .iter()
-            .fold(String::new(), |name, component| match component {
-                NameComponent::Root => name + "\\",
-                NameComponent::Prefix => name + "^",
-                NameComponent::Segment(seg) => name + seg.as_str() + ".",
-            })
-            .trim_end_matches('.')
-            .to_string()
-    }
-
-    pub fn is_absolute(&self) -> bool {
-        self.0.first() == Some(&NameComponent::Root)
-    }
-
-    /// Returns `true` if this path is at the root of the namespace (`\`).
-    pub fn is_at_root(&self) -> bool {
-        self.0 == &[NameComponent::Root]
-    }
-
-    /// Special rules apply when searching for certain paths (specifically, those that are made up
-    /// of a single name segment). Returns `true` if those rules apply.
-    pub fn search_rules_apply(&self) -> bool {
-        if self.0.len() != 1 {
-            return false;
-        }
-
-        match self.0[0] {
-            NameComponent::Segment(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Normalize an AML path, resolving prefix chars. Returns `None` if the path normalizes to an
-    /// invalid path (e.g. `\^_FOO`)
-    pub fn normalize(self) -> Option<AmlName> {
-        // TODO: currently, this doesn't do anything. Work out a nice way of handling prefix chars.
-        Some(self)
-    }
-
-    /// Get the parent of this `AmlName`. For example, the parent of `\_SB.PCI0._PRT` is `\_SB.PCI0`. The root
-    /// path has no parent, and so returns `None`.
-    pub fn parent(&self) -> Option<AmlName> {
-        // Firstly, normalize the path so we don't have to deal with prefix chars
-        let mut normalized_self = self.clone().normalize()?;
-
-        match normalized_self.0.last() {
-            None => None,
-            Some(NameComponent::Root) => None,
-            Some(NameComponent::Segment(_)) => {
-                normalized_self.0.pop();
-                Some(normalized_self)
-            }
-            Some(NameComponent::Prefix) => unreachable!(), // Prefix chars are removed by normalization
-        }
-    }
-}
-
-impl Add for AmlName {
-    type Output = AmlName;
-
-    fn add(mut self, other: Self) -> Self {
-        self.0.extend_from_slice(&(other.0));
-        self
-    }
-}
-
-impl fmt::Display for AmlName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_string())
-    }
-}
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum NameComponent {
-    Root,
-    Prefix,
-    Segment(NameSeg),
-}
+use alloc::vec::Vec;
+use core::{fmt, str};
 
 pub fn name_string<'a, 'c>() -> impl Parser<'a, 'c, AmlName>
 where
@@ -224,7 +98,7 @@ where
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NameSeg([u8; 4]);
+pub struct NameSeg(pub(crate) [u8; 4]);
 
 impl NameSeg {
     pub(crate) fn from_str(string: &str) -> Option<NameSeg> {
@@ -347,62 +221,6 @@ mod tests {
                 NameComponent::Segment(NameSeg([b'E', b'_', b'F', b'G']))
             ],
             &[]
-        );
-    }
-
-    #[test]
-    fn test_aml_name_from_str() {
-        assert_eq!(AmlName::from_str(""), None);
-        assert_eq!(AmlName::from_str("\\"), Some(AmlName::root()));
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0"),
-            Some(AmlName(alloc::vec![
-                NameComponent::Root,
-                NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
-                NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
-            ]))
-        );
-        assert_eq!(
-            AmlName::from_str("\\_SB.^^^PCI0"),
-            Some(AmlName(alloc::vec![
-                NameComponent::Root,
-                NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
-                NameComponent::Prefix,
-                NameComponent::Prefix,
-                NameComponent::Prefix,
-                NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
-            ]))
-        );
-    }
-
-    #[test]
-    fn test_is_at_root() {
-        assert_eq!(AmlName::root().is_at_root(), true);
-        assert_eq!(AmlName::from_str("\\_SB").unwrap().is_at_root(), false);
-        assert_eq!(AmlName::from_str("\\_SB.PCI0.^VGA").unwrap().is_at_root(), false);
-    }
-
-    #[test]
-    fn test_search_rules_apply() {
-        assert_eq!(AmlName::root().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("\\_SB").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("^VGA").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("VGA").unwrap().search_rules_apply(), true);
-        assert_eq!(AmlName::from_str("_SB").unwrap().search_rules_apply(), true);
-    }
-
-    #[test]
-    fn test_aml_name_parent() {
-        assert_eq!(AmlName::from_str("\\").unwrap().parent(), None);
-        assert_eq!(AmlName::from_str("\\_SB").unwrap().parent(), Some(AmlName::root()));
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0").unwrap().parent(),
-            Some(AmlName::from_str("\\_SB").unwrap())
-        );
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0").unwrap().parent().unwrap().parent(),
-            Some(AmlName::root())
         );
     }
 }

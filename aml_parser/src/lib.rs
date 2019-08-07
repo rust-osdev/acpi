@@ -43,6 +43,7 @@ extern crate std;
 mod test_utils;
 
 pub(crate) mod name_object;
+pub(crate) mod namespace;
 pub(crate) mod opcode;
 pub(crate) mod parser;
 pub(crate) mod pkg_length;
@@ -51,9 +52,12 @@ pub(crate) mod type1;
 pub(crate) mod type2;
 pub mod value;
 
-pub use crate::{name_object::AmlName, value::AmlValue};
+pub use crate::{
+    namespace::{AmlHandle, AmlName, Namespace},
+    value::AmlValue,
+};
 
-use alloc::{collections::BTreeMap, string::String};
+use alloc::string::String;
 use log::error;
 use parser::Parser;
 use pkg_length::PkgLength;
@@ -82,10 +86,21 @@ pub enum AmlError {
     WrongParser,
 
     /*
-     * Errors produced querying the namespace.
+     * Errors produced manipulating AML names.
+     */
+    /// Produced when trying to normalize a path that does not point to a valid level of the
+    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace.
+    InvalidNormalizedName(String),
+    RootHasNoParent,
+
+    /*
+     * Errors produced working with the namespace.
      */
     /// Produced when a path is given that does not point to an object in the AML namespace.
     ObjectDoesNotExist(String),
+    HandleDoesNotExist(AmlHandle),
+    /// Produced when two values with the same name are added to the namespace.
+    NameCollision(AmlName),
 
     /*
      * Errors produced executing control methods.
@@ -99,7 +114,7 @@ pub enum AmlError {
 
 #[derive(Debug)]
 pub struct AmlContext {
-    pub namespace: BTreeMap<AmlName, AmlValue>,
+    pub namespace: Namespace,
     current_scope: AmlName,
 
     /*
@@ -123,7 +138,7 @@ pub struct AmlContext {
 impl AmlContext {
     pub fn new() -> AmlContext {
         AmlContext {
-            namespace: BTreeMap::new(),
+            namespace: Namespace::new(),
             current_scope: AmlName::root(),
             local_0: None,
             local_1: None,
@@ -154,70 +169,6 @@ impl AmlContext {
 
     /// Invoke a method referred to by its path in the namespace, with the given arguments.
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
-        let method = match self.lookup(path) {
-            // Unfortunately, we have to clone the method object to end the borrow on the context.
-            Some(object) => object.clone(),
-            None => return Err(AmlError::ObjectDoesNotExist(path.as_string())),
-        };
-
-        method.invoke(self, args, path.clone())
-    }
-
-    /// Resolves a given path relative to the current scope (if the given path is not absolute).
-    /// If you want to use this to index the namespace (and expect things like search rules to
-    /// work), use `lookup`.
-    pub fn resolve_path(&self, path: &AmlName) -> AmlName {
-        // TODO: we should normalize the path by resolving prefix chars etc.
-
-        // If the path is absolute, just return it.
-        if path.is_absolute() {
-            return path.clone();
-        }
-
-        // Otherwise, it's relative to the current scope so append it onto that.
-        self.current_scope.clone() + path.clone()
-    }
-
-    /// Lookup the object at the given path of the namespace. If the given path is not absolute, it
-    /// is resolved against the current scope. Returns `None` if no object exists at that path. If
-    /// `path` is a single name segment and does not appear in the current scope, the search rules
-    /// describes in §5.3 of the ACPI specification.
-    pub fn lookup(&self, path: &AmlName) -> Option<&AmlValue> {
-        if path.search_rules_apply() {
-            /*
-             * If search rules apply, we need to recursively look through the namespace. If the
-             * given name does not occur in the current scope, we look at the parent scope, until
-             * we either find the name, or reach the root of the namespace.
-             */
-            let mut scope = self.current_scope.clone();
-            assert!(scope.is_absolute());
-            loop {
-                // Search for the name at this namespace level. If we find it, we're done.
-                let resolved_path = scope.clone() + path.clone();
-                if let Some(value) = self.namespace.get(&resolved_path) {
-                    return Some(value);
-                }
-
-                // If we don't find it, go up a level in the namespace and search for it there,
-                // recursively.
-                match scope.parent() {
-                    Some(parent) => scope = parent,
-                    // If we still haven't found the value and have run out of parents, return `None`.
-                    None => return None,
-                }
-            }
-            None
-        } else {
-            // If special search rules don't apply, simply resolve it against the current scope
-            let resolved_path = self.resolve_path(&path);
-            self.namespace.get(&resolved_path)
-        }
-    }
-
-    /// Add an `AmlValue` to the namespace. `path` can either be absolute, or relative (in which
-    /// case it's treated as relative to the current scope).
-    pub fn add_to_namespace(&mut self, path: AmlName, value: AmlValue) {
-        let resolved_path = self.resolve_path(&path);
-        self.namespace.insert(resolved_path, value);
+        self.namespace.get_by_path(path)?.clone().invoke(self, args, path.clone())
     }
 }

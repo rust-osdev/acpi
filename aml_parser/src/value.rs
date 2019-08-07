@@ -1,5 +1,5 @@
 use crate::{
-    name_object::AmlName,
+    namespace::AmlName,
     parser::Parser,
     pkg_length::PkgLength,
     term_object::term_list,

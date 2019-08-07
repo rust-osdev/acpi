@@ -1,5 +1,6 @@
 use crate::{
-    name_object::{name_seg, name_string, AmlName},
+    name_object::{name_seg, name_string},
+    namespace::AmlName,
     opcode::{self, ext_opcode, opcode},
     parser::{
         choice,
@@ -11,6 +12,7 @@ use crate::{
         take_u16,
         take_u32,
         take_u64,
+        try_with_context,
         ParseResult,
         Parser,
     },
@@ -104,7 +106,14 @@ where
         .then(comment_scope(
             "DefName",
             name_string().then(data_ref_object()).map_with_context(|(name, data_ref_object), context| {
-                context.add_to_namespace(name, AmlValue::Name(box data_ref_object));
+                try_with_context!(
+                    context,
+                    context.namespace.add_at_resolved_path(
+                        name,
+                        &context.current_scope,
+                        AmlValue::Name(box data_ref_object)
+                    )
+                );
                 (Ok(()), context)
             }),
         ))
@@ -125,7 +134,7 @@ where
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
                     let previous_scope = context.current_scope.clone();
-                    context.current_scope = context.resolve_path(&name);
+                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
                     (Ok((length, name, previous_scope)), context)
                 })
                 .feed(|(pkg_length, name, previous_scope)| {
@@ -188,7 +197,14 @@ where
                         Err(err) => return (Err(err), context),
                     };
 
-                    context.add_to_namespace(name, AmlValue::OpRegion { region, offset, length });
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::OpRegion { region, offset, length }
+                        )
+                    );
                     (Ok(()), context)
                 },
             ),
@@ -272,14 +288,18 @@ where
     //     .map_with_context(|(((), access_type), access_attrib), context| (Ok(    , context));
 
     let named_field = name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
-        context.add_to_namespace(
-            AmlName::from_name_seg(name_seg),
-            AmlValue::Field {
-                region: region_name.clone(),
-                flags,
-                offset: current_offset,
-                length: length.raw_length as u64,
-            },
+        try_with_context!(
+            context,
+            context.namespace.add_at_resolved_path(
+                AmlName::from_name_seg(name_seg),
+                &context.current_scope,
+                AmlValue::Field {
+                    region: region_name.clone(),
+                    flags,
+                    offset: current_offset,
+                    length: length.raw_length as u64,
+                },
+            )
         );
 
         (Ok(length.raw_length as u64), context)
@@ -308,9 +328,13 @@ where
                     take_to_end_of_pkglength(length).map(move |code| Ok((name.clone(), flags, code)))
                 })
                 .map_with_context(|(name, flags, code), context| {
-                    context.add_to_namespace(
-                        name,
-                        AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
+                        )
                     );
                     (Ok(()), context)
                 }),
@@ -331,10 +355,17 @@ where
             pkg_length()
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
-                    context.add_to_namespace(name.clone(), AmlValue::Device);
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name.clone(),
+                            &context.current_scope,
+                            AmlValue::Device
+                        )
+                    );
 
                     let previous_scope = context.current_scope.clone();
-                    context.current_scope = context.resolve_path(&name);
+                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
 
                     (Ok((length, previous_scope)), context)
                 })
@@ -365,11 +396,25 @@ where
                 .then(take())
                 .then(take_u32())
                 .then(take())
-                .feed(|((((pkg_length, name), proc_id), pblk_address), pblk_len)| {
-                    term_list(pkg_length).map(move |_| Ok((name.clone(), proc_id, pblk_address, pblk_len)))
+                .map_with_context(|((((pkg_length, name), proc_id), pblk_address), pblk_len), context| {
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name.clone(),
+                            &context.current_scope,
+                            AmlValue::Processor { id: proc_id, pblk_address, pblk_len }
+                        )
+                    );
+                    let previous_scope = context.current_scope.clone();
+                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
+
+                    (Ok((previous_scope, pkg_length)), context)
                 })
-                .map_with_context(|(name, id, pblk_address, pblk_len), context| {
-                    context.add_to_namespace(name, AmlValue::Processor { id, pblk_address, pblk_len });
+                .feed(move |(previous_scope, pkg_length)| {
+                    term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
+                })
+                .map_with_context(|previous_scope, context| {
+                    context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),
         ))
@@ -389,7 +434,14 @@ where
         .then(comment_scope(
             "DefMutex",
             name_string().then(take()).map_with_context(|(name, sync_level), context| {
-                context.add_to_namespace(name, AmlValue::Mutex { sync_level });
+                try_with_context!(
+                    context,
+                    context.namespace.add_at_resolved_path(
+                        name,
+                        &context.current_scope,
+                        AmlValue::Mutex { sync_level }
+                    )
+                );
                 (Ok(()), context)
             }),
         ))
