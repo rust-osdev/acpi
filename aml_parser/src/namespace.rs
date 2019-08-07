@@ -51,6 +51,7 @@ impl Namespace {
     /// instead.
     pub fn add(&mut self, path: AmlName, value: AmlValue) -> Result<AmlHandle, AmlError> {
         assert!(path.is_absolute());
+        assert!(path.is_normal());
 
         if self.name_map.contains_key(&path) {
             return Err(AmlError::NameCollision(path.clone()));
@@ -186,6 +187,12 @@ impl AmlName {
             .to_string()
     }
 
+    /// An AML path is normal if it does not contain any prefix elements ("^" characters, when
+    /// expressed as a string).
+    pub fn is_normal(&self) -> bool {
+        !self.0.contains(&NameComponent::Prefix)
+    }
+
     pub fn is_absolute(&self) -> bool {
         self.0.first() == Some(&NameComponent::Root)
     }
@@ -282,6 +289,26 @@ mod tests {
                 NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
             ]))
         );
+    }
+
+    #[test]
+    fn test_is_normal() {
+        assert_eq!(AmlName::root().is_normal(), true);
+        assert_eq!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_normal(), true);
+        assert_eq!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_normal(), false);
+        assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal(), false);
+        assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal(), false);
+        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal(), true);
+    }
+
+    #[test]
+    fn test_is_absolute() {
+        assert_eq!(AmlName::root().is_absolute(), true);
+        assert_eq!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_absolute(), true);
+        assert_eq!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_absolute(), true);
+        assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_absolute(), true);
+        assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_absolute(), false);
+        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_absolute(), false);
     }
 
     #[test]
