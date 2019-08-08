@@ -71,6 +71,15 @@ where
     }
 }
 
+/// The identity parser - returns the stream and context unchanged. Useful for producing parsers
+/// that produce a result without parsing anything by doing: `id().map(|()| Ok(foo))`.
+pub fn id<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| Ok((input, context, ()))
+}
+
 pub fn take<'a, 'c>() -> impl Parser<'a, 'c, u8>
 where
     'c: 'a,

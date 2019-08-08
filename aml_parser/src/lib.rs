@@ -42,6 +42,7 @@ extern crate std;
 #[cfg(test)]
 mod test_utils;
 
+pub(crate) mod misc;
 pub(crate) mod name_object;
 pub(crate) mod namespace;
 pub(crate) mod opcode;

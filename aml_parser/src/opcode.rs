@@ -44,6 +44,26 @@ pub const DEF_RETURN_OP: u8 = 0xa4;
  */
 pub const DEF_L_EQUAL_OP: u8 = 0x93;
 
+/*
+ * Miscellaneous objects
+ */
+pub const EXT_DEBUG_OP: u8 = 0x31;
+pub const LOCAL0_OP: u8 = 0x60;
+pub const LOCAL1_OP: u8 = 0x61;
+pub const LOCAL2_OP: u8 = 0x62;
+pub const LOCAL3_OP: u8 = 0x63;
+pub const LOCAL4_OP: u8 = 0x64;
+pub const LOCAL5_OP: u8 = 0x65;
+pub const LOCAL6_OP: u8 = 0x66;
+pub const LOCAL7_OP: u8 = 0x67;
+pub const ARG0_OP: u8 = 0x68;
+pub const ARG1_OP: u8 = 0x69;
+pub const ARG2_OP: u8 = 0x6a;
+pub const ARG3_OP: u8 = 0x6b;
+pub const ARG4_OP: u8 = 0x6c;
+pub const ARG5_OP: u8 = 0x6d;
+pub const ARG6_OP: u8 = 0x6e;
+
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
 pub(crate) fn opcode<'a, 'c>(opcode: u8) -> impl Parser<'a, 'c, ()>
