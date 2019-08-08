@@ -402,25 +402,16 @@ where
     }
 }
 
-/// This is a helper parser used in the `choice` macro to emit `AmlError::WrongParser`
-/// unconditionally. It should not be used directly.
-pub(crate) fn no_parsers_could_parse<'a, 'c, R>() -> impl Parser<'a, 'c, R>
-where
-    'c: 'a,
-{
-    |input: &'a [u8], context| Err((input, context, AmlError::WrongParser))
-}
-
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
 pub(crate) macro choice {
     () => {
-        no_parsers_could_parse()
+        id().map(|()| Err(AmlError::WrongParser))
     },
 
     ($first_parser: expr) => {
         $first_parser
-        .or(no_parsers_could_parse())
+        .or(id().map(|()| Err(AmlError::WrongParser)))
     },
 
     ($first_parser: expr, $($other_parser: expr),*) => {
@@ -428,7 +419,7 @@ pub(crate) macro choice {
         $(
             .or($other_parser)
          )*
-        .or(no_parsers_could_parse())
+        .or(id().map(|()| Err(AmlError::WrongParser)))
     }
 }
 
