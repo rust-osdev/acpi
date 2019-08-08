@@ -6,7 +6,7 @@ use crate::{
     AmlError,
 };
 
-/// Type 1 opcodes return a value and so can be used in expressions.
+/// Type 1 opcodes do not return a value and so can't be used in expressions.
 pub fn type1_opcode<'a, 'c>() -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
