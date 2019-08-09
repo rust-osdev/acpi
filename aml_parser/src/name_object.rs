@@ -1,4 +1,5 @@
 use crate::{
+    misc::{arg_obj, debug_obj, local_obj, ArgNum, LocalNum},
     namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
     parser::{choice, comment_scope_verbose, consume, n_of, take, Parser},
@@ -7,6 +8,43 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::{fmt, str};
+
+/// Produced by the `Target`, `SimpleName`, and `SuperName` parsers
+#[derive(Clone, Debug)]
+pub enum Target {
+    Name(AmlName),
+    Debug,
+    Arg(ArgNum),
+    Local(LocalNum),
+}
+
+pub fn super_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
+where
+    'c: 'a,
+{
+    /*
+     * SuperName := SimpleName | DebugObj | Type6Opcode
+     * TODO: this doesn't cover Type6Opcode yet
+     */
+    comment_scope_verbose("SuperName", choice!(debug_obj().map(|()| Ok(Target::Debug)), simple_name()))
+}
+
+pub fn simple_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
+where
+    'c: 'a,
+{
+    /*
+     * SimpleName := NameString | ArgObj | LocalObj
+     */
+    comment_scope_verbose(
+        "SimpleName",
+        choice!(
+            name_string().map(move |name| Ok(Target::Name(name))),
+            arg_obj().map(|arg_num| Ok(Target::Arg(arg_num))),
+            local_obj().map(|local_num| Ok(Target::Local(local_num)))
+        ),
+    )
+}
 
 pub fn name_string<'a, 'c>() -> impl Parser<'a, 'c, AmlName>
 where
