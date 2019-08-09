@@ -60,6 +60,7 @@ pub use crate::{
 
 use alloc::string::String;
 use log::error;
+use misc::{ArgNum, LocalNum};
 use parser::Parser;
 use pkg_length::PkgLength;
 use value::Args;
@@ -106,6 +107,12 @@ pub enum AmlError {
     /*
      * Errors produced executing control methods.
      */
+    /// Produced when a method accesses an argument it does not have (e.g. a method that takes 2
+    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
+    /// arguments are accessed when a method is not being executed, this error is produced with an
+    /// argument number of `0xff`.
+    InvalidArgumentAccess(ArgNum),
+    InvalidLocalAccess(LocalNum),
     /// This is not a real error, but is used to propagate return values from within the deep
     /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
     /// error system here because the way errors are propagated matches how we want to handle
@@ -171,5 +178,27 @@ impl AmlContext {
     /// Invoke a method referred to by its path in the namespace, with the given arguments.
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
         self.namespace.get_by_path(path)?.clone().invoke(self, args, path.clone())
+    }
+
+    pub fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
+        self.current_args.as_ref().ok_or(AmlError::InvalidArgumentAccess(0xff))?.arg(arg)
+    }
+
+    /// Get the current value of a local by its local number.
+    ///
+    /// ### Panics
+    /// Panics if an invalid local number is passed (valid local numbers are `0..=7`)
+    pub fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
+        match local {
+            0 => self.local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            1 => self.local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            2 => self.local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            3 => self.local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            4 => self.local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            5 => self.local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            6 => self.local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            7 => self.local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            _ => panic!("Invalid local number: {}", local),
+        }
     }
 }

@@ -1,4 +1,5 @@
 use crate::{
+    misc::ArgNum,
     namespace::AmlName,
     parser::Parser,
     pkg_length::PkgLength,
@@ -202,11 +203,30 @@ impl AmlValue {
 /// A control method can take up to 7 arguments, each of which can be an `AmlValue`.
 #[derive(Clone, Debug, Default)]
 pub struct Args {
-    arg_0: Option<AmlValue>,
-    arg_1: Option<AmlValue>,
-    arg_2: Option<AmlValue>,
-    arg_3: Option<AmlValue>,
-    arg_4: Option<AmlValue>,
-    arg_5: Option<AmlValue>,
-    arg_6: Option<AmlValue>,
+    pub arg_0: Option<AmlValue>,
+    pub arg_1: Option<AmlValue>,
+    pub arg_2: Option<AmlValue>,
+    pub arg_3: Option<AmlValue>,
+    pub arg_4: Option<AmlValue>,
+    pub arg_5: Option<AmlValue>,
+    pub arg_6: Option<AmlValue>,
+}
+
+impl Args {
+    /// Get an argument by its `ArgNum`.
+    ///
+    /// ### Panics
+    /// Panics if passed an invalid argument number (valid argument numbers are `0..=6`)
+    pub fn arg(&self, num: ArgNum) -> Result<&AmlValue, AmlError> {
+        match num {
+            0 => self.arg_0.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            1 => self.arg_1.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            2 => self.arg_2.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            3 => self.arg_3.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            4 => self.arg_4.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            5 => self.arg_5.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            6 => self.arg_6.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
+            _ => panic!("Invalid argument number: {}", num),
+        }
+    }
 }

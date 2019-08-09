@@ -1,4 +1,5 @@
 use crate::{
+    misc::{arg_obj, local_obj},
     name_object::{name_seg, name_string},
     namespace::AmlName,
     opcode::{self, ext_opcode, opcode},
@@ -518,8 +519,19 @@ where
     /*
      * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
      */
-    // TODO: this doesn't yet parse ArgObj, or LocalObj
-    comment_scope_verbose("TermArg", choice!(data_object(), make_parser_concrete!(type2_opcode())))
+    comment_scope_verbose(
+        "TermArg",
+        choice!(
+            data_object(),
+            arg_obj().map_with_context(|arg_num, context| {
+                (Ok(try_with_context!(context, context.current_arg(arg_num)).clone()), context)
+            }),
+            local_obj().map_with_context(|local_num, context| {
+                (Ok(try_with_context!(context, context.local(local_num)).clone()), context)
+            }),
+            make_parser_concrete!(type2_opcode())
+        ),
+    )
 }
 
 pub fn data_ref_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
