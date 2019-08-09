@@ -66,15 +66,16 @@ where
         "MethodInvocation",
         name_string()
             .map_with_context(move |name, context| {
-                let object =
+                let handle =
                     try_with_context!(context, context.namespace.search(&name, &context.current_scope))
                         .clone();
-                (Ok(object), context)
+                (Ok(handle), context)
             })
-            .feed(|object| {
-                move |input: &'a [u8], context| -> ParseResult<'a, 'c, AmlValue> {
+            .feed(|handle| {
+                id().map_with_context(move |(), context| {
+                    let object = try_with_context!(context, context.namespace.get(handle));
                     match object.clone() {
-                        AmlValue::Name(boxed_value) => Ok((input, context, unbox(boxed_value))),
+                        AmlValue::Name(boxed_value) => (Ok(unbox(boxed_value)), context),
 
                         AmlValue::Method { flags, ref code } => {
                             // TODO: before we do this, we need to restructure the structures to allow us
@@ -83,9 +84,9 @@ where
                             unimplemented!()
                         }
 
-                        _ => Err((input, context, AmlError::IncompatibleValueConversion)),
+                        _ => (Err(AmlError::IncompatibleValueConversion), context),
                     }
-                }
+                })
             }),
     )
 }

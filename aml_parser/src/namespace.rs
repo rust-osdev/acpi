@@ -88,8 +88,9 @@ impl Namespace {
     }
 
     /// Search for an object at the given path of the namespace, applying the search rules
-    /// described in §5.3 of the ACPI specification, if they are applicable.
-    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<&AmlValue, AmlError> {
+    /// described in §5.3 of the ACPI specification, if they are applicable. Returns the handle of
+    /// the first valid object, if found.
+    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<AmlHandle, AmlError> {
         if path.search_rules_apply() {
             /*
              * If search rules apply, we need to recursively look through the namespace. If the
@@ -100,8 +101,8 @@ impl Namespace {
             assert!(scope.is_absolute());
             loop {
                 // Search for the name at this namespace level. If we find it, we're done.
-                if let Ok(value) = self.get_by_path(&path.resolve(&scope).unwrap()) {
-                    return Ok(value);
+                if let Some(handle) = self.name_map.get(&path.resolve(&scope)?) {
+                    return Ok(*handle);
                 }
 
                 // If we don't find it, go up a level in the namespace and search for it there,
@@ -117,7 +118,10 @@ impl Namespace {
             }
         } else {
             // If search rules don't apply, simply resolve it against the starting scope
-            self.get_by_path(&path.resolve(starting_scope)?)
+            self.name_map
+                .get(&path.resolve(starting_scope)?)
+                .map(|&handle| handle)
+                .ok_or(AmlError::ObjectDoesNotExist(path.as_string()))
         }
     }
 }
