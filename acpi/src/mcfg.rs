@@ -1,7 +1,6 @@
 use crate::{handler::PhysicalMapping, sdt::SdtHeader, Acpi, AcpiError};
 use alloc::vec::Vec;
 use core::{mem, slice};
-use log::info;
 
 /// Describes a set of regions of physical memory used to access the PCI-E configuration space. A
 /// region  is created for each entry in the MCFG. Given the segment group, bus, device number, and
@@ -16,13 +15,7 @@ pub struct PciConfigRegions {
 impl PciConfigRegions {
     /// Get the physical address of the start of the configuration space for a given PCI-E device
     /// function. Returns `None` if there isn't an entry in the MCFG that manages that device.
-    pub fn physical_address(
-        &self,
-        segment_group_no: u16,
-        bus: u8,
-        device: u8,
-        function: u8,
-    ) -> Option<u64> {
+    pub fn physical_address(&self, segment_group_no: u16, bus: u8, device: u8, function: u8) -> Option<u64> {
         // First, find the memory region that handles this segment and bus. This method is fine
         // because there should only be one region that handles each segment group + bus
         // combination.
@@ -50,12 +43,6 @@ pub(crate) struct Mcfg {
 impl Mcfg {
     fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length() as usize - mem::size_of::<Mcfg>();
-        info!(
-            "(raw length = {}, header length = {}, length of entries = {})",
-            self.header.length(),
-            mem::size_of::<SdtHeader>(),
-            length
-        );
         assert!(length % mem::size_of::<McfgEntry>() == 0);
         let num_entries = length / mem::size_of::<McfgEntry>();
 
@@ -77,10 +64,7 @@ struct McfgEntry {
     _reserved: u32,
 }
 
-pub(crate) fn parse_mcfg(
-    acpi: &mut Acpi,
-    mapping: &PhysicalMapping<Mcfg>,
-) -> Result<(), AcpiError> {
+pub(crate) fn parse_mcfg(acpi: &mut Acpi, mapping: &PhysicalMapping<Mcfg>) -> Result<(), AcpiError> {
     (*mapping).header.validate(b"MCFG")?;
 
     acpi.pci_config_regions =

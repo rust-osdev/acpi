@@ -1,5 +1,7 @@
 use crate::{
-    name_object::{name_seg, name_string, AmlName},
+    misc::{arg_obj, local_obj},
+    name_object::{name_seg, name_string},
+    namespace::AmlName,
     opcode::{self, ext_opcode, opcode},
     parser::{
         choice,
@@ -11,10 +13,13 @@ use crate::{
         take_u16,
         take_u32,
         take_u64,
+        try_with_context,
         ParseResult,
         Parser,
     },
     pkg_length::{pkg_length, PkgLength},
+    type1::type1_opcode,
+    type2::type2_opcode,
     value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
@@ -33,7 +38,9 @@ where
      */
     move |mut input: &'a [u8], mut context: &'c mut AmlContext| {
         while list_length.still_parsing(input) {
-            let (new_input, new_context, ()) = term_object().parse(input, context)?;
+            // TODO: currently, we ignore the value of the expression. We may need to propagate
+            // this.
+            let (new_input, new_context, _) = term_object().parse(input, context)?;
             input = new_input;
             context = new_context;
         }
@@ -42,14 +49,22 @@ where
     }
 }
 
-pub fn term_object<'a, 'c>() -> impl Parser<'a, 'c, ()>
+pub fn term_object<'a, 'c>() -> impl Parser<'a, 'c, Option<AmlValue>>
 where
     'c: 'a,
 {
     /*
      * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
      */
-    comment_scope_verbose("TermObj", choice!(namespace_modifier(), named_obj()))
+    comment_scope_verbose(
+        "TermObj",
+        choice!(
+            namespace_modifier().map(|()| Ok(None)),
+            named_obj().map(|()| Ok(None)),
+            type1_opcode().map(|()| Ok(None)),
+            type2_opcode().map(|value| Ok(Some(value)))
+        ),
+    )
 }
 
 pub fn namespace_modifier<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -77,14 +92,7 @@ where
      */
     comment_scope_verbose(
         "NamedObj",
-        choice!(
-            def_op_region(),
-            def_field(),
-            def_method(),
-            def_device(),
-            def_processor(),
-            def_mutex()
-        ),
+        choice!(def_op_region(), def_field(), def_method(), def_device(), def_processor(), def_mutex()),
     )
 }
 
@@ -98,12 +106,17 @@ where
     opcode(opcode::DEF_NAME_OP)
         .then(comment_scope(
             "DefName",
-            name_string().then(data_ref_object()).map_with_context(
-                |(name, data_ref_object), context| {
-                    context.add_to_namespace(name, AmlValue::Name(box data_ref_object));
-                    (Ok(()), context)
-                },
-            ),
+            name_string().then(data_ref_object()).map_with_context(|(name, data_ref_object), context| {
+                try_with_context!(
+                    context,
+                    context.namespace.add_at_resolved_path(
+                        name,
+                        &context.current_scope,
+                        AmlValue::Name(box data_ref_object)
+                    )
+                );
+                (Ok(()), context)
+            }),
         ))
         .discard_result()
 }
@@ -122,13 +135,13 @@ where
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
                     let previous_scope = context.current_scope.clone();
-                    context.current_scope = context.resolve_path(&name);
-                    (Ok((length, name, previous_scope)), context)
+                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
+                    (Ok((length, previous_scope)), context)
                 })
-                .feed(|(pkg_length, name, previous_scope)| {
-                    term_list(pkg_length).map(move |_| Ok((name.clone(), previous_scope.clone())))
+                .feed(|(pkg_length, previous_scope)| {
+                    term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
                 })
-                .map_with_context(|(name, previous_scope), context| {
+                .map_with_context(|previous_scope, context| {
                     context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),
@@ -185,7 +198,14 @@ where
                         Err(err) => return (Err(err), context),
                     };
 
-                    context.add_to_namespace(name, AmlValue::OpRegion { region, offset, length });
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::OpRegion { region, offset, length }
+                        )
+                    );
                     (Ok(()), context)
                 },
             ),
@@ -204,32 +224,25 @@ where
     ext_opcode(opcode::EXT_DEF_FIELD_OP)
         .then(comment_scope(
             "DefField",
-            pkg_length().then(name_string()).then(take()).feed(
-                |((list_length, region_name), flags)| {
-                    move |mut input: &'a [u8],
-                          mut context: &'c mut AmlContext|
-                          -> ParseResult<'a, 'c, ()> {
-                        /*
-                         * FieldList := Nothing | <FieldElement FieldList>
-                         */
-                        // TODO: can this pattern be expressed as a combinator
-                        let mut current_offset = 0;
-                        while list_length.still_parsing(input) {
-                            let (new_input, new_context, field_length) = field_element(
-                                region_name.clone(),
-                                FieldFlags::new(flags),
-                                current_offset,
-                            )
-                            .parse(input, context)?;
-                            input = new_input;
-                            context = new_context;
-                            current_offset += field_length;
-                        }
-
-                        Ok((input, context, ()))
+            pkg_length().then(name_string()).then(take()).feed(|((list_length, region_name), flags)| {
+                move |mut input: &'a [u8], mut context: &'c mut AmlContext| -> ParseResult<'a, 'c, ()> {
+                    /*
+                     * FieldList := Nothing | <FieldElement FieldList>
+                     */
+                    // TODO: can this pattern be expressed as a combinator
+                    let mut current_offset = 0;
+                    while list_length.still_parsing(input) {
+                        let (new_input, new_context, field_length) =
+                            field_element(region_name.clone(), FieldFlags::new(flags), current_offset)
+                                .parse(input, context)?;
+                        input = new_input;
+                        context = new_context;
+                        current_offset += field_length;
                     }
-                },
-            ),
+
+                    Ok((input, context, ()))
+                }
+            }),
         ))
         .discard_result()
 }
@@ -266,9 +279,8 @@ where
      * Reserved fields shouldn't actually be added to the namespace; they seem to show gaps in
      * the operation region that aren't used for anything.
      */
-    let reserved_field = opcode(opcode::RESERVED_FIELD)
-        .then(pkg_length())
-        .map(|((), length)| Ok(length.raw_length as u64));
+    let reserved_field =
+        opcode(opcode::RESERVED_FIELD).then(pkg_length()).map(|((), length)| Ok(length.raw_length as u64));
 
     // TODO: work out what to do with an access field
     // let access_field = opcode(opcode::ACCESS_FIELD)
@@ -276,20 +288,23 @@ where
     //     .then(take())
     //     .map_with_context(|(((), access_type), access_attrib), context| (Ok(    , context));
 
-    let named_field =
-        name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
-            context.add_to_namespace(
+    let named_field = name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
+        try_with_context!(
+            context,
+            context.namespace.add_at_resolved_path(
                 AmlName::from_name_seg(name_seg),
+                &context.current_scope,
                 AmlValue::Field {
                     region: region_name.clone(),
                     flags,
                     offset: current_offset,
                     length: length.raw_length as u64,
                 },
-            );
+            )
+        );
 
-            (Ok(length.raw_length as u64), context)
-        });
+        (Ok(length.raw_length as u64), context)
+    });
 
     choice!(reserved_field, named_field)
 }
@@ -311,13 +326,16 @@ where
                 .then(name_string())
                 .then(take())
                 .feed(|((length, name), flags)| {
-                    take_to_end_of_pkglength(length)
-                        .map(move |code| Ok((name.clone(), flags, code)))
+                    take_to_end_of_pkglength(length).map(move |code| Ok((name.clone(), flags, code)))
                 })
                 .map_with_context(|(name, flags, code), context| {
-                    context.add_to_namespace(
-                        name,
-                        AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
+                        )
                     );
                     (Ok(()), context)
                 }),
@@ -338,16 +356,21 @@ where
             pkg_length()
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
-                    context.add_to_namespace(name.clone(), AmlValue::Device);
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name.clone(),
+                            &context.current_scope,
+                            AmlValue::Device
+                        )
+                    );
 
                     let previous_scope = context.current_scope.clone();
-                    context.current_scope = context.resolve_path(&name);
+                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
 
                     (Ok((length, previous_scope)), context)
                 })
-                .feed(|(length, previous_scope)| {
-                    term_list(length).map(move |_| Ok(previous_scope.clone()))
-                })
+                .feed(|(length, previous_scope)| term_list(length).map(move |_| Ok(previous_scope.clone())))
                 .map_with_context(|previous_scope, context| {
                     context.current_scope = previous_scope;
                     (Ok(()), context)
@@ -374,13 +397,25 @@ where
                 .then(take())
                 .then(take_u32())
                 .then(take())
-                .feed(|((((pkg_length, name), proc_id), pblk_address), pblk_len)| {
-                    term_list(pkg_length)
-                        .map(move |_| Ok((name.clone(), proc_id, pblk_address, pblk_len)))
+                .map_with_context(|((((pkg_length, name), proc_id), pblk_address), pblk_len), context| {
+                    try_with_context!(
+                        context,
+                        context.namespace.add_at_resolved_path(
+                            name.clone(),
+                            &context.current_scope,
+                            AmlValue::Processor { id: proc_id, pblk_address, pblk_len }
+                        )
+                    );
+                    let previous_scope = context.current_scope.clone();
+                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
+
+                    (Ok((previous_scope, pkg_length)), context)
                 })
-                .map_with_context(|(name, id, pblk_address, pblk_len), context| {
-                    context
-                        .add_to_namespace(name, AmlValue::Processor { id, pblk_address, pblk_len });
+                .feed(move |(previous_scope, pkg_length)| {
+                    term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
+                })
+                .map_with_context(|previous_scope, context| {
+                    context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),
         ))
@@ -400,7 +435,14 @@ where
         .then(comment_scope(
             "DefMutex",
             name_string().then(take()).map_with_context(|(name, sync_level), context| {
-                context.add_to_namespace(name, AmlValue::Mutex { sync_level });
+                try_with_context!(
+                    context,
+                    context.namespace.add_at_resolved_path(
+                        name,
+                        &context.current_scope,
+                        AmlValue::Mutex { sync_level }
+                    )
+                );
                 (Ok(()), context)
             }),
         ))
@@ -448,8 +490,7 @@ where
                     let mut package_contents = Vec::new();
 
                     while pkg_length.still_parsing(input) {
-                        let (new_input, new_context, value) =
-                            package_element().parse(input, context)?;
+                        let (new_input, new_context, value) = package_element().parse(input, context)?;
                         input = new_input;
                         context = new_context;
 
@@ -478,8 +519,19 @@ where
     /*
      * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
      */
-    // TODO: this doesn't yet parse Term2Opcode, ArgObj, or LocalObj
-    comment_scope_verbose("TermArg", choice!(data_object()))
+    comment_scope_verbose(
+        "TermArg",
+        choice!(
+            data_object(),
+            arg_obj().map_with_context(|arg_num, context| {
+                (Ok(try_with_context!(context, context.current_arg(arg_num)).clone()), context)
+            }),
+            local_obj().map_with_context(|local_num, context| {
+                (Ok(try_with_context!(context, context.local(local_num)).clone()), context)
+            }),
+            make_parser_concrete!(type2_opcode())
+        ),
+    )
 }
 
 pub fn data_ref_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -545,12 +597,12 @@ where
             opcode::BYTE_CONST => {
                 take().map(|value| Ok(AmlValue::Integer(value as u64))).parse(new_input, context)
             }
-            opcode::WORD_CONST => take_u16()
-                .map(|value| Ok(AmlValue::Integer(value as u64)))
-                .parse(new_input, context),
-            opcode::DWORD_CONST => take_u32()
-                .map(|value| Ok(AmlValue::Integer(value as u64)))
-                .parse(new_input, context),
+            opcode::WORD_CONST => {
+                take_u16().map(|value| Ok(AmlValue::Integer(value as u64))).parse(new_input, context)
+            }
+            opcode::DWORD_CONST => {
+                take_u32().map(|value| Ok(AmlValue::Integer(value as u64))).parse(new_input, context)
+            }
             opcode::QWORD_CONST => {
                 take_u64().map(|value| Ok(AmlValue::Integer(value))).parse(new_input, context)
             }
@@ -559,7 +611,7 @@ where
             opcode::ONE_OP => Ok((new_input, context, AmlValue::Integer(1))),
             opcode::ONES_OP => Ok((new_input, context, AmlValue::Integer(u64::max_value()))),
 
-            _ => Err((input, context, AmlError::UnexpectedByte(op))),
+            _ => Err((input, context, AmlError::WrongParser)),
         }
     };
 
@@ -624,8 +676,7 @@ mod test {
             &[0x28]
         );
         check_ok!(
-            computational_data()
-                .parse(&[0x0d, b'A', b'B', b'C', b'D', b'\0', 0xff, 0xf5], &mut context),
+            computational_data().parse(&[0x0d, b'A', b'B', b'C', b'D', b'\0', 0xff, 0xf5], &mut context),
             AmlValue::String(String::from("ABCD")),
             &[0xff, 0xf5]
         );

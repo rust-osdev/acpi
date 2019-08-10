@@ -29,9 +29,10 @@ where
         DiscardResult { parser: self, _phantom: PhantomData }
     }
 
-    /// Try parsing with `self`. If it fails, try parsing with `other`, returning the result of the
-    /// first of the two parsers to succeed. To `or` multiple parsers ergonomically, see the
-    /// `choice!` macro.
+    /// Try parsing with `self`. If it succeeds, return its result. If it returns `AmlError::WrongParser`, try
+    /// parsing with `other`, returning the result of that parser in all cases. Other errors from the first
+    /// parser are propagated without attempting the second parser. To chain more than two parsers using
+    /// `or`, see the `choice!` macro.
     fn or<OtherParser>(self, other: OtherParser) -> Or<'a, 'c, Self, OtherParser, R>
     where
         OtherParser: Parser<'a, 'c, R>,
@@ -68,6 +69,15 @@ where
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R> {
         self(input, context)
     }
+}
+
+/// The identity parser - returns the stream and context unchanged. Useful for producing parsers
+/// that produce a result without parsing anything by doing: `id().map(|()| Ok(foo))`.
+pub fn id<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| Ok((input, context, ()))
 }
 
 pub fn take<'a, 'c>() -> impl Parser<'a, 'c, u8>
@@ -205,13 +215,13 @@ where
 {
     move |input, context| {
         #[cfg(feature = "debug_parser")]
-        trace!("--> {}", scope_name);
+        log::trace!("--> {}", scope_name);
 
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, context, result) = parser.parse(input, context)?;
 
         #[cfg(feature = "debug_parser")]
-        trace!("<-- {}", scope_name);
+        log::trace!("<-- {}", scope_name);
 
         Ok((new_input, context, result))
     }
@@ -225,13 +235,13 @@ where
 {
     move |input, context| {
         #[cfg(feature = "debug_parser_verbose")]
-        trace!("--> {}", scope_name);
+        log::trace!("--> {}", scope_name);
 
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, context, result) = parser.parse(input, context)?;
 
         #[cfg(feature = "debug_parser_verbose")]
-        trace!("<-- {}", scope_name);
+        log::trace!("<-- {}", scope_name);
 
         Ok((new_input, context, result))
     }
@@ -255,12 +265,11 @@ where
     P2: Parser<'a, 'c, R>,
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R> {
-        let context = match self.p1.parse(input, context) {
-            Ok(parse_result) => return Ok(parse_result),
-            Err((_, context, _)) => context,
-        };
-
-        self.p2.parse(input, context)
+        match self.p1.parse(input, context) {
+            Ok(parse_result) => Ok(parse_result),
+            Err((_, context, AmlError::WrongParser)) => self.p2.parse(input, context),
+            Err((_, context, err)) => Err((input, context, err)),
+        }
     }
 }
 
@@ -335,9 +344,7 @@ where
     P: Parser<'a, 'c, R>,
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, ()> {
-        self.parser
-            .parse(input, context)
-            .map(|(new_input, new_context, _)| (new_input, new_context, ()))
+        self.parser.parse(input, context).map(|(new_input, new_context, _)| (new_input, new_context, ()))
     }
 }
 
@@ -360,9 +367,9 @@ where
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, (R1, R2)> {
         self.p1.parse(input, context).and_then(|(next_input, context, result_a)| {
-            self.p2.parse(next_input, context).map(|(final_input, context, result_b)| {
-                (final_input, context, (result_a, result_b))
-            })
+            self.p2
+                .parse(next_input, context)
+                .map(|(final_input, context, result_b)| (final_input, context, (result_a, result_b)))
         })
     }
 }
@@ -395,19 +402,16 @@ where
     }
 }
 
-pub(crate) fn emit_no_parsers_could_parse<'a, 'c, R>() -> impl Parser<'a, 'c, R>
-where
-    'c: 'a,
-{
-    |input: &'a [u8], context| Err((input, context, AmlError::NoParsersCouldParse))
-}
-
 /// Takes a number of parsers, and tries to apply each one to the input in order. Returns the
 /// result of the first one that succeeds, or fails if all of them fail.
-pub macro choice {
+pub(crate) macro choice {
+    () => {
+        id().map(|()| Err(AmlError::WrongParser))
+    },
+
     ($first_parser: expr) => {
         $first_parser
-        .or(emit_no_parsers_could_parse())
+        .or(id().map(|()| Err(AmlError::WrongParser)))
     },
 
     ($first_parser: expr, $($other_parser: expr),*) => {
@@ -415,7 +419,7 @@ pub macro choice {
         $(
             .or($other_parser)
          )*
-        .or(emit_no_parsers_could_parse())
+        .or(id().map(|()| Err(AmlError::WrongParser)))
     }
 }
 
@@ -429,8 +433,20 @@ pub macro choice {
 ///     help: consider adding a a '#![recursion_limit="128"] attribute to your crate`
 /// Note: Increasing the recursion limit will not fix the issue, as the cycle will just continue
 /// until you either hit the new recursion limit or `rustc` overflows its stack.
-pub macro make_parser_concrete($parser: expr) {
+pub(crate) macro make_parser_concrete($parser: expr) {
     |input, context| ($parser).parse(input, context)
+}
+
+/// Helper macro for use within `map_with_context` as an alternative to "trying" an expression.
+///
+/// ### Example
+/// Problem: `expr?` won't work because the expected return type is `(Result<R, AmlError>, &mut AmlContext)`
+/// Solution: use `try_with_context!(context, expr)` instead.
+pub(crate) macro try_with_context($context: expr, $expr: expr) {
+    match $expr {
+        Ok(result) => result,
+        Err(err) => return (Err(err), $context),
+    }
 }
 
 #[cfg(test)]
@@ -442,11 +458,7 @@ mod tests {
     fn test_take_n() {
         let mut context = AmlContext::new();
         check_err!(take_n(1).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
-        check_err!(
-            take_n(2).parse(&[0xf5], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[0xf5]
-        );
+        check_err!(take_n(2).parse(&[0xf5], &mut context), AmlError::UnexpectedEndOfStream, &[0xf5]);
 
         check_ok!(take_n(1).parse(&[0xff], &mut context), &[0xff], &[]);
         check_ok!(take_n(1).parse(&[0xff, 0xf8], &mut context), &[0xff], &[0xf8]);
@@ -456,11 +468,7 @@ mod tests {
     #[test]
     fn test_take_ux() {
         let mut context = AmlContext::new();
-        check_err!(
-            take_u16().parse(&[0x34], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[0x34]
-        );
+        check_err!(take_u16().parse(&[0x34], &mut context), AmlError::UnexpectedEndOfStream, &[0x34]);
         check_ok!(take_u16().parse(&[0x34, 0x12], &mut context), 0x1234, &[]);
 
         check_err!(
@@ -468,20 +476,11 @@ mod tests {
             AmlError::UnexpectedEndOfStream,
             &[0x34, 0x12]
         );
-        check_ok!(
-            take_u32().parse(&[0x34, 0x12, 0xf4, 0xc3, 0x3e], &mut context),
-            0xc3f41234,
-            &[0x3e]
-        );
+        check_ok!(take_u32().parse(&[0x34, 0x12, 0xf4, 0xc3, 0x3e], &mut context), 0xc3f41234, &[0x3e]);
 
-        check_err!(
-            take_u64().parse(&[0x34], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[0x34]
-        );
+        check_err!(take_u64().parse(&[0x34], &mut context), AmlError::UnexpectedEndOfStream, &[0x34]);
         check_ok!(
-            take_u64()
-                .parse(&[0x34, 0x12, 0x35, 0x76, 0xd4, 0x43, 0xa3, 0xb6, 0xff, 0x00], &mut context),
+            take_u64().parse(&[0x34, 0x12, 0x35, 0x76, 0xd4, 0x43, 0xa3, 0xb6, 0xff, 0x00], &mut context),
             0xb6a343d476351234,
             &[0xff, 0x00]
         );

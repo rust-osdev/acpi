@@ -1,12 +1,5 @@
 use crate::{
-    interrupt::{
-        InterruptModel,
-        InterruptSourceOverride,
-        IoApic,
-        NmiSource,
-        Polarity,
-        TriggerMode,
-    },
+    interrupt::{InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode},
     sdt::SdtHeader,
     Acpi,
     AcpiError,
@@ -47,9 +40,7 @@ pub(crate) struct Madt {
 impl Madt {
     fn entries(&self) -> MadtEntryIter {
         MadtEntryIter {
-            pointer: unsafe {
-                (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize)
-            },
+            pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
             remaining_length: self.header.length() - mem::size_of::<Madt>() as u32,
             _phantom: PhantomData,
         }
@@ -399,10 +390,7 @@ where
 
 /// This parses the MADT and gathers information about a APIC interrupt model. We error if we
 /// encounter an entry that doesn't configure the APIC.
-fn parse_apic_model(
-    acpi: &mut Acpi,
-    mapping: &PhysicalMapping<Madt>,
-) -> Result<InterruptModel, AcpiError> {
+fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<InterruptModel, AcpiError> {
     use crate::interrupt::LocalInterruptLine;
 
     let mut local_apic_address = (*mapping).local_apic_address as u64;
@@ -451,9 +439,7 @@ fn parse_apic_model(
 
             MadtEntry::InterruptSourceOverride(ref entry) => {
                 if entry.bus != 0 {
-                    return Err(AcpiError::InvalidMadt(
-                        MadtError::InterruptOverrideEntryHasInvalidBus,
-                    ));
+                    return Err(AcpiError::InvalidMadt(MadtError::InterruptOverrideEntryHasInvalidBus));
                 }
 
                 let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;

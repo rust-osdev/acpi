@@ -1,55 +1,49 @@
 use crate::{
+    misc::{arg_obj, debug_obj, local_obj, ArgNum, LocalNum},
+    namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
     parser::{choice, comment_scope_verbose, consume, n_of, take, Parser},
     AmlContext,
     AmlError,
 };
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::vec::Vec;
 use core::{fmt, str};
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct AmlName(pub(crate) Vec<NameComponent>);
-
-impl AmlName {
-    pub fn root() -> AmlName {
-        AmlName(alloc::vec![NameComponent::Root])
-    }
-
-    pub fn from_name_seg(seg: NameSeg) -> AmlName {
-        AmlName(alloc::vec![NameComponent::Segment(seg)])
-    }
-
-    pub fn as_string(&self) -> String {
-        self.0
-            .iter()
-            .fold(String::new(), |name, component| match component {
-                NameComponent::Root => name + "\\",
-                NameComponent::Prefix => name + "^",
-                NameComponent::Segment(seg) => name + seg.as_str() + ".",
-            })
-            .trim_end_matches('.')
-            .to_string()
-    }
-
-    pub fn is_absolute(&self) -> bool {
-        self.0.first() == Some(&NameComponent::Root)
-    }
+/// Produced by the `Target`, `SimpleName`, and `SuperName` parsers
+#[derive(Clone, Debug)]
+pub enum Target {
+    Name(AmlName),
+    Debug,
+    Arg(ArgNum),
+    Local(LocalNum),
 }
 
-impl fmt::Display for AmlName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_string())
-    }
+pub fn super_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
+where
+    'c: 'a,
+{
+    /*
+     * SuperName := SimpleName | DebugObj | Type6Opcode
+     * TODO: this doesn't cover Type6Opcode yet
+     */
+    comment_scope_verbose("SuperName", choice!(debug_obj().map(|()| Ok(Target::Debug)), simple_name()))
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum NameComponent {
-    Root,
-    Prefix,
-    Segment(NameSeg),
+pub fn simple_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
+where
+    'c: 'a,
+{
+    /*
+     * SimpleName := NameString | ArgObj | LocalObj
+     */
+    comment_scope_verbose(
+        "SimpleName",
+        choice!(
+            name_string().map(move |name| Ok(Target::Name(name))),
+            arg_obj().map(|arg_num| Ok(Target::Arg(arg_num))),
+            local_obj().map(|local_num| Ok(Target::Local(local_num)))
+        ),
+    )
 }
 
 pub fn name_string<'a, 'c>() -> impl Parser<'a, 'c, AmlName>
@@ -132,11 +126,9 @@ where
         let (new_input, context, ((), seg_count)) =
             opcode(MULTI_NAME_PREFIX).then(take()).parse(input, context)?;
         match n_of(name_seg(), usize::from(seg_count)).parse(new_input, context) {
-            Ok((new_input, context, name_segs)) => Ok((
-                new_input,
-                context,
-                name_segs.iter().map(|&seg| NameComponent::Segment(seg)).collect(),
-            )),
+            Ok((new_input, context, name_segs)) => {
+                Ok((new_input, context, name_segs.iter().map(|&seg| NameComponent::Segment(seg)).collect()))
+            }
             // Correct returned input to the one we haven't touched
             Err((_, context, err)) => Err((input, context, err)),
         }
@@ -144,9 +136,36 @@ where
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NameSeg([u8; 4]);
+pub struct NameSeg(pub(crate) [u8; 4]);
 
 impl NameSeg {
+    pub(crate) fn from_str(string: &str) -> Option<NameSeg> {
+        // Each NameSeg can only have four chars, and must have at least one
+        if string.len() < 1 || string.len() > 4 {
+            return None;
+        }
+
+        // We pre-fill the array with '_', so it will already be correct if the length is < 4
+        let mut seg = [b'_'; 4];
+        let bytes = string.as_bytes();
+
+        // Manually do the first one, because we have to check it's a LeadNameChar
+        if !is_lead_name_char(bytes[0]) {
+            return None;
+        }
+        seg[0] = bytes[0];
+
+        // Copy the rest of the chars, checking that they're NameChars
+        for i in 1..bytes.len() {
+            if !is_name_char(bytes[i]) {
+                return None;
+            }
+            seg[i] = bytes[i];
+        }
+
+        Some(NameSeg(seg))
+    }
+
     /// Turn a `NameSeg` into a `&str`. Returns it in a `ParseResult` so it's easy to use from
     /// inside parsers.
     pub fn as_str(&self) -> &str {
@@ -225,17 +244,16 @@ mod tests {
     fn test_name_path() {
         let mut context = AmlContext::new();
 
-        check_err!(name_path().parse(&[], &mut context), AmlError::NoParsersCouldParse, &[]);
+        check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
         check_ok!(name_path().parse(&[0x00, 0x00], &mut context), alloc::vec![], &[0x00]);
         check_err!(
             name_path().parse(&[0x2e, b'A'], &mut context),
-            AmlError::NoParsersCouldParse,
+            AmlError::UnexpectedEndOfStream,
             &[0x2e, b'A']
         );
         check_ok!(
-            name_path()
-                .parse(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G'], &mut context),
+            name_path().parse(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G'], &mut context),
             alloc::vec![
                 NameComponent::Segment(NameSeg([b'A', b'B', b'C', b'D'])),
                 NameComponent::Segment(NameSeg([b'E', b'_', b'F', b'G']))

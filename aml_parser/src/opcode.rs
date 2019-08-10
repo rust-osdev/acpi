@@ -32,6 +32,39 @@ pub const EXT_DEF_FIELD_OP: u8 = 0x81;
 pub const EXT_DEF_DEVICE_OP: u8 = 0x82;
 pub const EXT_DEF_PROCESSOR_OP: u8 = 0x83;
 
+/*
+ * Type 1 opcodes
+ */
+pub const DEF_IF_ELSE_OP: u8 = 0xa0;
+pub const DEF_ELSE_OP: u8 = 0xa1;
+pub const DEF_RETURN_OP: u8 = 0xa4;
+
+/*
+ * Type 2 opcodes
+ */
+pub const DEF_L_EQUAL_OP: u8 = 0x93;
+pub const DEF_STORE_OP: u8 = 0x70;
+
+/*
+ * Miscellaneous objects
+ */
+pub const EXT_DEBUG_OP: u8 = 0x31;
+pub const LOCAL0_OP: u8 = 0x60;
+pub const LOCAL1_OP: u8 = 0x61;
+pub const LOCAL2_OP: u8 = 0x62;
+pub const LOCAL3_OP: u8 = 0x63;
+pub const LOCAL4_OP: u8 = 0x64;
+pub const LOCAL5_OP: u8 = 0x65;
+pub const LOCAL6_OP: u8 = 0x66;
+pub const LOCAL7_OP: u8 = 0x67;
+pub const ARG0_OP: u8 = 0x68;
+pub const ARG1_OP: u8 = 0x69;
+pub const ARG2_OP: u8 = 0x6a;
+pub const ARG3_OP: u8 = 0x6b;
+pub const ARG4_OP: u8 = 0x6c;
+pub const ARG5_OP: u8 = 0x6d;
+pub const ARG6_OP: u8 = 0x6e;
+
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
 pub(crate) fn opcode<'a, 'c>(opcode: u8) -> impl Parser<'a, 'c, ()>
@@ -41,7 +74,7 @@ where
     move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
         None => Err((input, context, AmlError::UnexpectedEndOfStream)),
         Some(&byte) if byte == opcode => Ok((&input[1..], context, ())),
-        Some(&byte) => Err((input, context, AmlError::UnexpectedByte(byte))),
+        Some(_) => Err((input, context, AmlError::WrongParser)),
     }
 }
 
@@ -60,11 +93,7 @@ mod tests {
     #[test]
     fn empty() {
         let mut context = AmlContext::new();
-        check_err!(
-            opcode(NULL_NAME).parse(&[], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[]
-        );
+        check_err!(opcode(NULL_NAME).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_err!(
             ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context),
             AmlError::UnexpectedEndOfStream,
@@ -88,12 +117,11 @@ mod tests {
         let mut context = AmlContext::new();
         check_err!(
             ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP], &mut context),
-            AmlError::UnexpectedByte(EXT_DEF_FIELD_OP),
+            AmlError::WrongParser,
             &[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP]
         );
         check_ok!(
-            ext_opcode(EXT_DEF_FIELD_OP)
-                .parse(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP], &mut context),
+            ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP], &mut context),
             (),
             &[]
         );

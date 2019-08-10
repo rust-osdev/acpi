@@ -80,9 +80,7 @@ where
                  * The stream was too short. We return an error, making sure to return the
                  * *original* stream (that we haven't consumed any of).
                  */
-                Err((_, context, _)) => {
-                    return Err((input, context, AmlError::UnexpectedEndOfStream))
-                }
+                Err((_, context, _)) => return Err((input, context, AmlError::UnexpectedEndOfStream)),
             };
 
         Ok((new_input, context, length))
@@ -116,11 +114,7 @@ mod tests {
         let mut context = AmlContext::new();
         check_err!(pkg_length().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         test_correct_pkglength(&[0x00], 0, &[]);
-        test_correct_pkglength(
-            &[0x05, 0xf5, 0x7f, 0x3e, 0x54, 0x03],
-            5,
-            &[0xf5, 0x7f, 0x3e, 0x54, 0x03],
-        );
+        test_correct_pkglength(&[0x05, 0xf5, 0x7f, 0x3e, 0x54, 0x03], 5, &[0xf5, 0x7f, 0x3e, 0x54, 0x03]);
         check_err!(
             pkg_length().parse(&[0b11000000, 0xff, 0x4f], &mut context),
             AmlError::UnexpectedEndOfStream,

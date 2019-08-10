@@ -11,6 +11,11 @@
 //! unmap the memory the table was mapped into - all the information needed will be extracted and
 //! allocated on the heap.
 //!
+//! You can then access specific objects by name like so: e.g.
+//! ```ignore
+//! let my_aml_value = aml_context.lookup(&AmlName::from_str("\\_SB.PCI0.S08._ADR").unwrap());
+//! ```
+//!
 //! ### About the parser
 //! The parser is written using a set of custom parser combinators - the code can be confusing on
 //! first reading, but provides an extensible and type-safe way to write parsers. For an easy
@@ -37,49 +42,72 @@ extern crate std;
 #[cfg(test)]
 mod test_utils;
 
+pub(crate) mod misc;
 pub(crate) mod name_object;
+pub(crate) mod namespace;
 pub(crate) mod opcode;
 pub(crate) mod parser;
 pub(crate) mod pkg_length;
 pub(crate) mod term_object;
+pub(crate) mod type1;
+pub(crate) mod type2;
 pub mod value;
 
-pub use crate::value::AmlValue;
+pub use crate::{
+    namespace::{AmlHandle, AmlName, Namespace},
+    value::AmlValue,
+};
 
-use alloc::collections::BTreeMap;
+use alloc::string::String;
 use log::error;
-use name_object::AmlName;
+use misc::{ArgNum, LocalNum};
 use parser::Parser;
 use pkg_length::PkgLength;
+use term_object::term_list;
+use value::Args;
 
 /// AML has a `RevisionOp` operator that returns the "AML interpreter revision". It's not clear
 /// what this is actually used for, but this is ours.
 pub const AML_INTERPRETER_REVISION: u64 = 0;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AmlError {
-    UnexpectedEndOfStream,
-    UnexpectedByte(u8),
-    InvalidNameSeg([u8; 4]),
-    InvalidFieldFlags,
-    IncompatibleValueConversion,
-    UnterminatedStringConstant,
-    InvalidStringConstant,
-    InvalidRegionSpace(u8),
-    /// Error produced when none of the parsers in a `choice!` could parse the next part of the
-    /// stream.
-    NoParsersCouldParse,
-}
-
 #[derive(Debug)]
 pub struct AmlContext {
-    namespace: BTreeMap<AmlName, AmlValue>,
+    pub namespace: Namespace,
     current_scope: AmlName,
+
+    /*
+     * AML local variables. These are used when we invoke a control method. A `None` value
+     * represents a null AML object.
+     */
+    local_0: Option<AmlValue>,
+    local_1: Option<AmlValue>,
+    local_2: Option<AmlValue>,
+    local_3: Option<AmlValue>,
+    local_4: Option<AmlValue>,
+    local_5: Option<AmlValue>,
+    local_6: Option<AmlValue>,
+    local_7: Option<AmlValue>,
+
+    /// If we're currently invoking a control method, this stores the arguments that were passed to
+    /// it. It's `None` if we aren't invoking a method.
+    current_args: Option<Args>,
 }
 
 impl AmlContext {
     pub fn new() -> AmlContext {
-        AmlContext { namespace: BTreeMap::new(), current_scope: AmlName::root() }
+        AmlContext {
+            namespace: Namespace::new(),
+            current_scope: AmlName::root(),
+            local_0: None,
+            local_1: None,
+            local_2: None,
+            local_3: None,
+            local_4: None,
+            local_5: None,
+            local_6: None,
+            local_7: None,
+            current_args: None,
+        }
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {
@@ -90,33 +118,131 @@ impl AmlContext {
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength;
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
-            Err((remaining, _context, err)) => {
+            Err((_, _, err)) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
                 Err(err)
             }
         }
     }
 
-    /// Resolves a given path relative to the current scope (if the given path is not absolute).
-    /// The returned path can be used to index the namespace.
-    pub fn resolve_path(&mut self, path: &AmlName) -> AmlName {
-        // TODO: we should normalize the path by resolving prefix chars etc.
+    /// Invoke a method referred to by its path in the namespace, with the given arguments.
+    pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
+        if let AmlValue::Method { flags, code } = self.namespace.get_by_path(path)?.clone() {
+            /*
+             * First, set up the state we expect to enter the method with, but clearing local
+             * variables to "null" and setting the arguments.
+             */
+            self.current_scope = path.clone();
+            self.current_args = Some(args);
+            self.local_0 = None;
+            self.local_1 = None;
+            self.local_2 = None;
+            self.local_3 = None;
+            self.local_4 = None;
+            self.local_5 = None;
+            self.local_6 = None;
+            self.local_7 = None;
 
-        // If the path is absolute, just return it.
-        if path.is_absolute() {
-            return path.clone();
+            let return_value =
+                match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
+                    // If the method doesn't return a value, we implicitly return `0`
+                    Ok(_) => Ok(AmlValue::Integer(0)),
+                    Err((_, _, AmlError::Return(result))) => Ok(result),
+                    Err((_, _, err)) => {
+                        error!("Failed to execute control method: {:?}", err);
+                        Err(err)
+                    }
+                };
+
+            /*
+             * Now clear the state.
+             */
+            self.current_args = None;
+            self.local_0 = None;
+            self.local_1 = None;
+            self.local_2 = None;
+            self.local_3 = None;
+            self.local_4 = None;
+            self.local_5 = None;
+            self.local_6 = None;
+            self.local_7 = None;
+
+            return_value
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
         }
-
-        // Otherwise, it's relative to the current scope so append it onto that.
-        let mut new_path = self.current_scope.clone();
-        new_path.0.extend_from_slice(&(path.0));
-        new_path
     }
 
-    /// Add an `AmlValue` to the namespace. `path` can either be absolute, or relative (in which
-    /// case it's treated as relative to the current scope).
-    pub fn add_to_namespace(&mut self, path: AmlName, value: AmlValue) {
-        let resolved_path = self.resolve_path(&path);
-        self.namespace.insert(resolved_path, value);
+    pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
+        self.current_args.as_ref().ok_or(AmlError::InvalidArgumentAccess(0xff))?.arg(arg)
     }
+
+    /// Get the current value of a local by its local number.
+    ///
+    /// ### Panics
+    /// Panics if an invalid local number is passed (valid local numbers are `0..=7`)
+    pub(crate) fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
+        match local {
+            0 => self.local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            1 => self.local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            2 => self.local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            3 => self.local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            4 => self.local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            5 => self.local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            6 => self.local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            7 => self.local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            _ => panic!("Invalid local number: {}", local),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AmlError {
+    /*
+     * Errors produced parsing the AML stream.
+     */
+    UnexpectedEndOfStream,
+    UnexpectedByte(u8),
+    InvalidNameSeg([u8; 4]),
+    InvalidFieldFlags,
+    IncompatibleValueConversion,
+    UnterminatedStringConstant,
+    InvalidStringConstant,
+    InvalidRegionSpace(u8),
+    /// Emitted by a parser when it's clear that the stream doesn't encode the object parsed by
+    /// that parser (e.g. the wrong opcode starts the stream). This is handled specially by some
+    /// parsers such as `or` and `choice!`.
+    WrongParser,
+
+    /*
+     * Errors produced manipulating AML names.
+     */
+    /// Produced when trying to normalize a path that does not point to a valid level of the
+    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace.
+    InvalidNormalizedName(String),
+    RootHasNoParent,
+
+    /*
+     * Errors produced working with the namespace.
+     */
+    /// Produced when a path is given that does not point to an object in the AML namespace.
+    ObjectDoesNotExist(String),
+    HandleDoesNotExist(AmlHandle),
+    /// Produced when two values with the same name are added to the namespace.
+    NameCollision(AmlName),
+
+    /*
+     * Errors produced executing control methods.
+     */
+    /// Produced when a method accesses an argument it does not have (e.g. a method that takes 2
+    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
+    /// arguments are accessed when a method is not being executed, this error is produced with an
+    /// argument number of `0xff`.
+    InvalidArgumentAccess(ArgNum),
+    InvalidLocalAccess(LocalNum),
+    /// This is not a real error, but is used to propagate return values from within the deep
+    /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
+    /// error system here because the way errors are propagated matches how we want to handle
+    /// return values.
+    Return(AmlValue),
 }
