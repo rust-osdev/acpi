@@ -69,57 +69,6 @@ use value::Args;
 /// what this is actually used for, but this is ours.
 pub const AML_INTERPRETER_REVISION: u64 = 0;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AmlError {
-    /*
-     * Errors produced parsing the AML stream.
-     */
-    UnexpectedEndOfStream,
-    UnexpectedByte(u8),
-    InvalidNameSeg([u8; 4]),
-    InvalidFieldFlags,
-    IncompatibleValueConversion,
-    UnterminatedStringConstant,
-    InvalidStringConstant,
-    InvalidRegionSpace(u8),
-    /// Emitted by a parser when it's clear that the stream doesn't encode the object parsed by
-    /// that parser (e.g. the wrong opcode starts the stream). This is handled specially by some
-    /// parsers such as `or` and `choice!`.
-    WrongParser,
-
-    /*
-     * Errors produced manipulating AML names.
-     */
-    /// Produced when trying to normalize a path that does not point to a valid level of the
-    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace.
-    InvalidNormalizedName(String),
-    RootHasNoParent,
-
-    /*
-     * Errors produced working with the namespace.
-     */
-    /// Produced when a path is given that does not point to an object in the AML namespace.
-    ObjectDoesNotExist(String),
-    HandleDoesNotExist(AmlHandle),
-    /// Produced when two values with the same name are added to the namespace.
-    NameCollision(AmlName),
-
-    /*
-     * Errors produced executing control methods.
-     */
-    /// Produced when a method accesses an argument it does not have (e.g. a method that takes 2
-    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
-    /// arguments are accessed when a method is not being executed, this error is produced with an
-    /// argument number of `0xff`.
-    InvalidArgumentAccess(ArgNum),
-    InvalidLocalAccess(LocalNum),
-    /// This is not a real error, but is used to propagate return values from within the deep
-    /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
-    /// error system here because the way errors are propagated matches how we want to handle
-    /// return values.
-    Return(AmlValue),
-}
-
 #[derive(Debug)]
 pub struct AmlContext {
     pub namespace: Namespace,
@@ -180,7 +129,7 @@ impl AmlContext {
         self.namespace.get_by_path(path)?.clone().invoke(self, args, path.clone())
     }
 
-    pub fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
+    pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
         self.current_args.as_ref().ok_or(AmlError::InvalidArgumentAccess(0xff))?.arg(arg)
     }
 
@@ -188,7 +137,7 @@ impl AmlContext {
     ///
     /// ### Panics
     /// Panics if an invalid local number is passed (valid local numbers are `0..=7`)
-    pub fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
+    pub(crate) fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
         match local {
             0 => self.local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
             1 => self.local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
@@ -201,4 +150,55 @@ impl AmlContext {
             _ => panic!("Invalid local number: {}", local),
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AmlError {
+    /*
+     * Errors produced parsing the AML stream.
+     */
+    UnexpectedEndOfStream,
+    UnexpectedByte(u8),
+    InvalidNameSeg([u8; 4]),
+    InvalidFieldFlags,
+    IncompatibleValueConversion,
+    UnterminatedStringConstant,
+    InvalidStringConstant,
+    InvalidRegionSpace(u8),
+    /// Emitted by a parser when it's clear that the stream doesn't encode the object parsed by
+    /// that parser (e.g. the wrong opcode starts the stream). This is handled specially by some
+    /// parsers such as `or` and `choice!`.
+    WrongParser,
+
+    /*
+     * Errors produced manipulating AML names.
+     */
+    /// Produced when trying to normalize a path that does not point to a valid level of the
+    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace.
+    InvalidNormalizedName(String),
+    RootHasNoParent,
+
+    /*
+     * Errors produced working with the namespace.
+     */
+    /// Produced when a path is given that does not point to an object in the AML namespace.
+    ObjectDoesNotExist(String),
+    HandleDoesNotExist(AmlHandle),
+    /// Produced when two values with the same name are added to the namespace.
+    NameCollision(AmlName),
+
+    /*
+     * Errors produced executing control methods.
+     */
+    /// Produced when a method accesses an argument it does not have (e.g. a method that takes 2
+    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
+    /// arguments are accessed when a method is not being executed, this error is produced with an
+    /// argument number of `0xff`.
+    InvalidArgumentAccess(ArgNum),
+    InvalidLocalAccess(LocalNum),
+    /// This is not a real error, but is used to propagate return values from within the deep
+    /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
+    /// error system here because the way errors are propagated matches how we want to handle
+    /// return values.
+    Return(AmlValue),
 }

@@ -42,7 +42,8 @@ where
         local_parser(3, opcode::LOCAL3_OP),
         local_parser(4, opcode::LOCAL4_OP),
         local_parser(5, opcode::LOCAL5_OP),
-        local_parser(6, opcode::LOCAL6_OP)
+        local_parser(6, opcode::LOCAL6_OP),
+        local_parser(7, opcode::LOCAL7_OP)
     )
 }
 
