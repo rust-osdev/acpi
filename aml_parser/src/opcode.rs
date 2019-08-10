@@ -43,6 +43,7 @@ pub const DEF_RETURN_OP: u8 = 0xa4;
  * Type 2 opcodes
  */
 pub const DEF_L_EQUAL_OP: u8 = 0x93;
+pub const DEF_STORE_OP: u8 = 0x70;
 
 /*
  * Miscellaneous objects

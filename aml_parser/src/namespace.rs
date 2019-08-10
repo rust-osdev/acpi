@@ -87,6 +87,15 @@ impl Namespace {
         self.get(handle).map_err(|_| AmlError::ObjectDoesNotExist(path.as_string()))
     }
 
+    pub fn get_mut(&mut self, handle: AmlHandle) -> Result<&mut AmlValue, AmlError> {
+        self.object_map.get_mut(&handle).ok_or(AmlError::HandleDoesNotExist(handle))
+    }
+
+    pub fn get_by_path_mut(&mut self, path: &AmlName) -> Result<&mut AmlValue, AmlError> {
+        let handle = *self.name_map.get(path).ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?;
+        self.get_mut(handle).map_err(|_| AmlError::ObjectDoesNotExist(path.as_string()))
+    }
+
     /// Search for an object at the given path of the namespace, applying the search rules
     /// described in §5.3 of the ACPI specification, if they are applicable. Returns the handle of
     /// the first valid object, if found.

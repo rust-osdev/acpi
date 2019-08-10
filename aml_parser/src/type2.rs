@@ -1,7 +1,7 @@
 use crate::{
-    name_object::name_string,
+    name_object::{name_string, super_name, Target},
     opcode::{self, opcode},
-    parser::{choice, comment_scope_verbose, try_with_context, ParseResult, Parser},
+    parser::{choice, comment_scope, comment_scope_verbose, id, try_with_context, Parser},
     term_object::term_arg,
     value::AmlValue,
     AmlError,
@@ -24,7 +24,7 @@ where
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
      *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
      */
-    comment_scope_verbose("Type2Opcode", choice!(def_l_equal(), method_invocation()))
+    comment_scope_verbose("Type2Opcode", choice!(def_l_equal(), def_store(), method_invocation()))
 }
 
 fn def_l_equal<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -43,6 +43,52 @@ where
             }),
         ))
         .map(|((), result)| Ok(result))
+}
+
+fn def_store<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefStore := 0x70 TermArg SuperName
+     *
+     * Implicit conversion is only applied when the destination target is a `Name` - not when we
+     * are storing into a method local or argument (these stores are semantically identical to
+     * CopyObject). We must also make sure to return a copy of the data that is in the destination
+     * after the store (as opposed to the data we think we put into it), because some stores can
+     * alter the data during the store.
+     */
+    opcode(opcode::DEF_STORE_OP)
+        .then(comment_scope("DefStore", term_arg().then(super_name())))
+        .map_with_context(|((), (value, target)), context| {
+            match target {
+                Target::Name(ref path) => {
+                    let handle =
+                        try_with_context!(context, context.namespace.search(path, &context.current_scope));
+                    let desired_type = context.namespace.get(handle).unwrap().type_of();
+                    let converted_object = try_with_context!(context, value.as_type(desired_type));
+
+                    *try_with_context!(context, context.namespace.get_mut(handle)) =
+                        AmlValue::Name(box converted_object);
+                    (Ok(context.namespace.get(handle).unwrap().clone()), context)
+                }
+
+                Target::Debug => {
+                    // TODO
+                    unimplemented!()
+                }
+
+                Target::Arg(arg_num) => {
+                    // TODO
+                    unimplemented!()
+                }
+
+                Target::Local(local_num) => {
+                    // TODO
+                    unimplemented!()
+                }
+            }
+        })
 }
 
 fn method_invocation<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
