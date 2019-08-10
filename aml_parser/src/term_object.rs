@@ -136,12 +136,12 @@ where
                 .map_with_context(|(length, name), context| {
                     let previous_scope = context.current_scope.clone();
                     context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
-                    (Ok((length, name, previous_scope)), context)
+                    (Ok((length, previous_scope)), context)
                 })
-                .feed(|(pkg_length, name, previous_scope)| {
-                    term_list(pkg_length).map(move |_| Ok((name.clone(), previous_scope.clone())))
+                .feed(|(pkg_length, previous_scope)| {
+                    term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
                 })
-                .map_with_context(|(name, previous_scope), context| {
+                .map_with_context(|previous_scope, context| {
                     context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),

@@ -118,7 +118,7 @@ impl AmlContext {
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength;
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
-            Err((remaining, _context, err)) => {
+            Err((_, _, err)) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
                 Err(err)
             }
@@ -146,9 +146,9 @@ impl AmlContext {
             let return_value =
                 match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
                     // If the method doesn't return a value, we implicitly return `0`
-                    Ok((remaining, context, result)) => Ok(AmlValue::Integer(0)),
-                    Err((remaining, context, AmlError::Return(result))) => Ok(result),
-                    Err((remaining, context, err)) => {
+                    Ok(_) => Ok(AmlValue::Integer(0)),
+                    Err((_, _, AmlError::Return(result))) => Ok(result),
+                    Err((_, _, err)) => {
                         error!("Failed to execute control method: {:?}", err);
                         Err(err)
                     }

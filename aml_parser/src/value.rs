@@ -161,7 +161,7 @@ impl AmlValue {
         match self {
             AmlValue::Integer(value) => Ok(*value),
 
-            AmlValue::Buffer { size, ref bytes } => {
+            AmlValue::Buffer { ref bytes, .. } => {
                 /*
                  * "The first 8 bytes of the buffer are converted to an integer, taking the first
                  * byte as the least significant byte of the integer. A zero-length buffer is

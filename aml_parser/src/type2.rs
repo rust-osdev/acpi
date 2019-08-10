@@ -123,7 +123,7 @@ where
                     match object.clone() {
                         AmlValue::Name(boxed_value) => (Ok(unbox(boxed_value)), context),
 
-                        AmlValue::Method { flags, ref code } => {
+                        AmlValue::Method { ref code, .. } => {
                             // TODO: before we do this, we need to restructure the structures to allow us
                             // to execute control methods from inside other control methods
                             // TODO
