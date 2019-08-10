@@ -83,8 +83,8 @@ impl Namespace {
     }
 
     pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
-        let handle = self.name_map.get(path).ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?;
-        self.get(*handle).map_err(|_| AmlError::ObjectDoesNotExist(path.as_string()))
+        let handle = *self.name_map.get(path).ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?;
+        self.get(handle).map_err(|_| AmlError::ObjectDoesNotExist(path.as_string()))
     }
 
     /// Search for an object at the given path of the namespace, applying the search rules
