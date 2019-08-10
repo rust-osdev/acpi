@@ -100,6 +100,30 @@ impl MethodFlags {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AmlType {
+    Uninitialized,
+    Buffer,
+    BufferField,
+    /// Handle to a definition block handle. Returned by the `Load` operator.
+    DdbHandle,
+    DebugObject,
+    Device,
+    Event,
+    FieldUnit,
+    Integer,
+    Method,
+    Mutex,
+    ObjReference,
+    OpRegion,
+    Package,
+    PowerResource,
+    Processor,
+    RawDataBuffer,
+    String,
+    ThermalZone,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlValue {
     Boolean(bool),
@@ -117,6 +141,24 @@ pub enum AmlValue {
 }
 
 impl AmlValue {
+    /// Returns the AML type of this value. For `Name`, this returns the type of the inner value.
+    pub fn type_of(&self) -> AmlType {
+        match self {
+            AmlValue::Boolean(_) => AmlType::Integer,
+            AmlValue::Integer(_) => AmlType::Integer,
+            AmlValue::String(_) => AmlType::String,
+            AmlValue::Name(boxed_value) => boxed_value.type_of(),
+            AmlValue::OpRegion { .. } => AmlType::OpRegion,
+            AmlValue::Field { .. } => AmlType::FieldUnit,
+            AmlValue::Device => AmlType::Device,
+            AmlValue::Method { .. } => AmlType::Method,
+            AmlValue::Buffer { .. } => AmlType::Buffer,
+            AmlValue::Processor { .. } => AmlType::Processor,
+            AmlValue::Mutex { .. } => AmlType::Mutex,
+            AmlValue::Package(_) => AmlType::Package,
+        }
+    }
+
     pub fn as_bool(&self) -> Result<bool, AmlError> {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
@@ -146,6 +188,33 @@ impl AmlValue {
                 }))
             }
 
+            _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
+    /// Convert this value to a value of the same data, but with the given AML type, if possible,
+    /// by converting the implicit conversions described in §19.3.5 of the spec.
+    ///
+    /// The implicit conversions applied are:
+    ///     `Buffer` from: `Integer`, `String`, `Debug`
+    ///     `BufferField` from: `Integer`, `Buffer`, `String`, `Debug`
+    ///     `DdbHandle` from: `Integer`, `Debug`
+    ///     `FieldUnit` from: `Integer`,`Buffer`, `String`, `Debug`
+    ///     `Integer` from: `Buffer`, `BufferField`, `DdbHandle`, `FieldUnit`, `String`, `Debug`
+    ///     `Package` from: `Debug`
+    ///     `String` from: `Integer`, `Buffer`, `Debug`
+    pub fn as_type(&self, desired_type: AmlType) -> Result<AmlValue, AmlError> {
+        // Cache the type of this object
+        let our_type = self.type_of();
+
+        // If the value is already of the correct type, just return it as is
+        if our_type == desired_type {
+            return Ok(self.clone());
+        }
+
+        // TODO: implement all of the rules
+        match desired_type {
+            AmlType::Integer => self.as_integer().map(|value| AmlValue::Integer(value)),
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }
