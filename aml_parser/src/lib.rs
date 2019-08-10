@@ -63,6 +63,7 @@ use log::error;
 use misc::{ArgNum, LocalNum};
 use parser::Parser;
 use pkg_length::PkgLength;
+use term_object::term_list;
 use value::Args;
 
 /// AML has a `RevisionOp` operator that returns the "AML interpreter revision". It's not clear
@@ -126,7 +127,50 @@ impl AmlContext {
 
     /// Invoke a method referred to by its path in the namespace, with the given arguments.
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
-        self.namespace.get_by_path(path)?.clone().invoke(self, args, path.clone())
+        if let AmlValue::Method { flags, code } = self.namespace.get_by_path(path)?.clone() {
+            /*
+             * First, set up the state we expect to enter the method with, but clearing local
+             * variables to "null" and setting the arguments.
+             */
+            self.current_scope = path.clone();
+            self.current_args = Some(args);
+            self.local_0 = None;
+            self.local_1 = None;
+            self.local_2 = None;
+            self.local_3 = None;
+            self.local_4 = None;
+            self.local_5 = None;
+            self.local_6 = None;
+            self.local_7 = None;
+
+            let return_value =
+                match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
+                    // If the method doesn't return a value, we implicitly return `0`
+                    Ok((remaining, context, result)) => Ok(AmlValue::Integer(0)),
+                    Err((remaining, context, AmlError::Return(result))) => Ok(result),
+                    Err((remaining, context, err)) => {
+                        error!("Failed to execute control method: {:?}", err);
+                        Err(err)
+                    }
+                };
+
+            /*
+             * Now clear the state.
+             */
+            self.current_args = None;
+            self.local_0 = None;
+            self.local_1 = None;
+            self.local_2 = None;
+            self.local_3 = None;
+            self.local_4 = None;
+            self.local_5 = None;
+            self.local_6 = None;
+            self.local_7 = None;
+
+            return_value
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
+        }
     }
 
     pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
