@@ -3,7 +3,7 @@
 //! for finding and parsing the static tables, which is enough to set up hardware such as the APIC
 //! and HPET on x86_64.
 //!
-//! The crate is designed for use in conjunction with the `aml_parser` crate, which is the (much
+//! The crate is designed for use in conjunction with the `aml` crate, which is the (much
 //! less complete) AML parser used to parse the DSDT and SSDTs. These crates are separate because
 //! some kernels may want to detect the static tables, but delay AML parsing to a later stage.
 //!
