@@ -1,4 +1,4 @@
-//! `aml_parser` is a pure-Rust AML (ACPI Machine Language) parser, used for parsing the DSDT and
+//! `aml` is a pure-Rust AML (ACPI Machine Language) parser, used for parsing the DSDT and
 //! SSDT tables from ACPI. This crate can be used by kernels to gather information about the
 //! hardware, and invoke control methods (this is not yet supported) to query and change the state
 //! of devices in a hardware-independent way.

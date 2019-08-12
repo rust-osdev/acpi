@@ -1,2 +1,2 @@
 [workspace]
-members = ["acpi", "aml_parser"]
+members = ["acpi", "aml"]
