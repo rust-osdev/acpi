@@ -52,7 +52,8 @@ fn main() {
     let mut out_path = PathBuf::from("./dumps");
     out_path.push(name);
     fs::create_dir(&out_path).expect("failed to create output directory");
-    fs::set_permissions(&out_path, Permissions::from_mode(0o777)).expect("failed to set permissions for output directory");
+    fs::set_permissions(&out_path, Permissions::from_mode(0o777))
+        .expect("failed to set permissions for output directory");
 
     println!("dumping acpi tables...");
 
