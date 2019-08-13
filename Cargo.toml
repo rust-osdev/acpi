@@ -1,2 +1,2 @@
 [workspace]
-members = ["acpi", "aml"]
+members = ["acpi", "aml", "acpi-dumper"]

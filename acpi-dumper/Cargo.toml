@@ -1,0 +1,15 @@
+[package]
+name = "acpi-dumper"
+version = "0.0.0"
+publish = false
+authors = ["Isaac Woods", "Matt Taylor"]
+repository = "https://github.com/rust-osdev/acpi"
+description = "ACPI table dumper"
+categories = ["hardware-support"]
+readme = "../README.md"
+license = "MIT/Apache-2.0"
+edition = "2018"
+
+[dependencies]
+pico-args = "0.2.0"
+libc = "0.2.61"
