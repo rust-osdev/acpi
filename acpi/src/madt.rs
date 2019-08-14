@@ -394,10 +394,27 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
     use crate::interrupt::LocalInterruptLine;
 
     let mut local_apic_address = (*mapping).local_apic_address as u64;
-    let mut io_apics = Vec::new();
     let mut local_apic_nmi_line = None;
-    let mut interrupt_source_overrides = Vec::new();
-    let mut nmi_sources = Vec::new();
+    let mut io_apic_count = 0;
+    let mut iso_count = 0;
+    let mut nmi_source_count = 0;
+    let mut processor_count = 0usize;
+
+    // Do a pass over the entries so we know how much space we should reserve in the vectors
+    for entry in (*mapping).entries() {
+        match entry {
+            MadtEntry::IoApic(_) => io_apic_count += 1,
+            MadtEntry::InterruptSourceOverride(_) => iso_count += 1,
+            MadtEntry::NmiSource(_) => nmi_source_count += 1,
+            MadtEntry::LocalApic(_) => processor_count += 1,
+            _ => (),
+        }
+    }
+
+    let mut io_apics = Vec::with_capacity(io_apic_count);
+    let mut interrupt_source_overrides = Vec::with_capacity(iso_count);
+    let mut nmi_sources = Vec::with_capacity(nmi_source_count);
+    acpi.application_processors = Vec::with_capacity(processor_count.saturating_sub(1)); // Subtract one for the BSP
 
     for entry in (*mapping).entries() {
         match entry {

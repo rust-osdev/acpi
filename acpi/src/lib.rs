@@ -205,7 +205,7 @@ where
         interrupt_model: None,
         hpet: None,
         dsdt: None,
-        ssdts: Vec::with_capacity(0),
+        ssdts: Vec::new(),
         pci_config_regions: None,
     };
 
