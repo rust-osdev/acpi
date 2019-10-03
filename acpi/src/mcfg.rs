@@ -43,7 +43,8 @@ pub(crate) struct Mcfg {
 impl Mcfg {
     fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length() as usize - mem::size_of::<Mcfg>();
-        assert!(length % mem::size_of::<McfgEntry>() == 0);
+
+        // intentionally round down in case length isn't an exact multiple of McfgEntry size
         let num_entries = length / mem::size_of::<McfgEntry>();
 
         unsafe {
