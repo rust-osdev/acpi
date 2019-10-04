@@ -16,7 +16,7 @@ Contributions are more than welcome! You can:
 - Using the crates within your kernel and file bug reports and feature requests!
 
 Useful resources for contributing are:
-- [The ACPI specification](http://www.uefi.org/sites/default/files/resources/ACPI%206_2_A_Sept29.pdf)
+- [The ACPI specification](https://uefi.org/specifications)
 - [OSDev Wiki](https://wiki.osdev.org/ACPI)
 
 ## Licence
