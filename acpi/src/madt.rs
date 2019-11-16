@@ -1,5 +1,5 @@
 use crate::{
-    interrupt::{InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode},
+    interrupt::{Apic, InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode},
     sdt::SdtHeader,
     Acpi,
     AcpiError,
@@ -497,7 +497,7 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
         }
     }
 
-    Ok(InterruptModel::Apic {
+    Ok(InterruptModel::Apic(Apic {
         local_apic_address,
         io_apics,
         local_apic_nmi_line: local_apic_nmi_line
@@ -505,7 +505,7 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
         interrupt_source_overrides,
         nmi_sources,
         also_has_legacy_pics: (*mapping).supports_8259(),
-    })
+    }))
 }
 
 fn parse_mps_inti_flags(flags: u16) -> Result<(Polarity, TriggerMode), AcpiError> {
