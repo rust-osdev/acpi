@@ -9,10 +9,17 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
+use aml::AmlContext;
 use clap::{App, Arg};
-use std::{ffi::OsStr, fs, path::Path, process::Command};
+use std::{
+    ffi::OsStr,
+    fs::{self, File},
+    io::Read,
+    path::Path,
+    process::Command,
+};
 
-fn main() {
+fn main() -> std::io::Result<()> {
     let matches = App::new("aml_tester")
         .version("v0.1.0")
         .author("Isaac Woods")
@@ -21,8 +28,34 @@ fn main() {
         .get_matches();
 
     println!("Running tests in directory: {:?}", matches.value_of("path"));
+    let dir_path = Path::new(matches.value_of("path").unwrap());
 
-    compile_asl_files(Path::new(matches.value_of("path").unwrap())).unwrap();
+    compile_asl_files(dir_path)?;
+
+    /*
+     * Now, we find all the AML files in the directory, and try to compile them with the `aml`
+     * parser.
+     */
+    let aml_files = fs::read_dir(dir_path)?
+        .filter(|entry| {
+            entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("aml"))
+        })
+        .map(|entry| entry.unwrap());
+    for file_entry in aml_files {
+        println!("Testing AML file: {:?}", file_entry.path());
+
+        let mut file = File::open(file_entry.path())?;
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)?;
+
+        const AML_TABLE_HEADER_LENGTH: usize = 36;
+        let mut context = AmlContext::new();
+        let result = context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]);
+
+        println!("Result: {:?}", result);
+    }
+
+    Ok(())
 }
 
 fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
