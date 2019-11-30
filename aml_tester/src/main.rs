@@ -41,20 +41,36 @@ fn main() -> std::io::Result<()> {
             entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("aml"))
         })
         .map(|entry| entry.unwrap());
-    for file_entry in aml_files {
-        println!("Testing AML file: {:?}", file_entry.path());
 
-        let mut file = File::open(file_entry.path())?;
+    let (passed, failed) = aml_files.fold((0, 0), |(passed, failed), file_entry| {
+        print!("Testing AML file: {:?}... ", file_entry.path());
+
+        let mut file = File::open(file_entry.path()).unwrap();
         let mut contents = Vec::new();
-        file.read_to_end(&mut contents)?;
+        file.read_to_end(&mut contents).unwrap();
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
         let mut context = AmlContext::new();
-        let result = context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]);
 
-        println!("Result: {:?}", result);
-    }
+        match context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
+            Ok(()) => {
+                println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
+                (passed + 1, failed)
+            }
 
+            Err(err) => {
+                println!(
+                    "{}Failed ({:?}){}",
+                    termion::color::Fg(termion::color::Red),
+                    err,
+                    termion::style::Reset
+                );
+                (passed, failed + 1)
+            }
+        }
+    });
+
+    println!("Test results: {} passed, {} failed", passed, failed);
     Ok(())
 }
 
