@@ -15,6 +15,7 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     io::Read,
+    ops::Not,
     path::Path,
     process::Command,
 };
@@ -25,12 +26,15 @@ fn main() -> std::io::Result<()> {
         .author("Isaac Woods")
         .about("Compiles and tests ASL files")
         .arg(Arg::with_name("path").short("p").long("path").required(true).takes_value(true))
+        .arg(Arg::with_name("no_compile").long("no-compile"))
         .get_matches();
 
     println!("Running tests in directory: {:?}", matches.value_of("path"));
     let dir_path = Path::new(matches.value_of("path").unwrap());
 
-    compile_asl_files(dir_path)?;
+    if !matches.is_present("no_compile") {
+        compile_asl_files(dir_path)?;
+    }
 
     /*
      * Now, we find all the AML files in the directory, and try to compile them with the `aml`
@@ -75,11 +79,19 @@ fn main() -> std::io::Result<()> {
 }
 
 fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
-    let asl_files = fs::read_dir(dir_path)?
+    let mut asl_files = fs::read_dir(dir_path)?
         .filter(|entry| {
             entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("asl"))
         })
-        .map(|file| file.unwrap());
+        .map(|file| file.unwrap())
+        .peekable();
+
+    if !asl_files.peek().is_none() {
+        // Test if `iasl` is installed, so we can give a good error if it's not
+        if Command::new("iasl").arg("-v").status().unwrap().success().not() {
+            panic!("`iasl` is not installed, but we want to compile some ASL files! Pass --no-compile, or install `iasl`");
+        }
+    }
 
     for file in asl_files {
         let aml_path = file.path().with_extension(OsStr::new("aml"));

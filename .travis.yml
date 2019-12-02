@@ -20,6 +20,9 @@ branches:
     # This allows building of pull requests
     - master
 
+before_install:
+  - sudo apt-get install -y acpica-tools
+
 before_script:
   - rustup component add rustfmt-preview
 
@@ -27,6 +30,7 @@ script:
   - cargo fmt --all -- --check
   - cargo build --all
   - cargo test --all
+  - cargo run --bin aml_tester -- -p tests
 
 notifications:
   email: change
