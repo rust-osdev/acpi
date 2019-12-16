@@ -47,6 +47,7 @@ pub(crate) mod name_object;
 pub(crate) mod namespace;
 pub(crate) mod opcode;
 pub(crate) mod parser;
+pub mod pci_routing;
 pub(crate) mod pkg_length;
 pub(crate) mod term_object;
 pub(crate) mod type1;
