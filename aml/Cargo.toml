@@ -11,7 +11,7 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
-bit_field = "0.9"
+bit_field = "0.10"
 
 [features]
 debug_parser = []

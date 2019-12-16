@@ -9,11 +9,15 @@ A library to parse ACPI tables and AML, written in pure Rust. Designed to be eas
 - `acpi` parses the static tables (useful but not feature-complete)
 - `aml` parses the AML tables (can be useful, far from feature-complete)
 
+There is also the `acpi-dumper` utility to easily dump a platform's ACPI tables (this currently only works on
+Linux).
+
 ## Contributing
 Contributions are more than welcome! You can:
 - Write code - the ACPI spec is huge and there are bound to be things we don't support yet!
-- Documentation
-- Using the crates within your kernel and file bug reports and feature requests!
+- Improve our documentation!
+- Use the crates within your kernel and file bug reports and feature requests!
+- Dump the ACPI tables of hardware you have access to and add them to our test suite!
 
 Useful resources for contributing are:
 - [The ACPI specification](https://uefi.org/specifications)
