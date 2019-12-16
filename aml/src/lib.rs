@@ -143,6 +143,7 @@ impl AmlContext {
             self.local_6 = None;
             self.local_7 = None;
 
+            log::trace!("Invoking method with {} arguments, code: {:x?}", flags.arg_count(), code);
             let return_value =
                 match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
                     // If the method doesn't return a value, we implicitly return `0`
