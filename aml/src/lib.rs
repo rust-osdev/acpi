@@ -247,4 +247,12 @@ pub enum AmlError {
     /// error system here because the way errors are propagated matches how we want to handle
     /// return values.
     Return(AmlValue),
+
+    /*
+     * Errors produced parsing the PCI routing tables (_PRT objects).
+     */
+    PrtInvalidAddress,
+    PrtInvalidPin,
+    PrtInvalidSource,
+    PrtInvalidGsi,
 }
