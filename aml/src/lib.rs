@@ -49,6 +49,7 @@ pub(crate) mod opcode;
 pub(crate) mod parser;
 pub mod pci_routing;
 pub(crate) mod pkg_length;
+pub mod resource;
 pub(crate) mod term_object;
 pub(crate) mod type1;
 pub(crate) mod type2;
@@ -257,4 +258,10 @@ pub enum AmlError {
     PrtInvalidPin,
     PrtInvalidSource,
     PrtInvalidGsi,
+
+    /*
+     * Errors produced parsing Resource Descriptors.
+     */
+    ReservedResourceType,
+    ResourceDescriptorTooShort,
 }
