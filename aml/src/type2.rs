@@ -62,7 +62,7 @@ where
         |((), (value, target)), context| {
             match target {
                 Target::Name(ref path) => {
-                    let handle =
+                    let (_, handle) =
                         try_with_context!(context, context.namespace.search(path, &context.current_scope));
                     let desired_type = context.namespace.get(handle).unwrap().type_of();
                     let converted_object = try_with_context!(context, value.as_type(desired_type));
@@ -112,9 +112,8 @@ where
         "MethodInvocation",
         name_string()
             .map_with_context(move |name, context| {
-                let handle =
-                    try_with_context!(context, context.namespace.search(&name, &context.current_scope))
-                        .clone();
+                let (_, handle) =
+                    try_with_context!(context, context.namespace.search(&name, &context.current_scope)).clone();
                 (Ok(handle), context)
             })
             .feed(|handle| {
