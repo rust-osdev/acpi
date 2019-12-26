@@ -258,6 +258,8 @@ pub enum AmlError {
     PrtInvalidPin,
     PrtInvalidSource,
     PrtInvalidGsi,
+    /// Produced when the PRT doesn't contain an entry for the requested address + pin
+    PrtNoEntry,
 
     /*
      * Errors produced parsing Resource Descriptors.

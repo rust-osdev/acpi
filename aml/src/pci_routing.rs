@@ -1,5 +1,6 @@
 use crate::{
-    namespace::{AmlHandle, AmlName},
+    namespace::AmlName,
+    resource::{self, InterruptPolarity, InterruptTrigger, Resource},
     value::Args,
     AmlContext,
     AmlError,
@@ -8,7 +9,8 @@ use crate::{
 use alloc::vec::Vec;
 use bit_field::BitField;
 use core::convert::TryInto;
-use log::info;
+
+pub use crate::resource::IrqDescriptor;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pin {
@@ -18,18 +20,22 @@ pub enum Pin {
     IntD,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub enum PciRouteType {
     /// The interrupt is hard-coded to a specific GSI
-    Gsi(u16),
+    Gsi(u32),
 
     /// The interrupt is linked to a link object. This object will have `_PRS`, `_CRS` fields and a `_SRS` method
     /// that can be used to allocate the interrupt. Note that some platforms (e.g. QEMU's q35 chipset) use link
     /// objects but do not support changing the interrupt that it's linked to (i.e. `_SRS` doesn't do anything).
-    LinkObject(AmlHandle),
+    /*
+     * The actual object itself will just be a `Device`, and we need paths to its children objects to do
+     * anything useful, so we just store the resolved name here.
+     */
+    LinkObject(AmlName),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct PciRoute {
     device: u16,
     function: u16,
@@ -54,7 +60,7 @@ impl PciRoutingTable {
     pub fn from_prt_path(prt_path: &AmlName, context: &mut AmlContext) -> Result<PciRoutingTable, AmlError> {
         let mut entries = Vec::new();
 
-        let prt = context.invoke_method(prt_path, Args::default())?;
+        let prt = context.invoke_method(&prt_path, Args::default())?;
         if let AmlValue::Package(ref inner_values) = prt {
             for value in inner_values {
                 if let AmlValue::Package(ref pin_package) = value {
@@ -111,15 +117,13 @@ impl PciRoutingTable {
                             });
                         }
                         AmlValue::String(ref name) => {
-                            let link_object = context.namespace.search(
-                                &AmlName::from_str(name).ok_or(AmlError::ObjectDoesNotExist(name.clone()))?,
-                                prt_path,
-                            )?;
+                            let (link_object_name, _) =
+                                context.namespace.search(&AmlName::from_str(name)?, &prt_path)?;
                             entries.push(PciRoute {
                                 device,
                                 function,
                                 pin,
-                                route_type: PciRouteType::LinkObject(link_object),
+                                route_type: PciRouteType::LinkObject(link_object_name),
                             });
                         }
                         _ => return Err(AmlError::PrtInvalidSource),
@@ -132,6 +136,49 @@ impl PciRoutingTable {
             Ok(PciRoutingTable { entries })
         } else {
             Err(AmlError::IncompatibleValueConversion)
+        }
+    }
+
+    /// Get the interrupt input that a given PCI interrupt pin is wired to. Returns `AmlError::PrtNoEntry` if the
+    /// PRT doesn't contain an entry for the given address + pin.
+    pub fn route(
+        &self,
+        device: u16,
+        function: u16,
+        pin: Pin,
+        context: &mut AmlContext,
+    ) -> Result<IrqDescriptor, AmlError> {
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| {
+                entry.device == device
+                    && (entry.function == 0xffff || entry.function == function)
+                    && entry.pin == pin
+            })
+            .ok_or(AmlError::PrtNoEntry)?;
+
+        match entry.route_type {
+            PciRouteType::Gsi(gsi) => Ok(IrqDescriptor {
+                is_consumer: true,
+                trigger: InterruptTrigger::Level,
+                polarity: InterruptPolarity::ActiveLow,
+                is_shared: true,
+                is_wake_capable: false,
+                irq: gsi,
+            }),
+            PciRouteType::LinkObject(ref name) => {
+                let link_crs =
+                    context.namespace.get_by_path(&AmlName::from_str("_CRS").unwrap().resolve(name)?)?;
+
+                match link_crs {
+                    AmlValue::Name(ref boxed_object) => match resource::resource_descriptor(boxed_object)? {
+                        Resource::Irq(descriptor) => Ok(descriptor),
+                        _ => Err(AmlError::IncompatibleValueConversion),
+                    },
+                    _ => return Err(AmlError::IncompatibleValueConversion),
+                }
+            }
         }
     }
 }
