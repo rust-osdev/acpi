@@ -223,12 +223,29 @@ impl AmlName {
         }
     }
 
-    /// Normalize an AML path, resolving prefix chars. Returns `None` if the path normalizes to an
-    /// invalid path (e.g. `\^_FOO`)
+    /// Normalize an AML path, resolving prefix chars. Returns `AmlError::InvalidNormalizedName` if the path
+    /// normalizes to an invalid path (e.g. `\^_FOO`)
     pub fn normalize(self) -> Result<AmlName, AmlError> {
-        // TODO: currently, this doesn't do anything. Work out a nice way of handling prefix chars.
-        // If the name can't be normalized, emit AmlError::InvalidNormalizedName
-        Ok(self)
+        Ok(AmlName(self.0.iter().try_fold(alloc::vec![], |mut name, &component| match component {
+            seg @ NameComponent::Segment(_) => {
+                name.push(seg);
+                Ok(name)
+            }
+
+            NameComponent::Root => {
+                name.push(NameComponent::Root);
+                Ok(name)
+            }
+
+            NameComponent::Prefix => {
+                if let Some(NameComponent::Segment(_)) = name.iter().last() {
+                    name.pop().unwrap();
+                    Ok(name)
+                } else {
+                    Err(AmlError::InvalidNormalizedName(self.clone()))
+                }
+            }
+        })?))
     }
 
     /// Get the parent of this `AmlName`. For example, the parent of `\_SB.PCI0._PRT` is `\_SB.PCI0`. The root
@@ -268,7 +285,7 @@ impl fmt::Display for AmlName {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum NameComponent {
     Root,
     Prefix,
@@ -312,6 +329,34 @@ mod tests {
         assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal(), false);
         assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal(), false);
         assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal(), true);
+    }
+
+    #[test]
+    fn test_normalization() {
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0").unwrap().normalize(),
+            Ok(AmlName::from_str("\\_SB.PCI0").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.^PCI0").unwrap().normalize(),
+            Ok(AmlName::from_str("\\PCI0").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0.^^FOO").unwrap().normalize(),
+            Ok(AmlName::from_str("\\FOO").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("_SB.PCI0.^FOO.BAR").unwrap().normalize(),
+            Ok(AmlName::from_str("_SB.FOO.BAR").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("\\^_SB").unwrap().normalize(),
+            Err(AmlError::InvalidNormalizedName(AmlName::from_str("\\^_SB").unwrap()))
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0.FOO.^^^^BAR").unwrap().normalize(),
+            Err(AmlError::InvalidNormalizedName(AmlName::from_str("\\_SB.PCI0.FOO.^^^^BAR").unwrap()))
+        );
     }
 
     #[test]

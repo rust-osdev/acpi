@@ -220,8 +220,9 @@ pub enum AmlError {
      * Errors produced manipulating AML names.
      */
     /// Produced when trying to normalize a path that does not point to a valid level of the
-    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace.
-    InvalidNormalizedName(String),
+    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace. The contained value is the name that
+    /// normalization was attempted upon.
+    InvalidNormalizedName(AmlName),
     RootHasNoParent,
 
     /*
