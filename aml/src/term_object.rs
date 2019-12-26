@@ -603,9 +603,7 @@ where
             opcode::DWORD_CONST => {
                 take_u32().map(|value| Ok(AmlValue::Integer(value as u64))).parse(new_input, context)
             }
-            opcode::QWORD_CONST => {
-                take_u64().map(|value| Ok(AmlValue::Integer(value))).parse(new_input, context)
-            }
+            opcode::QWORD_CONST => take_u64().map(|value| Ok(AmlValue::Integer(value))).parse(new_input, context),
             opcode::STRING_PREFIX => string_parser.parse(new_input, context),
             opcode::ZERO_OP => Ok((new_input, context, AmlValue::Integer(0))),
             opcode::ONE_OP => Ok((new_input, context, AmlValue::Integer(1))),
@@ -618,8 +616,7 @@ where
     comment_scope_verbose(
         "ComputationalData",
         choice!(
-            ext_opcode(opcode::EXT_REVISION_OP)
-                .map(|_| Ok(AmlValue::Integer(crate::AML_INTERPRETER_REVISION))),
+            ext_opcode(opcode::EXT_REVISION_OP).map(|_| Ok(AmlValue::Integer(crate::AML_INTERPRETER_REVISION))),
             const_parser,
             make_parser_concrete!(def_buffer())
         ),
@@ -654,16 +651,8 @@ mod test {
             AmlValue::Integer(crate::AML_INTERPRETER_REVISION),
             &[]
         );
-        check_ok!(
-            computational_data().parse(&[0x0a, 0xf3, 0x35], &mut context),
-            AmlValue::Integer(0xf3),
-            &[0x35]
-        );
-        check_ok!(
-            computational_data().parse(&[0x0b, 0xf3, 0x35], &mut context),
-            AmlValue::Integer(0x35f3),
-            &[]
-        );
+        check_ok!(computational_data().parse(&[0x0a, 0xf3, 0x35], &mut context), AmlValue::Integer(0xf3), &[0x35]);
+        check_ok!(computational_data().parse(&[0x0b, 0xf3, 0x35], &mut context), AmlValue::Integer(0x35f3), &[]);
         check_ok!(
             computational_data().parse(&[0x0c, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00], &mut context),
             AmlValue::Integer(0x651235f3),

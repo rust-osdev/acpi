@@ -48,8 +48,8 @@ impl Mcfg {
         let num_entries = length / mem::size_of::<McfgEntry>();
 
         unsafe {
-            let pointer = (self as *const Mcfg as *const u8).offset(mem::size_of::<Mcfg>() as isize)
-                as *const McfgEntry;
+            let pointer =
+                (self as *const Mcfg as *const u8).offset(mem::size_of::<Mcfg>() as isize) as *const McfgEntry;
             slice::from_raw_parts(pointer, num_entries)
         }
     }

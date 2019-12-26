@@ -2,10 +2,10 @@
  * This is a small program that is meant for testing the AML parser on artificial
  * AML. We want to:
  *      - scan a directory for ASL files
- *      - compile them using `iasl` into AML files (these should be gitignored), but only if the ASL file
- *        has a newer timestamp than the AML file (or just compile if there isn't a corresponding AML file)
- *      - Run the AML parser on each AML file, printing test output like `cargo test` does in a nice table
- *        for each AML file
+ *      - compile them using `iasl` into AML files (these should be gitignored), but only if the ASL file has a
+ *        newer timestamp than the AML file (or just compile if there isn't a corresponding AML file)
+ *      - Run the AML parser on each AML file, printing test output like `cargo test` does in a nice table for
+ *        each AML file
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
@@ -41,9 +41,7 @@ fn main() -> std::io::Result<()> {
      * parser.
      */
     let aml_files = fs::read_dir(dir_path)?
-        .filter(|entry| {
-            entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("aml"))
-        })
+        .filter(|entry| entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("aml")))
         .map(|entry| entry.unwrap());
 
     let (passed, failed) = aml_files.fold((0, 0), |(passed, failed), file_entry| {
@@ -63,12 +61,7 @@ fn main() -> std::io::Result<()> {
             }
 
             Err(err) => {
-                println!(
-                    "{}Failed ({:?}){}",
-                    termion::color::Fg(termion::color::Red),
-                    err,
-                    termion::style::Reset
-                );
+                println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
                 (passed, failed + 1)
             }
         }
@@ -80,9 +73,7 @@ fn main() -> std::io::Result<()> {
 
 fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
     let mut asl_files = fs::read_dir(dir_path)?
-        .filter(|entry| {
-            entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("asl"))
-        })
+        .filter(|entry| entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("asl")))
         .map(|file| file.unwrap())
         .peekable();
 

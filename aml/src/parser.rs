@@ -115,10 +115,7 @@ where
         Ok((
             &input[4..],
             context,
-            input[0] as u32
-                + ((input[1] as u32) << 8)
-                + ((input[2] as u32) << 16)
-                + ((input[3] as u32) << 24),
+            input[0] as u32 + ((input[1] as u32) << 8) + ((input[2] as u32) << 16) + ((input[3] as u32) << 24),
         ))
     }
 }
@@ -471,11 +468,7 @@ mod tests {
         check_err!(take_u16().parse(&[0x34], &mut context), AmlError::UnexpectedEndOfStream, &[0x34]);
         check_ok!(take_u16().parse(&[0x34, 0x12], &mut context), 0x1234, &[]);
 
-        check_err!(
-            take_u32().parse(&[0x34, 0x12], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[0x34, 0x12]
-        );
+        check_err!(take_u32().parse(&[0x34, 0x12], &mut context), AmlError::UnexpectedEndOfStream, &[0x34, 0x12]);
         check_ok!(take_u32().parse(&[0x34, 0x12, 0xf4, 0xc3, 0x3e], &mut context), 0xc3f41234, &[0x3e]);
 
         check_err!(take_u64().parse(&[0x34], &mut context), AmlError::UnexpectedEndOfStream, &[0x34]);

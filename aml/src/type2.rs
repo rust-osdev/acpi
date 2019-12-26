@@ -58,9 +58,8 @@ where
      * after the store (as opposed to the data we think we put into it), because some stores can
      * alter the data during the store.
      */
-    opcode(opcode::DEF_STORE_OP)
-        .then(comment_scope("DefStore", term_arg().then(super_name())))
-        .map_with_context(|((), (value, target)), context| {
+    opcode(opcode::DEF_STORE_OP).then(comment_scope("DefStore", term_arg().then(super_name()))).map_with_context(
+        |((), (value, target)), context| {
             match target {
                 Target::Name(ref path) => {
                     let handle =
@@ -88,7 +87,8 @@ where
                     unimplemented!()
                 }
             }
-        })
+        },
+    )
 }
 
 fn method_invocation<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

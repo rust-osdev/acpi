@@ -94,11 +94,7 @@ mod tests {
     fn empty() {
         let mut context = AmlContext::new();
         check_err!(opcode(NULL_NAME).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
-        check_err!(
-            ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[]
-        );
+        check_err!(ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
     }
 
     #[test]

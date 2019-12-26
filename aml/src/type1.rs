@@ -56,8 +56,7 @@ where
                 .map_with_context(|((predicate, then_branch), else_branch), context| {
                     let branch = if predicate { then_branch } else { else_branch };
 
-                    match term_list(PkgLength::from_raw_length(branch, branch.len() as u32))
-                        .parse(branch, context)
+                    match term_list(PkgLength::from_raw_length(branch, branch.len() as u32)).parse(branch, context)
                     {
                         Ok((_, context, result)) => (Ok(result), context),
                         Err((_, context, err)) => (Err(err), context),
