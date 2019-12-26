@@ -157,11 +157,10 @@ impl AmlName {
         AmlName(alloc::vec![NameComponent::Segment(seg)])
     }
 
-    /// Convert a string representation of an AML name into an `AmlName`. Returns `None` if the
-    /// passed string is not a valid AML path.
-    pub fn from_str(mut string: &str) -> Option<AmlName> {
+    /// Convert a string representation of an AML name into an `AmlName`.
+    pub fn from_str(mut string: &str) -> Result<AmlName, AmlError> {
         if string.len() == 0 {
-            return None;
+            return Err(AmlError::EmptyNamesAreInvalid);
         }
 
         let mut components = Vec::new();
@@ -185,7 +184,7 @@ impl AmlName {
             }
         }
 
-        Some(AmlName(components))
+        Ok(AmlName(components))
     }
 
     pub fn as_string(&self) -> String {
@@ -298,11 +297,11 @@ mod tests {
 
     #[test]
     fn test_aml_name_from_str() {
-        assert_eq!(AmlName::from_str(""), None);
-        assert_eq!(AmlName::from_str("\\"), Some(AmlName::root()));
+        assert_eq!(AmlName::from_str(""), Err(AmlError::EmptyNamesAreInvalid));
+        assert_eq!(AmlName::from_str("\\"), Ok(AmlName::root()));
         assert_eq!(
             AmlName::from_str("\\_SB.PCI0"),
-            Some(AmlName(alloc::vec![
+            Ok(AmlName(alloc::vec![
                 NameComponent::Root,
                 NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
                 NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
@@ -310,7 +309,7 @@ mod tests {
         );
         assert_eq!(
             AmlName::from_str("\\_SB.^^^PCI0"),
-            Some(AmlName(alloc::vec![
+            Ok(AmlName(alloc::vec![
                 NameComponent::Root,
                 NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
                 NameComponent::Prefix,
@@ -383,10 +382,7 @@ mod tests {
     fn test_aml_name_parent() {
         assert_eq!(AmlName::from_str("\\").unwrap().parent(), Err(AmlError::RootHasNoParent));
         assert_eq!(AmlName::from_str("\\_SB").unwrap().parent(), Ok(AmlName::root()));
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0").unwrap().parent(),
-            Ok(AmlName::from_str("\\_SB").unwrap())
-        );
+        assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent(), Ok(AmlName::from_str("\\_SB").unwrap()));
         assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent().unwrap().parent(), Ok(AmlName::root()));
     }
 }
