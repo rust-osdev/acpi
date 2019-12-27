@@ -97,9 +97,9 @@ impl Namespace {
     }
 
     /// Search for an object at the given path of the namespace, applying the search rules
-    /// described in §5.3 of the ACPI specification, if they are applicable. Returns the handle of
-    /// the first valid object, if found.
-    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<AmlHandle, AmlError> {
+    /// described in §5.3 of the ACPI specification, if they are applicable. Returns the resolved name, and the
+    /// handle of the first valid object, if found.
+    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, AmlHandle), AmlError> {
         if path.search_rules_apply() {
             /*
              * If search rules apply, we need to recursively look through the namespace. If the
@@ -110,8 +110,9 @@ impl Namespace {
             assert!(scope.is_absolute());
             loop {
                 // Search for the name at this namespace level. If we find it, we're done.
-                if let Some(handle) = self.name_map.get(&path.resolve(&scope)?) {
-                    return Ok(*handle);
+                let name = path.resolve(&scope)?;
+                if let Some(handle) = self.name_map.get(&name) {
+                    return Ok((name, *handle));
                 }
 
                 // If we don't find it, go up a level in the namespace and search for it there,
@@ -119,18 +120,20 @@ impl Namespace {
                 match scope.parent() {
                     Ok(parent) => scope = parent,
                     // If we still haven't found the value and have run out of parents, return `None`.
-                    Err(AmlError::RootHasNoParent) => {
-                        return Err(AmlError::ObjectDoesNotExist(path.as_string()))
-                    }
+                    Err(AmlError::RootHasNoParent) => return Err(AmlError::ObjectDoesNotExist(path.as_string())),
                     Err(err) => return Err(err),
                 }
             }
         } else {
             // If search rules don't apply, simply resolve it against the starting scope
-            self.name_map
-                .get(&path.resolve(starting_scope)?)
-                .map(|&handle| handle)
-                .ok_or(AmlError::ObjectDoesNotExist(path.as_string()))
+            let name = path.resolve(starting_scope)?;
+            Ok((
+                name,
+                self.name_map
+                    .get(&path.resolve(starting_scope)?)
+                    .map(|&handle| handle)
+                    .ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?,
+            ))
         }
     }
 }
@@ -157,11 +160,10 @@ impl AmlName {
         AmlName(alloc::vec![NameComponent::Segment(seg)])
     }
 
-    /// Convert a string representation of an AML name into an `AmlName`. Returns `None` if the
-    /// passed string is not a valid AML path.
-    pub fn from_str(mut string: &str) -> Option<AmlName> {
+    /// Convert a string representation of an AML name into an `AmlName`.
+    pub fn from_str(mut string: &str) -> Result<AmlName, AmlError> {
         if string.len() == 0 {
-            return None;
+            return Err(AmlError::EmptyNamesAreInvalid);
         }
 
         let mut components = Vec::new();
@@ -185,7 +187,7 @@ impl AmlName {
             }
         }
 
-        Some(AmlName(components))
+        Ok(AmlName(components))
     }
 
     pub fn as_string(&self) -> String {
@@ -223,12 +225,29 @@ impl AmlName {
         }
     }
 
-    /// Normalize an AML path, resolving prefix chars. Returns `None` if the path normalizes to an
-    /// invalid path (e.g. `\^_FOO`)
+    /// Normalize an AML path, resolving prefix chars. Returns `AmlError::InvalidNormalizedName` if the path
+    /// normalizes to an invalid path (e.g. `\^_FOO`)
     pub fn normalize(self) -> Result<AmlName, AmlError> {
-        // TODO: currently, this doesn't do anything. Work out a nice way of handling prefix chars.
-        // If the name can't be normalized, emit AmlError::InvalidNormalizedName
-        Ok(self)
+        Ok(AmlName(self.0.iter().try_fold(alloc::vec![], |mut name, &component| match component {
+            seg @ NameComponent::Segment(_) => {
+                name.push(seg);
+                Ok(name)
+            }
+
+            NameComponent::Root => {
+                name.push(NameComponent::Root);
+                Ok(name)
+            }
+
+            NameComponent::Prefix => {
+                if let Some(NameComponent::Segment(_)) = name.iter().last() {
+                    name.pop().unwrap();
+                    Ok(name)
+                } else {
+                    Err(AmlError::InvalidNormalizedName(self.clone()))
+                }
+            }
+        })?))
     }
 
     /// Get the parent of this `AmlName`. For example, the parent of `\_SB.PCI0._PRT` is `\_SB.PCI0`. The root
@@ -268,7 +287,7 @@ impl fmt::Display for AmlName {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum NameComponent {
     Root,
     Prefix,
@@ -281,11 +300,11 @@ mod tests {
 
     #[test]
     fn test_aml_name_from_str() {
-        assert_eq!(AmlName::from_str(""), None);
-        assert_eq!(AmlName::from_str("\\"), Some(AmlName::root()));
+        assert_eq!(AmlName::from_str(""), Err(AmlError::EmptyNamesAreInvalid));
+        assert_eq!(AmlName::from_str("\\"), Ok(AmlName::root()));
         assert_eq!(
             AmlName::from_str("\\_SB.PCI0"),
-            Some(AmlName(alloc::vec![
+            Ok(AmlName(alloc::vec![
                 NameComponent::Root,
                 NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
                 NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
@@ -293,7 +312,7 @@ mod tests {
         );
         assert_eq!(
             AmlName::from_str("\\_SB.^^^PCI0"),
-            Some(AmlName(alloc::vec![
+            Ok(AmlName(alloc::vec![
                 NameComponent::Root,
                 NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
                 NameComponent::Prefix,
@@ -312,6 +331,34 @@ mod tests {
         assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal(), false);
         assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal(), false);
         assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal(), true);
+    }
+
+    #[test]
+    fn test_normalization() {
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0").unwrap().normalize(),
+            Ok(AmlName::from_str("\\_SB.PCI0").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.^PCI0").unwrap().normalize(),
+            Ok(AmlName::from_str("\\PCI0").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0.^^FOO").unwrap().normalize(),
+            Ok(AmlName::from_str("\\FOO").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("_SB.PCI0.^FOO.BAR").unwrap().normalize(),
+            Ok(AmlName::from_str("_SB.FOO.BAR").unwrap())
+        );
+        assert_eq!(
+            AmlName::from_str("\\^_SB").unwrap().normalize(),
+            Err(AmlError::InvalidNormalizedName(AmlName::from_str("\\^_SB").unwrap()))
+        );
+        assert_eq!(
+            AmlName::from_str("\\_SB.PCI0.FOO.^^^^BAR").unwrap().normalize(),
+            Err(AmlError::InvalidNormalizedName(AmlName::from_str("\\_SB.PCI0.FOO.^^^^BAR").unwrap()))
+        );
     }
 
     #[test]
@@ -338,10 +385,7 @@ mod tests {
     fn test_aml_name_parent() {
         assert_eq!(AmlName::from_str("\\").unwrap().parent(), Err(AmlError::RootHasNoParent));
         assert_eq!(AmlName::from_str("\\_SB").unwrap().parent(), Ok(AmlName::root()));
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0").unwrap().parent(),
-            Ok(AmlName::from_str("\\_SB").unwrap())
-        );
+        assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent(), Ok(AmlName::from_str("\\_SB").unwrap()));
         assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent().unwrap().parent(), Ok(AmlName::root()));
     }
 }

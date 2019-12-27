@@ -47,7 +47,9 @@ pub(crate) mod name_object;
 pub(crate) mod namespace;
 pub(crate) mod opcode;
 pub(crate) mod parser;
+pub mod pci_routing;
 pub(crate) mod pkg_length;
+pub mod resource;
 pub(crate) mod term_object;
 pub(crate) mod type1;
 pub(crate) mod type2;
@@ -143,6 +145,7 @@ impl AmlContext {
             self.local_6 = None;
             self.local_7 = None;
 
+            log::trace!("Invoking method with {} arguments, code: {:x?}", flags.arg_count(), code);
             let return_value =
                 match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
                     // If the method doesn't return a value, we implicitly return `0`
@@ -203,7 +206,7 @@ pub enum AmlError {
      */
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
-    InvalidNameSeg([u8; 4]),
+    InvalidNameSeg,
     InvalidFieldFlags,
     IncompatibleValueConversion,
     UnterminatedStringConstant,
@@ -217,9 +220,11 @@ pub enum AmlError {
     /*
      * Errors produced manipulating AML names.
      */
+    EmptyNamesAreInvalid,
     /// Produced when trying to normalize a path that does not point to a valid level of the
-    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace.
-    InvalidNormalizedName(String),
+    /// namespace. E.g. `\_SB.^^PCI0` goes above the root of the namespace. The contained value is the name that
+    /// normalization was attempted upon.
+    InvalidNormalizedName(AmlName),
     RootHasNoParent,
 
     /*
@@ -245,4 +250,20 @@ pub enum AmlError {
     /// error system here because the way errors are propagated matches how we want to handle
     /// return values.
     Return(AmlValue),
+
+    /*
+     * Errors produced parsing the PCI routing tables (_PRT objects).
+     */
+    PrtInvalidAddress,
+    PrtInvalidPin,
+    PrtInvalidSource,
+    PrtInvalidGsi,
+    /// Produced when the PRT doesn't contain an entry for the requested address + pin
+    PrtNoEntry,
+
+    /*
+     * Errors produced parsing Resource Descriptors.
+     */
+    ReservedResourceType,
+    ResourceDescriptorTooShort,
 }

@@ -156,11 +156,7 @@ where
 
 /// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
 /// function parses that table.
-pub(crate) fn dispatch_sdt<H>(
-    acpi: &mut Acpi,
-    handler: &mut H,
-    physical_address: usize,
-) -> Result<(), AcpiError>
+pub(crate) fn dispatch_sdt<H>(acpi: &mut Acpi, handler: &mut H, physical_address: usize) -> Result<(), AcpiError>
 where
     H: AcpiHandler,
 {
@@ -186,15 +182,13 @@ where
         }
 
         "APIC" => {
-            let madt_mapping =
-                handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
+            let madt_mapping = handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
             crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }
 
         "MCFG" => {
-            let mcfg_mapping =
-                handler.map_physical_region::<Mcfg>(physical_address, header.length() as usize);
+            let mcfg_mapping = handler.map_physical_region::<Mcfg>(physical_address, header.length() as usize);
             crate::mcfg::parse_mcfg(acpi, &mcfg_mapping)?;
             handler.unmap_physical_region(mcfg_mapping);
         }

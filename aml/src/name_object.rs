@@ -139,10 +139,10 @@ where
 pub struct NameSeg(pub(crate) [u8; 4]);
 
 impl NameSeg {
-    pub(crate) fn from_str(string: &str) -> Option<NameSeg> {
+    pub(crate) fn from_str(string: &str) -> Result<NameSeg, AmlError> {
         // Each NameSeg can only have four chars, and must have at least one
         if string.len() < 1 || string.len() > 4 {
-            return None;
+            return Err(AmlError::InvalidNameSeg);
         }
 
         // We pre-fill the array with '_', so it will already be correct if the length is < 4
@@ -151,19 +151,19 @@ impl NameSeg {
 
         // Manually do the first one, because we have to check it's a LeadNameChar
         if !is_lead_name_char(bytes[0]) {
-            return None;
+            return Err(AmlError::InvalidNameSeg);
         }
         seg[0] = bytes[0];
 
         // Copy the rest of the chars, checking that they're NameChars
         for i in 1..bytes.len() {
             if !is_name_char(bytes[i]) {
-                return None;
+                return Err(AmlError::InvalidNameSeg);
             }
             seg[i] = bytes[i];
         }
 
-        Some(NameSeg(seg))
+        Ok(NameSeg(seg))
     }
 
     /// Turn a `NameSeg` into a `&str`. Returns it in a `ParseResult` so it's easy to use from
@@ -247,11 +247,7 @@ mod tests {
         check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
         check_ok!(name_path().parse(&[0x00, 0x00], &mut context), alloc::vec![], &[0x00]);
-        check_err!(
-            name_path().parse(&[0x2e, b'A'], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[0x2e, b'A']
-        );
+        check_err!(name_path().parse(&[0x2e, b'A'], &mut context), AmlError::UnexpectedEndOfStream, &[0x2e, b'A']);
         check_ok!(
             name_path().parse(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G'], &mut context),
             alloc::vec![

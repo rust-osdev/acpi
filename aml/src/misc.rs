@@ -64,9 +64,8 @@ where
      * Arg5Op = 0x6d
      * Arg6Op = 0x6e
      */
-    let arg_parser = |i, arg_opcode| {
-        opcode(arg_opcode).then(comment_scope_verbose("ArgObj", id())).map(move |((), _)| Ok(i))
-    };
+    let arg_parser =
+        |i, arg_opcode| opcode(arg_opcode).then(comment_scope_verbose("ArgObj", id())).map(move |((), _)| Ok(i));
 
     choice!(
         arg_parser(0, opcode::ARG0_OP),

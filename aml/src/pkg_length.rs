@@ -70,9 +70,10 @@ where
                     (
                         new_input,
                         context,
-                        bytes.iter().enumerate().fold(initial_length, |length, (i, &byte)| {
-                            length + (u32::from(byte) << (4 + i * 8))
-                        }),
+                        bytes
+                            .iter()
+                            .enumerate()
+                            .fold(initial_length, |length, (i, &byte)| length + (u32::from(byte) << (4 + i * 8))),
                     )
                 }
 

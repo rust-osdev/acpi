@@ -219,8 +219,7 @@ where
         (*mapping).validate(b"RSDT")?;
 
         let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
-        let tables_base =
-            ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
+        let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
             sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
@@ -232,8 +231,7 @@ where
         (*mapping).validate(b"XSDT")?;
 
         let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
-        let tables_base =
-            ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
+        let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {
             sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
