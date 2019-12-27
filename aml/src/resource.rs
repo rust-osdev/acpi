@@ -10,7 +10,7 @@ pub enum Resource {
 /// Parse a `ResourceDescriptor`. Returns `AmlError::IncompatibleValueConversion` if the passed value is not a
 /// `Buffer`.
 pub(crate) fn resource_descriptor(descriptor: &AmlValue) -> Result<Resource, AmlError> {
-    if let AmlValue::Buffer { bytes, size } = descriptor {
+    if let AmlValue::Buffer { bytes, size: _ } = descriptor {
         /*
          * If bit 7 of Byte 0 is set, it's a large descriptor. If not, it's a small descriptor.
          */
@@ -42,8 +42,6 @@ pub(crate) fn resource_descriptor(descriptor: &AmlValue) -> Result<Resource, Aml
              * bytes contain the actual data items.
              */
             let descriptor_type = bytes[0].get_bits(0..7);
-            let length = LittleEndian::read_u16(&[bytes[1], bytes[2]]);
-
             match descriptor_type {
                 0x01 => unimplemented!(),
                 0x02 => unimplemented!(),
