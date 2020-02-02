@@ -48,22 +48,24 @@ pub use crate::{
     rsdp_search::search_for_rsdp_bios,
 };
 
-use crate::{rsdp::Rsdp, sdt::SdtHeader};
+use crate::{
+    rsdp::Rsdp,
+    sdt::{SdtHeader, Signature},
+};
 use alloc::vec::Vec;
 use core::mem;
 
 #[derive(Debug)]
-// TODO: manually implement Debug to print signatures correctly etc.
 pub enum AcpiError {
     RsdpIncorrectSignature,
     RsdpInvalidOemId,
     RsdpInvalidChecksum,
     NoValidRsdp,
 
-    SdtInvalidSignature([u8; 4]),
-    SdtInvalidOemId([u8; 4]),
-    SdtInvalidTableId([u8; 4]),
-    SdtInvalidChecksum([u8; 4]),
+    SdtInvalidSignature(Signature),
+    SdtInvalidOemId(Signature),
+    SdtInvalidTableId(Signature),
+    SdtInvalidChecksum(Signature),
 
     InvalidMadt(MadtError),
 }
@@ -216,7 +218,7 @@ where
         /*
          * ACPI Version 1.0. It's a RSDT!
          */
-        (*mapping).validate(b"RSDT")?;
+        (*mapping).validate(sdt::Signature::RSDT)?;
 
         let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
         let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
@@ -228,7 +230,7 @@ where
         /*
          * ACPI Version 2.0+. It's a XSDT!
          */
-        (*mapping).validate(b"XSDT")?;
+        (*mapping).validate(sdt::Signature::XSDT)?;
 
         let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
         let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;

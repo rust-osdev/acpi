@@ -337,7 +337,7 @@ pub(crate) fn parse_madt<H>(
 where
     H: AcpiHandler,
 {
-    (*mapping).header.validate(b"APIC")?;
+    (*mapping).header.validate(crate::sdt::Signature::MADT)?;
 
     /*
      * If the MADT doesn't contain another supported interrupt model (either APIC, SAPIC, X2APIC

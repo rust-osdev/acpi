@@ -88,7 +88,7 @@ where
     H: AcpiHandler,
 {
     let fadt = &*mapping;
-    fadt.header.validate(b"FACP")?;
+    fadt.header.validate(crate::sdt::Signature::FADT)?;
 
     let dsdt_address = unsafe {
         fadt.x_dsdt_address
