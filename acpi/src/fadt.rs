@@ -1,6 +1,12 @@
-use crate::{sdt::SdtHeader, Acpi, AcpiError, AcpiHandler, AmlTable, GenericAddress, PhysicalMapping};
-
-type ExtendedField<T> = crate::sdt::ExtendedField<T, typenum::U2>;
+use crate::{
+    sdt::{ExtendedField, SdtHeader, ACPI_VERSION_2_0},
+    Acpi,
+    AcpiError,
+    AcpiHandler,
+    AmlTable,
+    GenericAddress,
+    PhysicalMapping,
+};
 
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
@@ -58,19 +64,19 @@ pub struct Fadt {
     reset_value: u8,
     arm_boot_arch: u16,
     fadt_minor_version: u8,
-    x_firmware_ctrl: ExtendedField<u64>,
-    x_dsdt_address: ExtendedField<u64>,
-    x_pm1a_event_block: ExtendedField<GenericAddress>,
-    x_pm1b_event_block: ExtendedField<GenericAddress>,
-    x_pm1a_control_block: ExtendedField<GenericAddress>,
-    x_pm1b_control_block: ExtendedField<GenericAddress>,
-    x_pm2_control_block: ExtendedField<GenericAddress>,
-    x_pm_timer_block: ExtendedField<GenericAddress>,
-    x_gpe0_block: ExtendedField<GenericAddress>,
-    x_gpe1_block: ExtendedField<GenericAddress>,
-    sleep_control_reg: ExtendedField<GenericAddress>,
-    sleep_status_reg: ExtendedField<GenericAddress>,
-    hypervisor_vendor_id: ExtendedField<u64>,
+    x_firmware_ctrl: ExtendedField<u64, ACPI_VERSION_2_0>,
+    x_dsdt_address: ExtendedField<u64, ACPI_VERSION_2_0>,
+    x_pm1a_event_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_pm1b_event_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_pm1a_control_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_pm1b_control_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_pm2_control_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_pm_timer_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_gpe0_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    x_gpe1_block: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    sleep_control_reg: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    sleep_status_reg: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
+    hypervisor_vendor_id: ExtendedField<u64, ACPI_VERSION_2_0>,
 }
 
 pub(crate) fn parse_fadt<H>(
@@ -86,8 +92,8 @@ where
 
     let dsdt_address = unsafe {
         fadt.x_dsdt_address
-            .get(fadt.header.revision())
-            .filter(|p| *p != 0)
+            .access(fadt.header.revision())
+            .filter(|&p| p != 0)
             .or(Some(fadt.dsdt_address as u64))
             .filter(|p| *p != 0)
             .map(|p| p as usize)

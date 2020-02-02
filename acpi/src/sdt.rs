@@ -1,29 +1,23 @@
 use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, Acpi, AcpiError, AcpiHandler, AmlTable};
-use core::{marker::PhantomData, mem, str};
+use core::{mem, mem::MaybeUninit, str};
 use log::{trace, warn};
-use typenum::Unsigned;
 
-/// A union that represents a field that is not necessarily present and is only present in a later
-/// ACPI version (represented by the compile time number and type parameter `R`)
-#[derive(Copy, Clone)]
+pub const ACPI_VERSION_2_0: u8 = 20;
+
+/// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
+/// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
 #[repr(C, packed)]
-pub union ExtendedField<T: Copy, R: Unsigned> {
-    field: T,
-    nothing: (),
-    _phantom: PhantomData<R>,
-}
+pub struct ExtendedField<T: Copy, const MIN_VERSION: u8>(MaybeUninit<T>);
 
-impl<T: Copy, R: Unsigned> ExtendedField<T, R> {
-    /// Checks that the given revision is greater than `R` (typenum revision number) and then
-    /// returns the field, otherwise returning `None`.
+impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
+    /// Access the field if it's present for the given ACPI version. You should get this version from another ACPI
+    /// structure, such as the RSDT/XSDT.
     ///
-    /// # Unsafety
-    ///
-    /// This is unsafe as the given `revision` could be incorrect or fabricated. However, it should
-    /// be safe if it represents the revision of the table this field is present in.
-    pub unsafe fn get(&self, revision: u8) -> Option<T> {
-        if revision >= R::to_u8() {
-            Some(self.field)
+    /// ### Safety
+    /// If a bogus ACPI version is passed, this function may access uninitialised data, which is unsafe.
+    pub unsafe fn access(&self, version: u8) -> Option<T> {
+        if version >= MIN_VERSION {
+            Some(self.0.assume_init())
         } else {
             None
         }
