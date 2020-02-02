@@ -210,7 +210,7 @@ where
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
+    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize);
 
     if revision == 0 {
         /*
@@ -218,7 +218,7 @@ where
          */
         (*mapping).validate(b"RSDT")?;
 
-        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
+        let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
         let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
@@ -230,7 +230,7 @@ where
          */
         (*mapping).validate(b"XSDT")?;
 
-        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
+        let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
         let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {

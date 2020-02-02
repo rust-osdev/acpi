@@ -41,7 +41,7 @@ impl Madt {
     fn entries(&self) -> MadtEntryIter {
         MadtEntryIter {
             pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
-            remaining_length: self.header.length() - mem::size_of::<Madt>() as u32,
+            remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
             _phantom: PhantomData,
         }
     }

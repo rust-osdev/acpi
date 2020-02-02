@@ -61,14 +61,14 @@ impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
 #[repr(C, packed)]
 pub struct SdtHeader {
     signature: [u8; 4],
-    length: u32,
-    revision: u8,
-    checksum: u8,
-    oem_id: [u8; 6],
-    oem_table_id: [u8; 8],
-    oem_revision: u32,
-    creator_id: u32,
-    creator_revision: u32,
+    pub length: u32,
+    pub revision: u8,
+    pub checksum: u8,
+    pub oem_id: [u8; 6],
+    pub oem_table_id: [u8; 8],
+    pub oem_revision: u32,
+    pub creator_id: u32,
+    pub creator_revision: u32,
 }
 
 impl SdtHeader {
@@ -107,23 +107,6 @@ impl SdtHeader {
         Ok(())
     }
 
-    pub fn raw_signature(&self) -> [u8; 4] {
-        self.signature
-    }
-
-    pub fn signature<'a>(&'a self) -> &'a str {
-        // Safe to unwrap because we check signature is valid UTF8 in `validate`
-        str::from_utf8(&self.signature).unwrap()
-    }
-
-    pub fn length(&self) -> u32 {
-        self.length
-    }
-
-    pub fn revision(&self) -> u8 {
-        self.revision
-    }
-
     pub fn oem_id<'a>(&'a self) -> &'a str {
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_id).unwrap()
@@ -155,14 +138,14 @@ where
     H: AcpiHandler,
 {
     let header = peek_at_sdt_header(handler, physical_address);
-    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature(), header.length());
+    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
 
     /*
      * For a recognised signature, a new physical mapping should be created with the correct type
      * and length, and then the dispatched to the correct function to actually parse the table.
      */
-    match header.signature() {
         "FACP" => {
+    match header.signature {
             let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
             crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
             handler.unmap_physical_region(fadt_mapping);

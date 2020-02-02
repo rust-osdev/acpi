@@ -92,7 +92,7 @@ where
 
     let dsdt_address = unsafe {
         fadt.x_dsdt_address
-            .access(fadt.header.revision())
+            .access(fadt.header.revision)
             .filter(|&p| p != 0)
             .or(Some(fadt.dsdt_address as u64))
             .filter(|p| *p != 0)
@@ -101,7 +101,7 @@ where
 
     acpi.dsdt = dsdt_address.map(|address| {
         let dsdt_header = crate::sdt::peek_at_sdt_header(handler, address);
-        AmlTable::new(address, dsdt_header.length())
+        AmlTable::new(address, dsdt_header.length)
     });
 
     Ok(())
