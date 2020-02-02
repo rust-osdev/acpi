@@ -168,7 +168,6 @@ where
     }
 }
 
-// TODO: can we use const generics (e.g. [R; N]) to avoid allocating?
 pub fn n_of<'a, 'c, P, R>(parser: P, n: usize) -> impl Parser<'a, 'c, Vec<R>>
 where
     'c: 'a,
