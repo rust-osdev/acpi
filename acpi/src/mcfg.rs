@@ -42,7 +42,7 @@ pub(crate) struct Mcfg {
 
 impl Mcfg {
     fn entries(&self) -> &[McfgEntry] {
-        let length = self.header.length() as usize - mem::size_of::<Mcfg>();
+        let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
         // intentionally round down in case length isn't an exact multiple of McfgEntry size
         let num_entries = length / mem::size_of::<McfgEntry>();
@@ -66,7 +66,7 @@ struct McfgEntry {
 }
 
 pub(crate) fn parse_mcfg(acpi: &mut Acpi, mapping: &PhysicalMapping<Mcfg>) -> Result<(), AcpiError> {
-    (*mapping).header.validate(b"MCFG")?;
+    (*mapping).header.validate(crate::sdt::Signature::MCFG)?;
 
     acpi.pci_config_regions =
         Some(PciConfigRegions { regions: mapping.entries().iter().map(|&entry| entry).collect() });

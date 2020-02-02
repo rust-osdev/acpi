@@ -19,12 +19,12 @@ use crate::{
     },
     pkg_length::{pkg_length, PkgLength},
     type1::type1_opcode,
-    type2::type2_opcode,
+    type2::{def_buffer, def_package, type2_opcode},
     value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
 };
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 use core::str;
 
 /// `TermList`s are usually found within explicit-length objects (so they have a `PkgLength`
@@ -447,69 +447,6 @@ where
             }),
         ))
         .discard_result()
-}
-
-pub fn def_buffer<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
-where
-    'c: 'a,
-{
-    /*
-     * DefBuffer := 0x11 PkgLength BufferSize ByteList
-     * BufferSize := TermArg => Integer
-     *
-     * XXX: The spec says that zero-length buffers (e.g. the PkgLength is 0) are illegal, but
-     * we've encountered them in QEMU-generated tables, so we return an empty buffer in these
-     * cases.
-     */
-    opcode(opcode::DEF_BUFFER_OP)
-        .then(comment_scope(
-            "DefBuffer",
-            pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
-                take_to_end_of_pkglength(pkg_length)
-                    .map(move |bytes| Ok((bytes.to_vec(), buffer_size.as_integer()?)))
-            }),
-        ))
-        .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
-}
-
-pub fn def_package<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
-where
-    'c: 'a,
-{
-    /*
-     * DefPackage := 0x12 PkgLength NumElements PackageElementList
-     * NumElements := ByteData
-     * PackageElementList := Nothing | <PackageElement PackageElementList>
-     * PackageElement := DataRefObject | NameString
-     */
-    opcode(opcode::DEF_PACKAGE_OP)
-        .then(comment_scope(
-            "DefPackage",
-            pkg_length().then(take()).feed(|(pkg_length, num_elements)| {
-                move |mut input, mut context| {
-                    let mut package_contents = Vec::new();
-
-                    while pkg_length.still_parsing(input) {
-                        let (new_input, new_context, value) = package_element().parse(input, context)?;
-                        input = new_input;
-                        context = new_context;
-
-                        package_contents.push(value);
-                    }
-
-                    assert_eq!(package_contents.len(), num_elements as usize);
-                    Ok((input, context, AmlValue::Package(package_contents)))
-                }
-            }),
-        ))
-        .map(|((), package)| Ok(package))
-}
-
-pub fn package_element<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
-where
-    'c: 'a,
-{
-    choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string.as_string()))))
 }
 
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

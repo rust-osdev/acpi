@@ -34,7 +34,7 @@ pub(crate) struct HpetTable {
 }
 
 pub(crate) fn parse_hpet(acpi: &mut Acpi, mapping: &PhysicalMapping<HpetTable>) -> Result<(), AcpiError> {
-    (*mapping).header.validate(b"HPET")?;
+    (*mapping).header.validate(crate::sdt::Signature::HPET)?;
     let hpet = &*mapping;
 
     // Make sure the HPET's in system memory

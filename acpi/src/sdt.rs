@@ -1,29 +1,23 @@
 use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, Acpi, AcpiError, AcpiHandler, AmlTable};
-use core::{marker::PhantomData, mem, str};
+use core::{fmt, mem, mem::MaybeUninit, str};
 use log::{trace, warn};
-use typenum::Unsigned;
 
-/// A union that represents a field that is not necessarily present and is only present in a later
-/// ACPI version (represented by the compile time number and type parameter `R`)
-#[derive(Copy, Clone)]
+pub const ACPI_VERSION_2_0: u8 = 20;
+
+/// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
+/// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
 #[repr(C, packed)]
-pub union ExtendedField<T: Copy, R: Unsigned> {
-    field: T,
-    nothing: (),
-    _phantom: PhantomData<R>,
-}
+pub struct ExtendedField<T: Copy, const MIN_VERSION: u8>(MaybeUninit<T>);
 
-impl<T: Copy, R: Unsigned> ExtendedField<T, R> {
-    /// Checks that the given revision is greater than `R` (typenum revision number) and then
-    /// returns the field, otherwise returning `None`.
+impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
+    /// Access the field if it's present for the given ACPI version. You should get this version from another ACPI
+    /// structure, such as the RSDT/XSDT.
     ///
-    /// # Unsafety
-    ///
-    /// This is unsafe as the given `revision` could be incorrect or fabricated. However, it should
-    /// be safe if it represents the revision of the table this field is present in.
-    pub unsafe fn get(&self, revision: u8) -> Option<T> {
-        if revision >= R::to_u8() {
-            Some(self.field)
+    /// ### Safety
+    /// If a bogus ACPI version is passed, this function may access uninitialised data, which is unsafe.
+    pub unsafe fn access(&self, version: u8) -> Option<T> {
+        if version >= MIN_VERSION {
+            Some(self.0.assume_init())
         } else {
             None
         }
@@ -66,15 +60,15 @@ impl<T: Copy, R: Unsigned> ExtendedField<T, R> {
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
-    signature: [u8; 4],
-    length: u32,
-    revision: u8,
-    checksum: u8,
-    oem_id: [u8; 6],
-    oem_table_id: [u8; 8],
-    oem_revision: u32,
-    creator_id: u32,
-    creator_revision: u32,
+    pub signature: Signature,
+    pub length: u32,
+    pub revision: u8,
+    pub checksum: u8,
+    pub oem_id: [u8; 6],
+    pub oem_table_id: [u8; 8],
+    pub oem_revision: u32,
+    pub creator_id: u32,
+    pub creator_revision: u32,
 }
 
 impl SdtHeader {
@@ -83,20 +77,20 @@ impl SdtHeader {
     ///     b) The checksum of the SDT
     ///
     /// This assumes that the whole SDT is mapped.
-    pub fn validate(&self, signature: &[u8; 4]) -> Result<(), AcpiError> {
+    pub fn validate(&self, signature: Signature) -> Result<(), AcpiError> {
         // Check the signature
-        if &self.signature != signature {
-            return Err(AcpiError::SdtInvalidSignature(*signature));
+        if self.signature != signature {
+            return Err(AcpiError::SdtInvalidSignature(signature));
         }
 
         // Check the OEM id
         if str::from_utf8(&self.oem_id).is_err() {
-            return Err(AcpiError::SdtInvalidOemId(*signature));
+            return Err(AcpiError::SdtInvalidOemId(signature));
         }
 
         // Check the OEM table id
         if str::from_utf8(&self.oem_table_id).is_err() {
-            return Err(AcpiError::SdtInvalidTableId(*signature));
+            return Err(AcpiError::SdtInvalidTableId(signature));
         }
 
         // Validate the checksum
@@ -107,27 +101,10 @@ impl SdtHeader {
         }
 
         if sum > 0 {
-            return Err(AcpiError::SdtInvalidChecksum(*signature));
+            return Err(AcpiError::SdtInvalidChecksum(signature));
         }
 
         Ok(())
-    }
-
-    pub fn raw_signature(&self) -> [u8; 4] {
-        self.signature
-    }
-
-    pub fn signature<'a>(&'a self) -> &'a str {
-        // Safe to unwrap because we check signature is valid UTF8 in `validate`
-        str::from_utf8(&self.signature).unwrap()
-    }
-
-    pub fn length(&self) -> u32 {
-        self.length
-    }
-
-    pub fn revision(&self) -> u8 {
-        self.revision
     }
 
     pub fn oem_id<'a>(&'a self) -> &'a str {
@@ -138,6 +115,36 @@ impl SdtHeader {
     pub fn oem_table_id<'a>(&'a self) -> &'a str {
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_table_id).unwrap()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct Signature([u8; 4]);
+
+impl Signature {
+    pub const RSDT: Signature = Signature(*b"RSDT");
+    pub const XSDT: Signature = Signature(*b"XSDT");
+    pub const FADT: Signature = Signature(*b"FACP");
+    pub const HPET: Signature = Signature(*b"HPET");
+    pub const MADT: Signature = Signature(*b"APIC");
+    pub const MCFG: Signature = Signature(*b"MCFG");
+    pub const SSDT: Signature = Signature(*b"SSDT");
+
+    pub fn as_str(&self) -> &str {
+        str::from_utf8(&self.0).unwrap()
+    }
+}
+
+impl fmt::Display for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl fmt::Debug for Signature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "\"{}\"", self.as_str())
     }
 }
 
@@ -161,39 +168,39 @@ where
     H: AcpiHandler,
 {
     let header = peek_at_sdt_header(handler, physical_address);
-    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature(), header.length());
+    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
 
     /*
      * For a recognised signature, a new physical mapping should be created with the correct type
      * and length, and then the dispatched to the correct function to actually parse the table.
      */
-    match header.signature() {
-        "FACP" => {
+    match header.signature {
+        Signature::FADT => {
             let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
             crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
             handler.unmap_physical_region(fadt_mapping);
         }
 
-        "HPET" => {
+        Signature::HPET => {
             let hpet_mapping =
                 handler.map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>());
             crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }
 
-        "APIC" => {
-            let madt_mapping = handler.map_physical_region::<Madt>(physical_address, header.length() as usize);
+        Signature::MADT => {
+            let madt_mapping = handler.map_physical_region::<Madt>(physical_address, header.length as usize);
             crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }
 
-        "MCFG" => {
-            let mcfg_mapping = handler.map_physical_region::<Mcfg>(physical_address, header.length() as usize);
+        Signature::MCFG => {
+            let mcfg_mapping = handler.map_physical_region::<Mcfg>(physical_address, header.length as usize);
             crate::mcfg::parse_mcfg(acpi, &mcfg_mapping)?;
             handler.unmap_physical_region(mcfg_mapping);
         }
 
-        "SSDT" => acpi.ssdts.push(AmlTable::new(physical_address, header.length())),
+        Signature::SSDT => acpi.ssdts.push(AmlTable::new(physical_address, header.length)),
 
         signature => {
             /*

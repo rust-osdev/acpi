@@ -22,7 +22,7 @@
 //! gathered from the static tables, and can be queried to set up hardware etc.
 
 #![no_std]
-#![feature(nll, exclusive_range_pattern)]
+#![feature(nll, exclusive_range_pattern, const_generics)]
 
 extern crate alloc;
 #[cfg_attr(test, macro_use)]
@@ -48,22 +48,24 @@ pub use crate::{
     rsdp_search::search_for_rsdp_bios,
 };
 
-use crate::{rsdp::Rsdp, sdt::SdtHeader};
+use crate::{
+    rsdp::Rsdp,
+    sdt::{SdtHeader, Signature},
+};
 use alloc::vec::Vec;
 use core::mem;
 
 #[derive(Debug)]
-// TODO: manually implement Debug to print signatures correctly etc.
 pub enum AcpiError {
     RsdpIncorrectSignature,
     RsdpInvalidOemId,
     RsdpInvalidChecksum,
     NoValidRsdp,
 
-    SdtInvalidSignature([u8; 4]),
-    SdtInvalidOemId([u8; 4]),
-    SdtInvalidTableId([u8; 4]),
-    SdtInvalidChecksum([u8; 4]),
+    SdtInvalidSignature(Signature),
+    SdtInvalidOemId(Signature),
+    SdtInvalidTableId(Signature),
+    SdtInvalidChecksum(Signature),
 
     InvalidMadt(MadtError),
 }
@@ -210,15 +212,15 @@ where
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length() as usize);
+    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize);
 
     if revision == 0 {
         /*
          * ACPI Version 1.0. It's a RSDT!
          */
-        (*mapping).validate(b"RSDT")?;
+        (*mapping).validate(sdt::Signature::RSDT)?;
 
-        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
+        let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
         let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
         for i in 0..num_tables {
@@ -228,9 +230,9 @@ where
         /*
          * ACPI Version 2.0+. It's a XSDT!
          */
-        (*mapping).validate(b"XSDT")?;
+        (*mapping).validate(sdt::Signature::XSDT)?;
 
-        let num_tables = ((*mapping).length() as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
+        let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
         let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
         for i in 0..num_tables {

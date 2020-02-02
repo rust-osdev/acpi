@@ -41,7 +41,7 @@ impl Madt {
     fn entries(&self) -> MadtEntryIter {
         MadtEntryIter {
             pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
-            remaining_length: self.header.length() - mem::size_of::<Madt>() as u32,
+            remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
             _phantom: PhantomData,
         }
     }
@@ -337,7 +337,7 @@ pub(crate) fn parse_madt<H>(
 where
     H: AcpiHandler,
 {
-    (*mapping).header.validate(b"APIC")?;
+    (*mapping).header.validate(crate::sdt::Signature::MADT)?;
 
     /*
      * If the MADT doesn't contain another supported interrupt model (either APIC, SAPIC, X2APIC
