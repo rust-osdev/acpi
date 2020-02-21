@@ -2,7 +2,7 @@ use crate::{
     misc::{arg_obj, debug_obj, local_obj, ArgNum, LocalNum},
     namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
-    parser::{choice, comment_scope_verbose, consume, n_of, take, Parser},
+    parser::{choice, comment_scope_verbose, consume, n_of, take, take_while, Parser},
     AmlContext,
     AmlError,
 };
@@ -60,6 +60,13 @@ where
         Ok(AmlName(name))
     });
 
+    let prefix_path =
+        take_while(opcode(PREFIX_CHAR)).then(name_path()).map(|(num_prefix_chars, ref name_path)| {
+            let mut name = alloc::vec![NameComponent::Prefix; num_prefix_chars];
+            name.extend_from_slice(name_path);
+            Ok(AmlName(name))
+        });
+
     // TODO: combinator to select a parser based on a peeked byte?
     comment_scope_verbose("NameString", move |input: &'a [u8], context| {
         let first_char = match input.first() {
@@ -67,10 +74,9 @@ where
             None => return Err((input, context, AmlError::UnexpectedEndOfStream)),
         };
 
-        // TODO: parse <PrefixPath NamePath> where there are actually PrefixChars
         match first_char {
             ROOT_CHAR => root_name_string.parse(input, context),
-            PREFIX_CHAR => unimplemented!(),
+            PREFIX_CHAR => prefix_path.parse(input, context),
             _ => name_path().map(|path| Ok(AmlName(path))).parse(input, context),
         }
     })
@@ -254,6 +260,22 @@ mod tests {
                 NameComponent::Segment(NameSeg([b'A', b'B', b'C', b'D'])),
                 NameComponent::Segment(NameSeg([b'E', b'_', b'F', b'G']))
             ],
+            &[]
+        );
+    }
+
+    #[test]
+    fn test_prefix_path() {
+        let mut context = AmlContext::new();
+
+        check_ok!(
+            name_string().parse(&[b'^', b'A', b'B', b'C', b'D'], &mut context),
+            AmlName::from_str("^ABCD").unwrap(),
+            &[]
+        );
+        check_ok!(
+            name_string().parse(&[b'^', b'^', b'^', b'A', b'B', b'C', b'D'], &mut context),
+            AmlName::from_str("^^^ABCD").unwrap(),
             &[]
         );
     }
