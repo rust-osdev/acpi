@@ -191,6 +191,27 @@ where
     }
 }
 
+pub fn take_while<'a, 'c, P, R>(parser: P) -> impl Parser<'a, 'c, usize>
+where
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
+{
+    move |mut input: &'a [u8], mut context: &'c mut AmlContext| {
+        let mut num_passed = 0;
+        loop {
+            match parser.parse(input, context) {
+                Ok((new_input, new_context, _)) => {
+                    input = new_input;
+                    context = new_context;
+                    num_passed += 1;
+                }
+                Err((_, context, AmlError::WrongParser)) => return Ok((input, context, num_passed)),
+                Err((_, context, err)) => return Err((input, context, err)),
+            }
+        }
+    }
+}
+
 pub fn consume<'a, 'c, F>(condition: F) -> impl Parser<'a, 'c, u8>
 where
     'c: 'a,
