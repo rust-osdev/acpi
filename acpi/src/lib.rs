@@ -22,7 +22,7 @@
 //! gathered from the static tables, and can be queried to set up hardware etc.
 
 #![no_std]
-#![feature(nll, exclusive_range_pattern, const_generics)]
+#![feature(const_generics)]
 
 extern crate alloc;
 #[cfg_attr(test, macro_use)]
