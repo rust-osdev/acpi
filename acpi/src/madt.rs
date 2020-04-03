@@ -1,5 +1,5 @@
 use crate::{
-    interrupt::{Apic, InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode},
+    interrupt::{Apic, InterruptModel, InterruptSourceOverride, IoApic, NmiLine, NmiProcessor, NmiSource, Polarity, TriggerMode},
     sdt::SdtHeader,
     Acpi,
     AcpiError,
@@ -17,7 +17,6 @@ pub enum MadtError {
     UnexpectedEntry,
     InterruptOverrideEntryHasInvalidBus,
     InvalidLocalNmiLine,
-    NoLocalNmiLineSpecified,
     MpsIntiInvalidPolarity,
     MpsIntiInvalidTriggerMode,
 }
@@ -394,10 +393,10 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
     use crate::interrupt::LocalInterruptLine;
 
     let mut local_apic_address = (*mapping).local_apic_address as u64;
-    let mut local_apic_nmi_line = None;
     let mut io_apic_count = 0;
     let mut iso_count = 0;
     let mut nmi_source_count = 0;
+    let mut local_nmi_line_count = 0;
     let mut processor_count = 0usize;
 
     // Do a pass over the entries so we know how much space we should reserve in the vectors
@@ -406,6 +405,7 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
             MadtEntry::IoApic(_) => io_apic_count += 1,
             MadtEntry::InterruptSourceOverride(_) => iso_count += 1,
             MadtEntry::NmiSource(_) => nmi_source_count += 1,
+            MadtEntry::LocalApicNmi(_) => local_nmi_line_count += 1,
             MadtEntry::LocalApic(_) => processor_count += 1,
             _ => (),
         }
@@ -414,6 +414,7 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
     let mut io_apics = Vec::with_capacity(io_apic_count);
     let mut interrupt_source_overrides = Vec::with_capacity(iso_count);
     let mut nmi_sources = Vec::with_capacity(nmi_source_count);
+    let mut local_apic_nmi_lines = Vec::with_capacity(local_nmi_line_count);
     acpi.application_processors = Vec::with_capacity(processor_count.saturating_sub(1)); // Subtract one for the BSP
 
     for entry in (*mapping).entries() {
@@ -476,10 +477,17 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
             }
 
             MadtEntry::LocalApicNmi(ref entry) => {
-                local_apic_nmi_line = Some(match entry.nmi_line {
-                    0 => LocalInterruptLine::Lint0,
-                    1 => LocalInterruptLine::Lint1,
-                    _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                local_apic_nmi_lines.push(NmiLine {
+                    processor: if entry.processor_id == 0xff {
+                        NmiProcessor::All
+                    } else {
+                        NmiProcessor::ProcessorUid(entry.processor_id)
+                    },
+                    line: match entry.nmi_line {
+                        0 => LocalInterruptLine::Lint0,
+                        1 => LocalInterruptLine::Lint1,
+                        _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                    },
                 })
             }
 
@@ -496,8 +504,7 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
     Ok(InterruptModel::Apic(Apic {
         local_apic_address,
         io_apics,
-        local_apic_nmi_line: local_apic_nmi_line
-            .ok_or(AcpiError::InvalidMadt(MadtError::NoLocalNmiLineSpecified))?,
+        local_apic_nmi_lines,
         interrupt_source_overrides,
         nmi_sources,
         also_has_legacy_pics: (*mapping).supports_8259(),

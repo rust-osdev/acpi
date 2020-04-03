@@ -8,9 +8,21 @@ pub struct IoApic {
 }
 
 #[derive(Debug)]
+pub struct NmiLine {
+    pub processor: NmiProcessor,
+    pub line: LocalInterruptLine,
+}
+
+#[derive(Debug)]
 pub enum LocalInterruptLine {
     Lint0,
     Lint1,
+}
+
+#[derive(Debug)]
+pub enum NmiProcessor {
+    All,
+    ProcessorUid(u8),
 }
 
 #[derive(Debug)]
@@ -52,7 +64,7 @@ pub struct NmiSource {
 pub struct Apic {
     pub local_apic_address: u64,
     pub io_apics: Vec<IoApic>,
-    pub local_apic_nmi_line: LocalInterruptLine,
+    pub local_apic_nmi_lines: Vec<NmiLine>,
     pub interrupt_source_overrides: Vec<InterruptSourceOverride>,
     pub nmi_sources: Vec<NmiSource>,
 
