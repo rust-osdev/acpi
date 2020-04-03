@@ -1,5 +1,5 @@
 use crate::{
-    interrupt::{Apic, InterruptModel, InterruptSourceOverride, IoApic, NmiSource, Polarity, TriggerMode},
+    interrupt::{Apic, InterruptModel, InterruptSourceOverride, IoApic, NmiLine, NmiProcessor, NmiSource, Polarity, TriggerMode},
     sdt::SdtHeader,
     Acpi,
     AcpiError,
@@ -477,10 +477,17 @@ fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<
             }
 
             MadtEntry::LocalApicNmi(ref entry) => {
-                local_apic_nmi_lines.push(match entry.nmi_line {
-                    0 => LocalInterruptLine::Lint0,
-                    1 => LocalInterruptLine::Lint1,
-                    _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                local_apic_nmi_lines.push(NmiLine {
+                    processor: if entry.processor_id == 0xff {
+                        NmiProcessor::All
+                    } else {
+                        NmiProcessor::ProcessorUid(entry.processor_id)
+                    },
+                    line: match entry.nmi_line {
+                        0 => LocalInterruptLine::Lint0,
+                        1 => LocalInterruptLine::Lint1,
+                        _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                    },
                 })
             }
 
