@@ -75,6 +75,7 @@ pub struct Apic {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum InterruptModel {
     /// This model is only chosen when a newer one can not be found and the system supports the
     /// legacy dual-8259 PIC.
