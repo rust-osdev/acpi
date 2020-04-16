@@ -154,7 +154,8 @@ pub(crate) fn peek_at_sdt_header<H>(handler: &mut H, physical_address: usize) ->
 where
     H: AcpiHandler,
 {
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>());
+    let mapping =
+        unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
     let header = (*mapping).clone();
     handler.unmap_physical_region(mapping);
 
@@ -176,26 +177,29 @@ where
      */
     match header.signature {
         Signature::FADT => {
-            let fadt_mapping = handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>());
+            let fadt_mapping =
+                unsafe { handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
             crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
             handler.unmap_physical_region(fadt_mapping);
         }
 
         Signature::HPET => {
             let hpet_mapping =
-                handler.map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>());
+                unsafe { handler.map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>()) };
             crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
             handler.unmap_physical_region(hpet_mapping);
         }
 
         Signature::MADT => {
-            let madt_mapping = handler.map_physical_region::<Madt>(physical_address, header.length as usize);
+            let madt_mapping =
+                unsafe { handler.map_physical_region::<Madt>(physical_address, header.length as usize) };
             crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
             handler.unmap_physical_region(madt_mapping);
         }
 
         Signature::MCFG => {
-            let mcfg_mapping = handler.map_physical_region::<Mcfg>(physical_address, header.length as usize);
+            let mcfg_mapping =
+                unsafe { handler.map_physical_region::<Mcfg>(physical_address, header.length as usize) };
             crate::mcfg::parse_mcfg(acpi, &mcfg_mapping)?;
             handler.unmap_physical_region(mcfg_mapping);
         }

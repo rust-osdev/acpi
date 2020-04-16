@@ -160,7 +160,7 @@ pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiE
 where
     H: AcpiHandler,
 {
-    let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>());
+    let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
     (*rsdp_mapping).validate()?;
 
     parse_validated_rsdp(handler, rsdp_mapping)
@@ -212,7 +212,7 @@ where
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize);
+    let mapping = unsafe { handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize) };
 
     if revision == 0 {
         /*
