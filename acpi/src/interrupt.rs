@@ -22,7 +22,9 @@ pub enum LocalInterruptLine {
 #[derive(Debug)]
 pub enum NmiProcessor {
     All,
-    ProcessorUid(u8),
+    /// Refers to a processor with the given UID. This is stored as a `u32`, but should be casted to `u8` when the
+    /// DSDT uses the deprecated `DefProcessor` operator to define processor UIDs.
+    ProcessorUid(u32),
 }
 
 #[derive(Debug)]
