@@ -40,6 +40,7 @@ mod rsdp_search;
 mod sdt;
 
 pub use crate::{
+    fadt::PowerProfile,
     handler::{AcpiHandler, PhysicalMapping},
     hpet::HpetInfo,
     interrupt::InterruptModel,
@@ -142,6 +143,7 @@ pub struct Acpi {
     /// just error in cases that the tables detail more than one.
     pub interrupt_model: Option<InterruptModel>,
     pub hpet: Option<HpetInfo>,
+    pub power_profile: PowerProfile,
 
     /// Info about the DSDT, if we find it.
     pub dsdt: Option<AmlTable>,
@@ -156,11 +158,11 @@ pub struct Acpi {
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
 /// address of the RSDT/XSDT to `parse_rsdt`.
-pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
+pub unsafe fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
-    let rsdp_mapping = handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>());
+    let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
     (*rsdp_mapping).validate()?;
 
     parse_validated_rsdp(handler, rsdp_mapping)
@@ -178,7 +180,7 @@ where
          */
         let rsdt_address = (*rsdp_mapping).rsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, rsdt_address as usize)
+        unsafe { parse_rsdt(handler, revision, rsdt_address as usize) }
     } else {
         /*
          * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
@@ -186,7 +188,7 @@ where
          */
         let xsdt_address = (*rsdp_mapping).xsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, xsdt_address as usize)
+        unsafe { parse_rsdt(handler, revision, xsdt_address as usize) }
     }
 }
 
@@ -196,7 +198,7 @@ where
 ///
 /// If the given revision is 0, an address to the RSDT is expected. Otherwise, an address to
 /// the XSDT is expected.
-pub fn parse_rsdt<H>(handler: &mut H, revision: u8, physical_address: usize) -> Result<Acpi, AcpiError>
+pub unsafe fn parse_rsdt<H>(handler: &mut H, revision: u8, physical_address: usize) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -206,13 +208,14 @@ where
         application_processors: Vec::new(),
         interrupt_model: None,
         hpet: None,
+        power_profile: PowerProfile::Unspecified,
         dsdt: None,
         ssdts: Vec::new(),
         pci_config_regions: None,
     };
 
     let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping = handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize);
+    let mapping = unsafe { handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize) };
 
     if revision == 0 {
         /*

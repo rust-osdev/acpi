@@ -8,6 +8,20 @@ use crate::{
     PhysicalMapping,
 };
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PowerProfile {
+    Unspecified,
+    Desktop,
+    Mobile,
+    Workstation,
+    EnterpriseServer,
+    SohoServer,
+    AppliancePc,
+    PerformanceServer,
+    Tablet,
+    Reserved(u8),
+}
+
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
 /// the Differentiated Definition Block (DSDT).
@@ -89,6 +103,19 @@ where
 {
     let fadt = &*mapping;
     fadt.header.validate(crate::sdt::Signature::FADT)?;
+
+    acpi.power_profile = match fadt.preferred_pm_profile {
+        0 => PowerProfile::Unspecified,
+        1 => PowerProfile::Desktop,
+        2 => PowerProfile::Mobile,
+        3 => PowerProfile::Workstation,
+        4 => PowerProfile::EnterpriseServer,
+        5 => PowerProfile::SohoServer,
+        6 => PowerProfile::AppliancePc,
+        7 => PowerProfile::PerformanceServer,
+        8 => PowerProfile::Tablet,
+        other => PowerProfile::Reserved(other),
+    };
 
     let dsdt_address = unsafe {
         fadt.x_dsdt_address

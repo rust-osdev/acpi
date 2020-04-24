@@ -2,18 +2,18 @@ use crate::{handler::PhysicalMapping, sdt::SdtHeader, Acpi, AcpiError};
 use alloc::vec::Vec;
 use core::{mem, slice};
 
-/// Describes a set of regions of physical memory used to access the PCI-E configuration space. A
-/// region  is created for each entry in the MCFG. Given the segment group, bus, device number, and
-/// function of a PCI-E device, the `physical_address` method on this will give you the physical
+/// Describes a set of regions of physical memory used to access the PCIe configuration space. A
+/// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
+/// function of a PCIe device, the `physical_address` method on this will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
-/// bytes of configuration space in PCI-E).
+/// bytes of configuration space in PCIe).
 #[derive(Debug)]
 pub struct PciConfigRegions {
     regions: Vec<McfgEntry>,
 }
 
 impl PciConfigRegions {
-    /// Get the physical address of the start of the configuration space for a given PCI-E device
+    /// Get the physical address of the start of the configuration space for a given PCIe device
     /// function. Returns `None` if there isn't an entry in the MCFG that manages that device.
     pub fn physical_address(&self, segment_group_no: u16, bus: u8, device: u8, function: u8) -> Option<u64> {
         // First, find the memory region that handles this segment and bus. This method is fine

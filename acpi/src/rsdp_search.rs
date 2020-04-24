@@ -25,7 +25,8 @@ where
 {
     // Read base segment from BIOS area. This is not always given by the bios, so it needs to be
     // checked. We left shift 4 because it is a segment ptr.
-    let ebda_start_mapping = handler.map_physical_region::<u16>(EBDA_START_SEGMENT_PTR, mem::size_of::<u16>());
+    let ebda_start_mapping =
+        unsafe { handler.map_physical_region::<u16>(EBDA_START_SEGMENT_PTR, mem::size_of::<u16>()) };
     let ebda_start = (*ebda_start_mapping as usize) << 4;
     handler.unmap_physical_region(ebda_start_mapping);
 
