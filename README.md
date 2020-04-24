@@ -17,7 +17,6 @@ Contributions are more than welcome! You can:
 - Write code - the ACPI spec is huge and there are bound to be things we don't support yet!
 - Improve our documentation!
 - Use the crates within your kernel and file bug reports and feature requests!
-- Dump the ACPI tables of hardware you have access to and add them to our test suite!
 
 Useful resources for contributing are:
 - [The ACPI specification](https://uefi.org/specifications)
