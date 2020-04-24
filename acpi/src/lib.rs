@@ -40,6 +40,7 @@ mod rsdp_search;
 mod sdt;
 
 pub use crate::{
+    fadt::PowerProfile,
     handler::{AcpiHandler, PhysicalMapping},
     hpet::HpetInfo,
     interrupt::InterruptModel,
@@ -142,6 +143,7 @@ pub struct Acpi {
     /// just error in cases that the tables detail more than one.
     pub interrupt_model: Option<InterruptModel>,
     pub hpet: Option<HpetInfo>,
+    pub power_profile: PowerProfile,
 
     /// Info about the DSDT, if we find it.
     pub dsdt: Option<AmlTable>,
@@ -206,6 +208,7 @@ where
         application_processors: Vec::new(),
         interrupt_model: None,
         hpet: None,
+        power_profile: PowerProfile::Unspecified,
         dsdt: None,
         ssdts: Vec::new(),
         pci_config_regions: None,
