@@ -158,7 +158,7 @@ pub struct Acpi {
 /// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
 /// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
 /// address of the RSDT/XSDT to `parse_rsdt`.
-pub fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
+pub unsafe fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
@@ -180,7 +180,7 @@ where
          */
         let rsdt_address = (*rsdp_mapping).rsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, rsdt_address as usize)
+        unsafe { parse_rsdt(handler, revision, rsdt_address as usize) }
     } else {
         /*
          * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
@@ -188,7 +188,7 @@ where
          */
         let xsdt_address = (*rsdp_mapping).xsdt_address();
         handler.unmap_physical_region(rsdp_mapping);
-        parse_rsdt(handler, revision, xsdt_address as usize)
+        unsafe { parse_rsdt(handler, revision, xsdt_address as usize) }
     }
 }
 
@@ -198,7 +198,7 @@ where
 ///
 /// If the given revision is 0, an address to the RSDT is expected. Otherwise, an address to
 /// the XSDT is expected.
-pub fn parse_rsdt<H>(handler: &mut H, revision: u8, physical_address: usize) -> Result<Acpi, AcpiError>
+pub unsafe fn parse_rsdt<H>(handler: &mut H, revision: u8, physical_address: usize) -> Result<Acpi, AcpiError>
 where
     H: AcpiHandler,
 {
