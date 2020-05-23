@@ -109,11 +109,7 @@ where
             name_string().then(data_ref_object()).map_with_context(|(name, data_ref_object), context| {
                 try_with_context!(
                     context,
-                    context.namespace.add_at_resolved_path(
-                        name,
-                        &context.current_scope,
-                        AmlValue::Name(box data_ref_object)
-                    )
+                    context.namespace.add_at_resolved_path(name, &context.current_scope, data_ref_object,)
                 );
                 (Ok(()), context)
             }),

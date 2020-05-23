@@ -143,8 +143,7 @@ where
                     let desired_type = context.namespace.get(handle).unwrap().type_of();
                     let converted_object = try_with_context!(context, value.as_type(desired_type));
 
-                    *try_with_context!(context, context.namespace.get_mut(handle)) =
-                        AmlValue::Name(box converted_object);
+                    *try_with_context!(context, context.namespace.get_mut(handle)) = converted_object;
                     (Ok(context.namespace.get(handle).unwrap().clone()), context)
                 }
 
@@ -174,15 +173,11 @@ where
     /*
      * MethodInvocation := NameString TermArgList
      *
-     * MethodInvocation is the worst of the AML structures, because you're meant to figure out how
-     * much you're meant to parse using the name of the method (by knowing from its definition how
-     * how many arguments it takes). However, the definition of a method can in theory appear after
-     * an invocation of that method, and so parsing them properly can be very difficult.
+     * MethodInvocation is the worst of the AML structures, because you're meant to figure out how much you're
+     * meant to parse using the name of the method (by knowing from its definition how how many arguments it
+     * takes). However, the definition of a method can in theory appear after an invocation of that method, and
+     * so parsing them properly can be very difficult.
      * NOTE: We don't support the case of the definition appearing after the invocation.
-     *
-     * It's also not clear whether things that aren't methods can be "invoked" using
-     * MethodInvocation with 0 arguments. It seems that references to DefNames can be encoded using
-     * MethodInvocation, at least, and should just be looked up.
      */
     comment_scope_verbose(
         "MethodInvocation",
@@ -196,14 +191,18 @@ where
                 id().map_with_context(move |(), context| {
                     let object = try_with_context!(context, context.namespace.get(handle));
                     match object.clone() {
-                        AmlValue::Name(boxed_value) => (Ok(unbox(boxed_value)), context),
-
                         AmlValue::Method { ref code, .. } => {
                             // TODO: before we do this, we need to restructure the structures to allow us
                             // to execute control methods from inside other control methods
                             // TODO
                             unimplemented!()
                         }
+
+                        // We appear to be seeing AML where a MethodInvocation actually doesn't point to a method
+                        // at all, which isn't mentioned in the spec afaict.  However, if we treat it as an
+                        // "invocation" with 0 arguments and simply return the object, the AML seems to do sensible
+                        // things.
+                        object => (Ok(object), context),
 
                         _ => (Err(AmlError::IncompatibleValueConversion), context),
                     }

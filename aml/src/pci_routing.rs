@@ -171,12 +171,9 @@ impl PciRoutingTable {
                 let link_crs =
                     context.namespace.get_by_path(&AmlName::from_str("_CRS").unwrap().resolve(name)?)?;
 
-                match link_crs {
-                    AmlValue::Name(ref boxed_object) => match resource::resource_descriptor(boxed_object)? {
-                        Resource::Irq(descriptor) => Ok(descriptor),
-                        _ => Err(AmlError::IncompatibleValueConversion),
-                    },
-                    _ => return Err(AmlError::IncompatibleValueConversion),
+                match resource::resource_descriptor(link_crs)? {
+                    Resource::Irq(descriptor) => Ok(descriptor),
+                    obj => Err(AmlError::IncompatibleValueConversion),
                 }
             }
         }
