@@ -190,29 +190,18 @@ where
             .feed(|handle| {
                 id().map_with_context(move |(), context| {
                     let object = try_with_context!(context, context.namespace.get(handle));
-                    match object.clone() {
-                        AmlValue::Method { ref code, .. } => {
-                            // TODO: before we do this, we need to restructure the structures to allow us
-                            // to execute control methods from inside other control methods
-                            // TODO
-                            unimplemented!()
-                        }
-
+                    if let AmlValue::Method { ref code, .. } = object {
+                        // TODO: we need to allow a method to be invoked from inside another method before we can
+                        // implement this (basically a stack of contexts) then implement this
+                        unimplemented!()
+                    } else {
                         // We appear to be seeing AML where a MethodInvocation actually doesn't point to a method
                         // at all, which isn't mentioned in the spec afaict.  However, if we treat it as an
                         // "invocation" with 0 arguments and simply return the object, the AML seems to do sensible
                         // things.
-                        object => (Ok(object), context),
-
-                        _ => (Err(AmlError::IncompatibleValueConversion), context),
+                        (Ok(object.clone()), context)
                     }
                 })
             }),
     )
-}
-
-/// An unfortunate helper method to unbox an owned, boxed value. `*x` is special-cased for `Box`
-/// here, but the compiler needs the type signature of the method to figure it out.
-fn unbox<T>(x: Box<T>) -> T {
-    *x
 }
