@@ -53,8 +53,8 @@ impl Rsdp {
          * check for version 1.0 and use a hard-coded length instead.
          */
         let length = if self.revision > 0 {
-            // For Version 2.0+, check ALL the fields
-            mem::size_of::<Self>()
+            // For Version 2.0+, include the number of bytes specified by `length`
+            self.length as usize
         } else {
             // For Version 1, only check fields up to v1 length only
             mem::size_of::<[u8; 8]>()
