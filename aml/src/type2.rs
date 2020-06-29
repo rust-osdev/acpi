@@ -16,7 +16,7 @@ use crate::{
     value::AmlValue,
     AmlError,
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 
 /// Type 2 opcodes return a value and so can be used in expressions.
 pub fn type2_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

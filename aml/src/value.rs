@@ -1,5 +1,5 @@
 use crate::{misc::ArgNum, namespace::AmlName, AmlError};
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
