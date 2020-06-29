@@ -1,5 +1,5 @@
 use super::AcpiError;
-use core::{mem, str};
+use core::{mem, slice, str};
 
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
@@ -38,6 +38,8 @@ impl Rsdp {
     ///     2) The checksum is correct
     ///     3) For Version 2.0+, that the extension checksum is correct
     pub(crate) fn validate(&self) -> Result<(), AcpiError> {
+        const RSDP_V1_LENGTH: usize = 20;
+
         // Check the signature
         if &self.signature != b"RSD PTR " {
             return Err(AcpiError::RsdpIncorrectSignature);
@@ -56,19 +58,11 @@ impl Rsdp {
             // For Version 2.0+, include the number of bytes specified by `length`
             self.length as usize
         } else {
-            // For Version 1, only check fields up to v1 length only
-            mem::size_of::<[u8; 8]>()
-                + mem::size_of::<u8>()
-                + mem::size_of::<[u8; 6]>()
-                + mem::size_of::<u8>()
-                + mem::size_of::<u32>()
+            RSDP_V1_LENGTH
         };
 
-        let self_ptr = self as *const Rsdp as *const u8;
-        let mut sum: u8 = 0;
-        for i in 0..length {
-            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) });
-        }
+        let bytes = unsafe { slice::from_raw_parts(self as *const Rsdp as *const u8, length) };
+        let sum = bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
 
         if sum != 0 {
             return Err(AcpiError::RsdpInvalidChecksum);
