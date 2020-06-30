@@ -228,7 +228,15 @@ impl AmlName {
     /// Normalize an AML path, resolving prefix chars. Returns `AmlError::InvalidNormalizedName` if the path
     /// normalizes to an invalid path (e.g. `\^_FOO`)
     pub fn normalize(self) -> Result<AmlName, AmlError> {
-        Ok(AmlName(self.0.iter().try_fold(alloc::vec![], |mut name, &component| match component {
+        /*
+         * If the path is already normal, just return it as-is. This avoids an unneccessary heap allocation and
+         * free.
+         */
+        if self.is_normal() {
+            return Ok(self);
+        }
+
+        Ok(AmlName(self.0.iter().try_fold(Vec::new(), |mut name, &component| match component {
             seg @ NameComponent::Segment(_) => {
                 name.push(seg);
                 Ok(name)
