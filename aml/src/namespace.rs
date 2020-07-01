@@ -23,6 +23,17 @@ impl AmlHandle {
     }
 }
 
+pub enum LevelType {
+    Scope,
+    Device,
+}
+
+pub struct NamespaceLevel {
+    typ: LevelType,
+    children: BTreeMap<NameSeg, NamespaceLevel>,
+    objects: BTreeMap<NameSeg, AmlHandle>,
+}
+
 pub struct Namespace {
     /// This is a running count of ids, which are never reused. This is incremented every time we
     /// add a new object to the namespace. We can then remove objects, freeing their memory, without
@@ -38,12 +49,44 @@ pub struct Namespace {
     // the entire name for each id. Instead, it would be a tree-like structure that stores each
     // name segment, with a list of objects and their names, and a list of child scopes at that
     // level.
-    name_map: BTreeMap<AmlName, AmlHandle>,
+    root: NamespaceLevel,
 }
 
 impl Namespace {
     pub fn new() -> Namespace {
-        Namespace { next_handle: AmlHandle(0), object_map: BTreeMap::new(), name_map: BTreeMap::new() }
+        Namespace {
+            next_handle: AmlHandle(0),
+            object_map: BTreeMap::new(),
+            root: NamespaceLevel { typ: LevelType::Scope, children: BTreeMap::new(), objects: BTreeMap::new() },
+        }
+    }
+
+    /// Add a new level to the namespace. TODO: more docs
+    pub fn add_level(&mut self, path: AmlName, level_type: LevelType) -> Result<(), AmlError> {
+        assert!(path.is_absolute());
+        // TODO: should we just normalise here instead of checking?
+        assert!(path.is_normal());
+
+        let mut components = path.0.iter();
+        assert_eq!(components.next(), Some(&NameComponent::Root));
+        let (levels, last_seg) = {
+            let mut chunks = path.0.chunks(path.0.len() - 1);
+            (chunks.next().unwrap(), chunks.next().unwrap().first().unwrap())
+        };
+
+        let mut current_level = &mut self.root;
+        for level in levels {
+            current_level = current_level
+                .children
+                .get_mut(&level.as_segment().unwrap())
+                .ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?
+        }
+
+        current_level.children.insert(
+            last_seg.as_segment().unwrap(),
+            NamespaceLevel { typ: level_type, children: BTreeMap::new(), objects: BTreeMap::new() },
+        );
+        Ok(())
     }
 
     /// Add a value to the namespace at the given path, which must be a normalized, absolute AML
@@ -300,6 +343,15 @@ pub enum NameComponent {
     Root,
     Prefix,
     Segment(NameSeg),
+}
+
+impl NameComponent {
+    pub fn as_segment(self) -> Result<NameSeg, ()> {
+        match self {
+            NameComponent::Segment(seg) => Ok(seg),
+            NameComponent::Root | NameComponent::Prefix => Err(()),
+        }
+    }
 }
 
 #[cfg(test)]
