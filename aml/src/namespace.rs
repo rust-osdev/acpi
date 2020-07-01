@@ -23,6 +23,7 @@ impl AmlHandle {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LevelType {
     Scope,
     Device,
@@ -31,7 +32,13 @@ pub enum LevelType {
 pub struct NamespaceLevel {
     typ: LevelType,
     children: BTreeMap<NameSeg, NamespaceLevel>,
-    objects: BTreeMap<NameSeg, AmlHandle>,
+    values: BTreeMap<NameSeg, AmlHandle>,
+}
+
+impl NamespaceLevel {
+    pub(crate) fn new(typ: LevelType) -> NamespaceLevel {
+        NamespaceLevel { typ, children: BTreeMap::new(), values: BTreeMap::new() }
+    }
 }
 
 pub struct Namespace {
@@ -43,12 +50,9 @@ pub struct Namespace {
     /// This maps handles to actual values, and is used to access the actual AML values.
     object_map: BTreeMap<AmlHandle, AmlValue>,
 
-    /// This maps names to handles, and should be used when you don't already have the handle to a
-    /// value.
-    // XXX: in the future, this could be replaced with a better data structure that doesn't store
-    // the entire name for each id. Instead, it would be a tree-like structure that stores each
-    // name segment, with a list of objects and their names, and a list of child scopes at that
-    // level.
+    /// Holds the first level of the namespace - containing items such as `\_SB`. Subsequent levels are held
+    /// recursively inside this structure. It holds handles to references, which need to be indexed into
+    /// `object_map` to acctually access the object.
     root: NamespaceLevel,
 }
 
@@ -57,35 +61,47 @@ impl Namespace {
         Namespace {
             next_handle: AmlHandle(0),
             object_map: BTreeMap::new(),
-            root: NamespaceLevel { typ: LevelType::Scope, children: BTreeMap::new(), objects: BTreeMap::new() },
+            root: NamespaceLevel::new(LevelType::Scope),
         }
     }
 
-    /// Add a new level to the namespace. TODO: more docs
+    /// Add a new level to the namespace. A "level" is a `NameSeg` that can hold objects (currently, `Scope`s
+    /// and `Devices`). Once a level has been created, AML values can be added to it with `add_value`.
+    ///
+    /// ### Note
+    /// At first glance, you might expect `DefDevice` to add a value of type `Device`. However, because all
+    /// `Devices` do is hold other values, we model them as namespace levels, and so they must be created
+    /// accordingly.
     pub fn add_level(&mut self, path: AmlName, level_type: LevelType) -> Result<(), AmlError> {
         assert!(path.is_absolute());
-        // TODO: should we just normalise here instead of checking?
-        assert!(path.is_normal());
+        let path = path.normalize()?;
 
-        let mut components = path.0.iter();
-        assert_eq!(components.next(), Some(&NameComponent::Root));
-        let (levels, last_seg) = {
-            let mut chunks = path.0.chunks(path.0.len() - 1);
-            (chunks.next().unwrap(), chunks.next().unwrap().first().unwrap())
-        };
+        /*
+         * We need to handle a special case here: if a `Scope(\) { ... }` appears in the AML, the parser will
+         * try and recreate the root scope. Instead of handling this specially in the parser, we just
+         * return nicely here.
+         */
+        if path != AmlName::root() {
+            let (last_seg, levels) = path.0[1..].split_last().unwrap();
+            let last_seg = last_seg.as_segment().unwrap();
 
-        let mut current_level = &mut self.root;
-        for level in levels {
-            current_level = current_level
-                .children
-                .get_mut(&level.as_segment().unwrap())
-                .ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?
+            let mut current_level = &mut self.root;
+            for level in levels {
+                current_level = current_level
+                    .children
+                    .get_mut(&level.as_segment().unwrap())
+                    .ok_or(AmlError::LevelDoesNotExist(path.clone()))?;
+            }
+
+            /*
+             * We use the result of the insertion to detect namespace collisions; if an old value is returned,
+             * we throw a namespace collision error.
+             */
+            if let Some(_) = current_level.children.insert(last_seg, NamespaceLevel::new(level_type)) {
+                return Err(AmlError::NameCollision(path));
+            }
         }
 
-        current_level.children.insert(
-            last_seg.as_segment().unwrap(),
-            NamespaceLevel { typ: level_type, children: BTreeMap::new(), objects: BTreeMap::new() },
-        );
         Ok(())
     }
 

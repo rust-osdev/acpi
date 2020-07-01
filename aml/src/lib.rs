@@ -230,8 +230,9 @@ pub enum AmlError {
     /*
      * Errors produced working with the namespace.
      */
-    /// Produced when a path is given that does not point to an object in the AML namespace.
-    ObjectDoesNotExist(String),
+    /// Produced when a sub-level or value is added to a level that has not yet been added to the namespace. The
+    /// `AmlName` is the name of the entire sub-level/value.
+    LevelDoesNotExist(AmlName),
     HandleDoesNotExist(AmlHandle),
     /// Produced when two values with the same name are added to the namespace.
     NameCollision(AmlName),
