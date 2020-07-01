@@ -1,7 +1,7 @@
 use crate::{
     misc::{arg_obj, local_obj},
     name_object::{name_seg, name_string},
-    namespace::AmlName,
+    namespace::{AmlName, LevelType},
     opcode::{self, ext_opcode, opcode},
     parser::{
         choice,
@@ -132,6 +132,12 @@ where
                 .map_with_context(|(length, name), context| {
                     let previous_scope = context.current_scope.clone();
                     context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
+
+                    try_with_context!(
+                        context,
+                        context.namespace.add_level(context.current_scope.clone(), LevelType::Scope)
+                    );
+
                     (Ok((length, previous_scope)), context)
                 })
                 .feed(|(pkg_length, previous_scope)| {
@@ -352,14 +358,8 @@ where
             pkg_length()
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
-                    try_with_context!(
-                        context,
-                        context.namespace.add_at_resolved_path(
-                            name.clone(),
-                            &context.current_scope,
-                            AmlValue::Device
-                        )
-                    );
+                    let resolved_name = try_with_context!(context, name.clone().resolve(&context.current_scope));
+                    try_with_context!(context, context.namespace.add_level(resolved_name, LevelType::Device));
 
                     let previous_scope = context.current_scope.clone();
                     context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
