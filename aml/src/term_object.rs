@@ -109,7 +109,7 @@ where
             name_string().then(data_ref_object()).map_with_context(|(name, data_ref_object), context| {
                 try_with_context!(
                     context,
-                    context.namespace.add_at_resolved_path(name, &context.current_scope, data_ref_object,)
+                    context.namespace.add_value_at_resolved_path(name, &context.current_scope, data_ref_object,)
                 );
                 (Ok(()), context)
             }),
@@ -202,7 +202,7 @@ where
 
                     try_with_context!(
                         context,
-                        context.namespace.add_at_resolved_path(
+                        context.namespace.add_value_at_resolved_path(
                             name,
                             &context.current_scope,
                             AmlValue::OpRegion { region, offset, length }
@@ -293,7 +293,7 @@ where
     let named_field = name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
         try_with_context!(
             context,
-            context.namespace.add_at_resolved_path(
+            context.namespace.add_value_at_resolved_path(
                 AmlName::from_name_seg(name_seg),
                 &context.current_scope,
                 AmlValue::Field {
@@ -333,7 +333,7 @@ where
                 .map_with_context(|(name, flags, code), context| {
                     try_with_context!(
                         context,
-                        context.namespace.add_at_resolved_path(
+                        context.namespace.add_value_at_resolved_path(
                             name,
                             &context.current_scope,
                             AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
@@ -396,7 +396,7 @@ where
                 .map_with_context(|((((pkg_length, name), proc_id), pblk_address), pblk_len), context| {
                     try_with_context!(
                         context,
-                        context.namespace.add_at_resolved_path(
+                        context.namespace.add_value_at_resolved_path(
                             name.clone(),
                             &context.current_scope,
                             AmlValue::Processor { id: proc_id, pblk_address, pblk_len }
@@ -433,7 +433,7 @@ where
             name_string().then(take()).map_with_context(|(name, sync_level), context| {
                 try_with_context!(
                     context,
-                    context.namespace.add_at_resolved_path(
+                    context.namespace.add_value_at_resolved_path(
                         name,
                         &context.current_scope,
                         AmlValue::Mutex { sync_level }

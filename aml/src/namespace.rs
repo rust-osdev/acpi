@@ -108,33 +108,41 @@ impl Namespace {
     /// Add a value to the namespace at the given path, which must be a normalized, absolute AML
     /// name. If you want to add at a path relative to a given scope, use `add_at_resolved_path`
     /// instead.
-    pub fn add(&mut self, path: AmlName, value: AmlValue) -> Result<AmlHandle, AmlError> {
+    pub fn add_value(&mut self, path: AmlName, value: AmlValue) -> Result<AmlHandle, AmlError> {
         assert!(path.is_absolute());
-        assert!(path.is_normal());
+        let path = path.normalize()?;
 
-        if self.name_map.contains_key(&path) {
-            return Err(AmlError::NameCollision(path.clone()));
+        let (last_seg, levels) = path.0[1..].split_last().unwrap();
+        let last_seg = last_seg.as_segment().unwrap();
+
+        let mut current_level = &mut self.root;
+        for level in levels {
+            current_level = current_level
+                .children
+                .get_mut(&level.as_segment().unwrap())
+                .ok_or(AmlError::LevelDoesNotExist(path.clone()))?;
         }
 
         let handle = self.next_handle;
         self.next_handle.increment();
-
         self.object_map.insert(handle, value);
-        self.name_map.insert(path, handle);
 
-        Ok(handle)
+        match current_level.values.insert(last_seg, handle) {
+            None => Ok(handle),
+            Some(_) => Err(AmlError::NameCollision(path)),
+        }
     }
 
     /// Helper method for adding a value to the namespace at a path that is relative to the given
     /// scope. This operation involves a lot of error handling in parts of the parser, so is
     /// encapsulated here.
-    pub fn add_at_resolved_path(
+    pub fn add_value_at_resolved_path(
         &mut self,
         path: AmlName,
         scope: &AmlName,
         value: AmlValue,
     ) -> Result<AmlHandle, AmlError> {
-        self.add(path.resolve(scope)?, value)
+        self.add_value(path.resolve(scope)?, value)
     }
 
     pub fn get(&self, handle: AmlHandle) -> Result<&AmlValue, AmlError> {
