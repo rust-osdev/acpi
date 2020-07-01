@@ -7,4 +7,5 @@ edition = "2018"
 [dependencies]
 clap = "2"
 termion = "1"
+log = "0.4"
 aml = { path = "../aml" }
