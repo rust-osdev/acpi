@@ -207,11 +207,36 @@ impl Namespace {
 
 impl fmt::Debug for Namespace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (name, handle) in self.name_map.iter() {
-            write!(f, "{}: {:?}\n", name, self.object_map.get(handle).unwrap())?;
-        }
+        const INDENT_PER_LEVEL: usize = 4;
 
-        Ok(())
+        fn print_level(
+            namespace: &Namespace,
+            f: &mut fmt::Formatter<'_>,
+            level_name: &str,
+            level: &NamespaceLevel,
+            indent: usize,
+        ) -> fmt::Result {
+            writeln!(f, "{:indent$}{}:", "", level_name, indent = indent)?;
+
+            for (name, handle) in level.values.iter() {
+                writeln!(
+                    f,
+                    "{:indent$}{}: {:?}",
+                    "",
+                    name.as_str(),
+                    namespace.object_map.get(handle).unwrap(),
+                    indent = indent + INDENT_PER_LEVEL
+                )?;
+            }
+
+            for (name, sub_level) in level.children.iter() {
+                print_level(namespace, f, name.as_str(), sub_level, indent + INDENT_PER_LEVEL)?;
+            }
+
+            Ok(())
+        };
+
+        print_level(self, f, "\\", &self.root, 0)
     }
 }
 
