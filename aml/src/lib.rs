@@ -60,7 +60,6 @@ pub use crate::{
     value::AmlValue,
 };
 
-use alloc::string::String;
 use log::error;
 use misc::{ArgNum, LocalNum};
 use parser::Parser;
@@ -72,10 +71,23 @@ use value::Args;
 /// what this is actually used for, but this is ours.
 pub const AML_INTERPRETER_REVISION: u64 = 0;
 
+/// Describes how much debug information the parser should emit. Set the "maximum" expected verbosity in
+/// the context's `debug_verbosity` - everything will be printed that is less or equal in 'verbosity'.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum DebugVerbosity {
+    /// Print no debug information
+    None,
+    /// Print heads and tails when entering and leaving scopes of major objects, but not more minor ones.
+    Scopes,
+    /// Print heads and tails when entering and leaving scopes of all objects.
+    AllScopes,
+    /// Print heads and tails of all objects, and extra debug information as it's parsed.
+    All,
+}
+
 #[derive(Debug)]
 pub struct AmlContext {
     pub namespace: Namespace,
-    current_scope: AmlName,
 
     /*
      * AML local variables. These are used when we invoke a control method. A `None` value
@@ -93,13 +105,18 @@ pub struct AmlContext {
     /// If we're currently invoking a control method, this stores the arguments that were passed to
     /// it. It's `None` if we aren't invoking a method.
     current_args: Option<Args>,
+
+    /*
+     * These track the state of the context while it's parsing an AML table.
+     */
+    current_scope: AmlName,
+    debug_verbosity: DebugVerbosity,
 }
 
 impl AmlContext {
-    pub fn new() -> AmlContext {
+    pub fn new(debug_verbosity: DebugVerbosity) -> AmlContext {
         AmlContext {
             namespace: Namespace::new(),
-            current_scope: AmlName::root(),
             local_0: None,
             local_1: None,
             local_2: None,
@@ -109,6 +126,9 @@ impl AmlContext {
             local_6: None,
             local_7: None,
             current_args: None,
+
+            current_scope: AmlName::root(),
+            debug_verbosity,
         }
     }
 

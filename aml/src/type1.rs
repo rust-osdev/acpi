@@ -1,9 +1,10 @@
 use crate::{
     opcode::{self, opcode},
-    parser::{choice, comment_scope, comment_scope_verbose, take_to_end_of_pkglength, ParseResult, Parser},
+    parser::{choice, comment_scope, take_to_end_of_pkglength, ParseResult, Parser},
     pkg_length::{pkg_length, PkgLength},
     term_object::{term_arg, term_list},
     AmlError,
+    DebugVerbosity,
 };
 
 /// Type 1 opcodes do not return a value and so can't be used in expressions.
@@ -16,7 +17,7 @@ where
      *                DefNotify | DefRelease | DefReset | DefReturn | DefSignal | DefSleep | DefStall |
      *                DefWhile
      */
-    comment_scope_verbose("Type1Opcode", choice!(def_if_else(), def_return()))
+    comment_scope(DebugVerbosity::AllScopes, "Type1Opcode", choice!(def_if_else(), def_return()))
 }
 
 fn def_if_else<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -30,6 +31,7 @@ where
      */
     opcode(opcode::DEF_IF_ELSE_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefIfElse",
             pkg_length()
                 .then(term_arg())
@@ -39,7 +41,8 @@ where
                 })
                 .then(choice!(
                     opcode(opcode::DEF_ELSE_OP)
-                        .then(comment_scope_verbose(
+                        .then(comment_scope(
+                            DebugVerbosity::AllScopes,
                             "DefElse",
                             pkg_length().feed(|length| take_to_end_of_pkglength(length))
                         ))
@@ -75,7 +78,8 @@ where
      * ArgObject := TermArg => DataRefObject
      */
     opcode(opcode::DEF_RETURN_OP)
-        .then(comment_scope_verbose(
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefReturn",
             term_arg().map(|return_arg| -> Result<(), AmlError> {
                 /*

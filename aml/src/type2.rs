@@ -1,20 +1,12 @@
 use crate::{
     name_object::{name_string, super_name, Target},
     opcode::{self, opcode},
-    parser::{
-        choice,
-        comment_scope,
-        comment_scope_verbose,
-        id,
-        take,
-        take_to_end_of_pkglength,
-        try_with_context,
-        Parser,
-    },
+    parser::{choice, comment_scope, id, take, take_to_end_of_pkglength, try_with_context, Parser},
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
     value::AmlValue,
     AmlError,
+    DebugVerbosity,
 };
 use alloc::vec::Vec;
 
@@ -34,7 +26,8 @@ where
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
      *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "Type2Opcode",
         choice!(def_buffer(), def_l_equal(), def_package(), def_store(), method_invocation()),
     )
@@ -54,6 +47,7 @@ where
      */
     opcode(opcode::DEF_BUFFER_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefBuffer",
             pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
                 take_to_end_of_pkglength(pkg_length)
@@ -72,7 +66,8 @@ where
      * Operand := TermArg => Integer
      */
     opcode(opcode::DEF_L_EQUAL_OP)
-        .then(comment_scope_verbose(
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
             "DefLEqual",
             term_arg().then(term_arg()).map(|(left_arg, right_arg)| {
                 Ok(AmlValue::Boolean(left_arg.as_integer()? == right_arg.as_integer()?))
@@ -93,6 +88,7 @@ where
      */
     opcode(opcode::DEF_PACKAGE_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefPackage",
             pkg_length().then(take()).feed(|(pkg_length, num_elements)| {
                 move |mut input, mut context| {
@@ -134,8 +130,9 @@ where
      * after the store (as opposed to the data we think we put into it), because some stores can
      * alter the data during the store.
      */
-    opcode(opcode::DEF_STORE_OP).then(comment_scope("DefStore", term_arg().then(super_name()))).map_with_context(
-        |((), (value, target)), context| {
+    opcode(opcode::DEF_STORE_OP)
+        .then(comment_scope(DebugVerbosity::Scopes, "DefStore", term_arg().then(super_name())))
+        .map_with_context(|((), (value, target)), context| {
             match target {
                 Target::Name(ref path) => {
                     let (_, handle) =
@@ -162,8 +159,7 @@ where
                     unimplemented!()
                 }
             }
-        },
-    )
+        })
 }
 
 fn method_invocation<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -179,7 +175,8 @@ where
      * so parsing them properly can be very difficult.
      * NOTE: We don't support the case of the definition appearing after the invocation.
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::Scopes,
         "MethodInvocation",
         name_string()
             .map_with_context(move |name, context| {

@@ -6,7 +6,6 @@ use crate::{
     parser::{
         choice,
         comment_scope,
-        comment_scope_verbose,
         make_parser_concrete,
         take,
         take_to_end_of_pkglength,
@@ -23,6 +22,7 @@ use crate::{
     value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
+    DebugVerbosity,
 };
 use alloc::string::String;
 use core::str;
@@ -56,7 +56,8 @@ where
     /*
      * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "TermObj",
         choice!(
             namespace_modifier().map(|()| Ok(None)),
@@ -90,7 +91,8 @@ where
      * XXX: DefMethod and DefMutex (at least) are not included in any rule in the AML grammar,
      * but are defined in the NamedObj section so we assume they're part of NamedObj
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "NamedObj",
         choice!(def_op_region(), def_field(), def_method(), def_device(), def_processor(), def_mutex()),
     )
@@ -105,6 +107,7 @@ where
      */
     opcode(opcode::DEF_NAME_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefName",
             name_string().then(data_ref_object()).map_with_context(|(name, data_ref_object), context| {
                 try_with_context!(
@@ -126,6 +129,7 @@ where
      */
     opcode(opcode::DEF_SCOPE_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefScope",
             pkg_length()
                 .then(name_string())
@@ -174,6 +178,7 @@ where
      */
     ext_opcode(opcode::EXT_DEF_OP_REGION_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefOpRegion",
             name_string().then(take()).then(term_arg()).then(term_arg()).map_with_context(
                 |(((name, space), offset), length), context| {
@@ -225,6 +230,7 @@ where
      */
     ext_opcode(opcode::EXT_DEF_FIELD_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefField",
             pkg_length().then(name_string()).then(take()).feed(|((list_length, region_name), flags)| {
                 move |mut input: &'a [u8], mut context: &'c mut AmlContext| -> ParseResult<'a, 'c, ()> {
@@ -323,6 +329,7 @@ where
      */
     opcode(opcode::DEF_METHOD_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefMethod",
             pkg_length()
                 .then(name_string())
@@ -354,6 +361,7 @@ where
      */
     ext_opcode(opcode::EXT_DEF_DEVICE_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefDevice",
             pkg_length()
                 .then(name_string())
@@ -387,6 +395,7 @@ where
      */
     ext_opcode(opcode::EXT_DEF_PROCESSOR_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefProcessor",
             pkg_length()
                 .then(name_string())
@@ -429,6 +438,7 @@ where
      */
     ext_opcode(opcode::EXT_DEF_MUTEX_OP)
         .then(comment_scope(
+            DebugVerbosity::Scopes,
             "DefMutex",
             name_string().then(take()).map_with_context(|(name, sync_level), context| {
                 try_with_context!(
@@ -452,7 +462,8 @@ where
     /*
      * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "TermArg",
         choice!(
             data_object(),
@@ -474,7 +485,7 @@ where
     /*
      * DataRefObject := DataObject | ObjectReference | DDBHandle
      */
-    comment_scope_verbose("DataRefObject", choice!(data_object()))
+    comment_scope(DebugVerbosity::AllScopes, "DataRefObject", choice!(data_object()))
 }
 
 pub fn data_object<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -488,7 +499,7 @@ where
      * accidently parsed as ComputationalDatas.
      */
     // TODO: this doesn't yet parse DefVarPackage
-    comment_scope_verbose("DataObject", choice!(def_package(), computational_data()))
+    comment_scope(DebugVerbosity::AllScopes, "DataObject", choice!(def_package(), computational_data()))
 }
 
 pub fn computational_data<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -546,7 +557,8 @@ where
         }
     };
 
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "ComputationalData",
         choice!(
             ext_opcode(opcode::EXT_REVISION_OP).map(|_| Ok(AmlValue::Integer(crate::AML_INTERPRETER_REVISION))),

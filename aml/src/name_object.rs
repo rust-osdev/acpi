@@ -2,9 +2,10 @@ use crate::{
     misc::{arg_obj, debug_obj, local_obj, ArgNum, LocalNum},
     namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
-    parser::{choice, comment_scope_verbose, consume, n_of, take, take_while, Parser},
+    parser::{choice, comment_scope, consume, n_of, take, take_while, Parser},
     AmlContext,
     AmlError,
+    DebugVerbosity,
 };
 use alloc::vec::Vec;
 use core::{fmt, str};
@@ -26,7 +27,11 @@ where
      * SuperName := SimpleName | DebugObj | Type6Opcode
      * TODO: this doesn't cover Type6Opcode yet
      */
-    comment_scope_verbose("SuperName", choice!(debug_obj().map(|()| Ok(Target::Debug)), simple_name()))
+    comment_scope(
+        DebugVerbosity::AllScopes,
+        "SuperName",
+        choice!(debug_obj().map(|()| Ok(Target::Debug)), simple_name()),
+    )
 }
 
 pub fn simple_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
@@ -36,7 +41,8 @@ where
     /*
      * SimpleName := NameString | ArgObj | LocalObj
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "SimpleName",
         choice!(
             name_string().map(move |name| Ok(Target::Name(name))),
@@ -68,7 +74,7 @@ where
         });
 
     // TODO: combinator to select a parser based on a peeked byte?
-    comment_scope_verbose("NameString", move |input: &'a [u8], context| {
+    comment_scope(DebugVerbosity::AllScopes, "NameString", move |input: &'a [u8], context| {
         let first_char = match input.first() {
             Some(&c) => c,
             None => return Err((input, context, AmlError::UnexpectedEndOfStream)),
