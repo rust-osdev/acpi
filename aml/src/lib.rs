@@ -110,6 +110,7 @@ pub struct AmlContext {
      * These track the state of the context while it's parsing an AML table.
      */
     current_scope: AmlName,
+    scope_indent: usize,
     debug_verbosity: DebugVerbosity,
 }
 
@@ -128,6 +129,7 @@ impl AmlContext {
             current_args: None,
 
             current_scope: AmlName::root(),
+            scope_indent: 0,
             debug_verbosity,
         }
     }

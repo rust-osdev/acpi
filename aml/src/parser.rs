@@ -235,16 +235,20 @@ where
     R: core::fmt::Debug,
     P: Parser<'a, 'c, R>,
 {
+    const INDENT_PER_SCOPE: usize = 2;
+
     move |input, context: &'c mut AmlContext| {
         if verbosity <= context.debug_verbosity {
-            trace!("--> {}", scope_name);
+            trace!("{:indent$}--> {}", "", scope_name, indent = context.scope_indent);
         }
 
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
+        context.scope_indent += INDENT_PER_SCOPE;
         let (new_input, context, result) = parser.parse(input, context)?;
+        context.scope_indent -= INDENT_PER_SCOPE;
 
         if verbosity <= context.debug_verbosity {
-            trace!("<-- {}", scope_name);
+            trace!("{:indent$}<-- {}", "", scope_name, indent = context.scope_indent);
         }
 
         Ok((new_input, context, result))
