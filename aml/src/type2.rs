@@ -5,7 +5,6 @@ use crate::{
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
     value::AmlValue,
-    AmlError,
     DebugVerbosity,
 };
 use alloc::vec::Vec;
@@ -47,7 +46,7 @@ where
      */
     opcode(opcode::DEF_BUFFER_OP)
         .then(comment_scope(
-            DebugVerbosity::Scopes,
+            DebugVerbosity::AllScopes,
             "DefBuffer",
             pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
                 take_to_end_of_pkglength(pkg_length)
@@ -88,7 +87,7 @@ where
      */
     opcode(opcode::DEF_PACKAGE_OP)
         .then(comment_scope(
-            DebugVerbosity::Scopes,
+            DebugVerbosity::AllScopes,
             "DefPackage",
             pkg_length().then(take()).feed(|(pkg_length, num_elements)| {
                 move |mut input, mut context| {
