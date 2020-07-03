@@ -72,7 +72,7 @@ impl Namespace {
     /// At first glance, you might expect `DefDevice` to add a value of type `Device`. However, because all
     /// `Devices` do is hold other values, we model them as namespace levels, and so they must be created
     /// accordingly.
-    pub fn add_level(&mut self, path: AmlName, level_type: LevelType) -> Result<(), AmlError> {
+    pub fn add_level(&mut self, path: AmlName, typ: LevelType) -> Result<(), AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -94,11 +94,11 @@ impl Namespace {
             }
 
             /*
-             * We use the result of the insertion to detect namespace collisions; if an old value is returned,
-             * we throw a namespace collision error.
+             * If the level has already been added, we don't need to add it again. The parser can try to add it
+             * multiple times if the ASL contains multiple blocks that add to the same scope/device.
              */
-            if let Some(_) = current_level.children.insert(last_seg, NamespaceLevel::new(level_type)) {
-                return Err(AmlError::NameCollision(path));
+            if !current_level.children.contains_key(&last_seg) {
+                current_level.children.insert(last_seg, NamespaceLevel::new(typ));
             }
         }
 
