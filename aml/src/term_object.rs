@@ -137,6 +137,11 @@ where
                     let previous_scope = context.current_scope.clone();
                     context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
 
+                    context.comment(
+                        DebugVerbosity::Scopes,
+                        &(String::from("Scope name: ") + &context.current_scope.as_string()),
+                    );
+
                     try_with_context!(
                         context,
                         context.namespace.add_level(context.current_scope.clone(), LevelType::Scope)

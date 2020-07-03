@@ -3,6 +3,9 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 use log::trace;
 
+/// This is the number of spaces added to indent a scope when printing parser debug messages.
+pub(crate) const INDENT_PER_SCOPE: usize = 2;
+
 pub type ParseResult<'a, 'c, R> =
     Result<(&'a [u8], &'c mut AmlContext, R), (&'a [u8], &'c mut AmlContext, AmlError)>;
 
@@ -235,8 +238,6 @@ where
     R: core::fmt::Debug,
     P: Parser<'a, 'c, R>,
 {
-    const INDENT_PER_SCOPE: usize = 2;
-
     move |input, context: &'c mut AmlContext| {
         if verbosity <= context.debug_verbosity {
             trace!("{:indent$}--> {}", "", scope_name, indent = context.scope_indent);
