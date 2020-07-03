@@ -9,7 +9,7 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::AmlContext;
+use aml::{AmlContext, DebugVerbosity};
 use clap::{App, Arg};
 use std::{
     ffi::OsStr,
@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
         file.read_to_end(&mut contents).unwrap();
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(DebugVerbosity::None);
 
         match context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
             Ok(()) => {

@@ -13,7 +13,3 @@ edition = "2018"
 log = "0.4"
 bit_field = "0.10"
 byteorder = { version = "1", default-features = false }
-
-[features]
-debug_parser = []
-debug_parser_verbose = []
