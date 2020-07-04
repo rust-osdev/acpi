@@ -70,8 +70,9 @@ impl Namespace {
         }
     }
 
-    /// Add a new level to the namespace. A "level" is a `NameSeg` that can hold objects (currently, `Scope`s
-    /// and `Devices`). Once a level has been created, AML values can be added to it with `add_value`.
+    /// Add a new level to the namespace. A "level" is named by a single `NameSeg`, and can contain values, and
+    /// also other further sub-levels. Once a level has been created, AML values can be added to it with
+    /// `add_value`.
     ///
     /// ### Note
     /// At first glance, you might expect `DefDevice` to add a value of type `Device`. However, because all
