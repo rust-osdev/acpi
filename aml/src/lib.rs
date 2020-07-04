@@ -87,6 +87,8 @@ pub enum DebugVerbosity {
 
 #[derive(Debug)]
 pub struct AmlContext {
+    legacy_mode: bool,
+
     pub namespace: Namespace,
 
     /*
@@ -115,8 +117,21 @@ pub struct AmlContext {
 }
 
 impl AmlContext {
-    pub fn new(debug_verbosity: DebugVerbosity) -> AmlContext {
-        AmlContext {
+    /// Creates a new `AmlContext` - the central type in managing the AML tables. Only one of these should be
+    /// created, and it should be passed the DSDT and all SSDTs defined by the hardware.
+    ///
+    /// ### Legacy mode
+    /// If `true` is passed in `legacy_mode`, the library will try and remain compatible with a ACPI 1.0
+    /// implementation. The following changes/assumptions are made:
+    ///     - Two extra root namespaces are predefined: `\_PR` and `_TZ`
+    ///     - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
+    ///     - Processors are expected to be found in `\_PR`, instead of `\_SB`
+    ///     - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
+    pub fn new(legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
+        use namespace::LevelType;
+
+        let mut context = AmlContext {
+            legacy_mode,
             namespace: Namespace::new(),
             local_0: None,
             local_1: None,
@@ -131,7 +146,9 @@ impl AmlContext {
             current_scope: AmlName::root(),
             scope_indent: 0,
             debug_verbosity,
-        }
+        };
+
+        context
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {
