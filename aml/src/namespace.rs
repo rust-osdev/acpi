@@ -27,6 +27,9 @@ impl AmlHandle {
 pub enum LevelType {
     Scope,
     Device,
+    /// A legacy `Processor` object's sub-objects are stored in a level of this type. Modern tables define
+    /// processors as `Device`s.
+    Processor,
 }
 
 pub struct NamespaceLevel {

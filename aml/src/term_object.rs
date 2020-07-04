@@ -372,10 +372,13 @@ where
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
                     let resolved_name = try_with_context!(context, name.clone().resolve(&context.current_scope));
-                    try_with_context!(context, context.namespace.add_level(resolved_name, LevelType::Device));
+                    try_with_context!(
+                        context,
+                        context.namespace.add_level(resolved_name.clone(), LevelType::Device)
+                    );
 
                     let previous_scope = context.current_scope.clone();
-                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
+                    context.current_scope = resolved_name;
 
                     (Ok((length, previous_scope)), context)
                 })
@@ -408,16 +411,24 @@ where
                 .then(take_u32())
                 .then(take())
                 .map_with_context(|((((pkg_length, name), proc_id), pblk_address), pblk_len), context| {
+                    /*
+                     * Legacy `Processor` objects contain data within themselves, and can also have sub-objects,
+                     * so we add both a level for the sub-objects, and a value for the data.
+                     */
+                    let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
                     try_with_context!(
                         context,
-                        context.namespace.add_value_at_resolved_path(
-                            name.clone(),
-                            &context.current_scope,
+                        context.namespace.add_level(resolved_name.clone(), LevelType::Processor)
+                    );
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value(
+                            resolved_name.clone(),
                             AmlValue::Processor { id: proc_id, pblk_address, pblk_len }
                         )
                     );
                     let previous_scope = context.current_scope.clone();
-                    context.current_scope = try_with_context!(context, name.resolve(&context.current_scope));
+                    context.current_scope = resolved_name;
 
                     (Ok((previous_scope, pkg_length)), context)
                 })
