@@ -219,15 +219,6 @@ impl AmlContext {
             _ => panic!("Invalid local number: {}", local),
         }
     }
-
-    /// This is used by the parser to provide debug comments about the current object, which are indented to the
-    /// correct level for the current object. We most often need to print these comments from `map_with_context`s,
-    /// so it's most convenient to have this method on `AmlContext`.
-    pub(crate) fn comment(&self, verbosity: DebugVerbosity, message: &str) {
-        if verbosity <= self.debug_verbosity {
-            log::trace!("{:indent$}{}", "", message, indent = self.scope_indent + parser::INDENT_PER_SCOPE);
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
