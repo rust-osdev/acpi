@@ -576,11 +576,11 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::*;
+    use crate::{test_utils::*, AmlContext, DebugVerbosity};
 
     #[test]
     fn test_computational_data() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(DebugVerbosity::None);
         check_ok!(
             computational_data().parse(&[0x00, 0x34, 0x12], &mut context),
             AmlValue::Integer(0),
