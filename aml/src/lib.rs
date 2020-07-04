@@ -148,6 +148,17 @@ impl AmlContext {
             debug_verbosity,
         };
 
+        /*
+         * Add the predefined root namespaces.
+         */
+        context.namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), LevelType::Scope).unwrap();
+        context.namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope).unwrap();
+        context.namespace.add_level(AmlName::from_str("\\_SI").unwrap(), LevelType::Scope).unwrap();
+        if legacy_mode {
+            context.namespace.add_level(AmlName::from_str("\\_PR").unwrap(), LevelType::Scope).unwrap();
+            context.namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), LevelType::Scope).unwrap();
+        }
+
         context
     }
 
