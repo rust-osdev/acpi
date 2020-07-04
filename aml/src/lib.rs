@@ -255,7 +255,7 @@ pub enum AmlError {
     /// Produced when a sub-level or value is added to a level that has not yet been added to the namespace. The
     /// `AmlName` is the name of the entire sub-level/value.
     LevelDoesNotExist(AmlName),
-    HandleDoesNotExist(AmlHandle),
+    ValueDoesNotExist(AmlName),
     /// Produced when two values with the same name are added to the namespace.
     NameCollision(AmlName),
 

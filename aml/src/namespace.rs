@@ -47,7 +47,9 @@ pub struct Namespace {
     /// risking using the same id for two objects.
     next_handle: AmlHandle,
 
-    /// This maps handles to actual values, and is used to access the actual AML values.
+    /// This maps handles to actual values, and is used to access the actual AML values. When removing a value
+    /// from the object map, care must be taken to also remove references to its handle in the level data
+    /// structure, as invalid handles will cause panics.
     object_map: BTreeMap<AmlHandle, AmlValue>,
 
     /// Holds the first level of the namespace - containing items such as `\_SB`. Subsequent levels are held
@@ -82,23 +84,14 @@ impl Namespace {
          * return nicely here.
          */
         if path != AmlName::root() {
-            let (last_seg, levels) = path.0[1..].split_last().unwrap();
-            let last_seg = last_seg.as_segment().unwrap();
-
-            let mut current_level = &mut self.root;
-            for level in levels {
-                current_level = current_level
-                    .children
-                    .get_mut(&level.as_segment().unwrap())
-                    .ok_or(AmlError::LevelDoesNotExist(path.clone()))?;
-            }
+            let (level, last_seg) = self.get_level_for_path_mut(&path)?;
 
             /*
              * If the level has already been added, we don't need to add it again. The parser can try to add it
              * multiple times if the ASL contains multiple blocks that add to the same scope/device.
              */
-            if !current_level.children.contains_key(&last_seg) {
-                current_level.children.insert(last_seg, NamespaceLevel::new(typ));
+            if !level.children.contains_key(&last_seg) {
+                level.children.insert(last_seg, NamespaceLevel::new(typ));
             }
         }
 
@@ -112,22 +105,12 @@ impl Namespace {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
-        let (last_seg, levels) = path.0[1..].split_last().unwrap();
-        let last_seg = last_seg.as_segment().unwrap();
-
-        let mut current_level = &mut self.root;
-        for level in levels {
-            current_level = current_level
-                .children
-                .get_mut(&level.as_segment().unwrap())
-                .ok_or(AmlError::LevelDoesNotExist(path.clone()))?;
-        }
-
         let handle = self.next_handle;
         self.next_handle.increment();
         self.object_map.insert(handle, value);
 
-        match current_level.values.insert(last_seg, handle) {
+        let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+        match level.values.insert(last_seg, handle) {
             None => Ok(handle),
             Some(_) => Err(AmlError::NameCollision(path)),
         }
@@ -146,21 +129,23 @@ impl Namespace {
     }
 
     pub fn get(&self, handle: AmlHandle) -> Result<&AmlValue, AmlError> {
-        self.object_map.get(&handle).ok_or(AmlError::HandleDoesNotExist(handle))
-    }
-
-    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
-        let handle = *self.name_map.get(path).ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?;
-        self.get(handle).map_err(|_| AmlError::ObjectDoesNotExist(path.as_string()))
+        Ok(self.object_map.get(&handle).unwrap())
     }
 
     pub fn get_mut(&mut self, handle: AmlHandle) -> Result<&mut AmlValue, AmlError> {
-        self.object_map.get_mut(&handle).ok_or(AmlError::HandleDoesNotExist(handle))
+        Ok(self.object_map.get_mut(&handle).unwrap())
+    }
+
+    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
+        let (level, last_seg) = self.get_level_for_path(path)?;
+        let &handle = level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?;
+        Ok(self.get(handle).unwrap())
     }
 
     pub fn get_by_path_mut(&mut self, path: &AmlName) -> Result<&mut AmlValue, AmlError> {
-        let handle = *self.name_map.get(path).ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?;
-        self.get_mut(handle).map_err(|_| AmlError::ObjectDoesNotExist(path.as_string()))
+        let (level, last_seg) = self.get_level_for_path(path)?;
+        let &handle = level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?;
+        Ok(self.get_mut(handle).unwrap())
     }
 
     /// Search for an object at the given path of the namespace, applying the search rules
@@ -178,8 +163,9 @@ impl Namespace {
             loop {
                 // Search for the name at this namespace level. If we find it, we're done.
                 let name = path.resolve(&scope)?;
-                if let Some(handle) = self.name_map.get(&name) {
-                    return Ok((name, *handle));
+                let (level, last_seg) = self.get_level_for_path(&name)?;
+                if let Some(&handle) = level.values.get(&last_seg) {
+                    return Ok((name, handle));
                 }
 
                 // If we don't find it, go up a level in the namespace and search for it there,
@@ -187,21 +173,61 @@ impl Namespace {
                 match scope.parent() {
                     Ok(parent) => scope = parent,
                     // If we still haven't found the value and have run out of parents, return `None`.
-                    Err(AmlError::RootHasNoParent) => return Err(AmlError::ObjectDoesNotExist(path.as_string())),
+                    Err(AmlError::RootHasNoParent) => return Err(AmlError::ValueDoesNotExist(path.clone())),
                     Err(err) => return Err(err),
                 }
             }
         } else {
             // If search rules don't apply, simply resolve it against the starting scope
             let name = path.resolve(starting_scope)?;
-            Ok((
-                name,
-                self.name_map
-                    .get(&path.resolve(starting_scope)?)
-                    .map(|&handle| handle)
-                    .ok_or(AmlError::ObjectDoesNotExist(path.as_string()))?,
-            ))
+            let (level, last_seg) = self.get_level_for_path(&path.resolve(starting_scope)?)?;
+
+            if let Some(&handle) = level.values.get(&last_seg) {
+                Ok((name, handle))
+            } else {
+                Err(AmlError::ValueDoesNotExist(path.clone()))
+            }
         }
+    }
+
+    fn get_level_for_path(&self, path: &AmlName) -> Result<(&NamespaceLevel, NameSeg), AmlError> {
+        let (last_seg, levels) = path.0[1..].split_last().unwrap();
+        let last_seg = last_seg.as_segment().unwrap();
+
+        // TODO: this helps with diagnostics, but requires a heap allocation just in case we need to error.
+        let mut traversed_path = AmlName::root();
+
+        let mut current_level = &self.root;
+        for level in levels {
+            traversed_path.0.push(*level);
+            current_level = current_level
+                .children
+                .get(&level.as_segment().unwrap())
+                .ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
+        }
+
+        Ok((current_level, last_seg))
+    }
+
+    fn get_level_for_path_mut(&mut self, path: &AmlName) -> Result<(&mut NamespaceLevel, NameSeg), AmlError> {
+        let (last_seg, levels) = path.0[1..].split_last().unwrap();
+        let last_seg = last_seg.as_segment().unwrap();
+
+        // TODO: this helps with diagnostics, but requires a heap allocation just in case we need to error. We can
+        // improve this by changing the `levels` interation into an `enumerate()`, and then using the index to
+        // create the correct path on the error path
+        let mut traversed_path = AmlName::root();
+
+        let mut current_level = &mut self.root;
+        for level in levels {
+            traversed_path.0.push(*level);
+            current_level = current_level
+                .children
+                .get_mut(&level.as_segment().unwrap())
+                .ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
+        }
+
+        Ok((current_level, last_seg))
     }
 }
 
