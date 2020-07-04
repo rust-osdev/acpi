@@ -148,9 +148,9 @@ impl Namespace {
         Ok(self.get_mut(handle).unwrap())
     }
 
-    /// Search for an object at the given path of the namespace, applying the search rules
-    /// described in §5.3 of the ACPI specification, if they are applicable. Returns the resolved name, and the
-    /// handle of the first valid object, if found.
+    /// Search for an object at the given path of the namespace, applying the search rules described in §5.3 of the
+    /// ACPI specification, if they are applicable. Returns the resolved name, and the handle of the first valid
+    /// object, if found.
     pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, AmlHandle), AmlError> {
         if path.search_rules_apply() {
             /*
@@ -522,5 +522,81 @@ mod tests {
         assert_eq!(AmlName::from_str("\\_SB").unwrap().parent(), Ok(AmlName::root()));
         assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent(), Ok(AmlName::from_str("\\_SB").unwrap()));
         assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent().unwrap().parent(), Ok(AmlName::root()));
+    }
+
+    #[test]
+    fn test_namespace() {
+        let mut namespace = Namespace::new();
+
+        /*
+         * This should succeed but do nothing.
+         */
+        assert_eq!(namespace.add_level(AmlName::from_str("\\").unwrap(), LevelType::Scope), Ok(()));
+
+        /*
+         * Add `\_SB`, also testing that adding a level twice succeeds.
+         */
+        assert_eq!(namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope), Ok(()));
+
+        /*
+         * Add a device under a level that already exists.
+         */
+        assert_eq!(namespace.add_level(AmlName::from_str("\\_SB.PCI0").unwrap(), LevelType::Device), Ok(()));
+
+        /*
+         * Add some deeper scopes.
+         */
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap(), LevelType::Scope), Ok(()));
+
+        /*
+         * Add some things to the scopes to query later.
+         */
+        assert!(namespace.add_value(AmlName::from_str("\\MOO").unwrap(), AmlValue::Boolean(true)).is_ok());
+        assert!(namespace.add_value(AmlName::from_str("\\FOO.BAR.A").unwrap(), AmlValue::Integer(12345)).is_ok());
+        assert!(namespace.add_value(AmlName::from_str("\\FOO.BAR.B").unwrap(), AmlValue::Integer(6)).is_ok());
+        assert!(namespace
+            .add_value(AmlName::from_str("\\FOO.BAR.C").unwrap(), AmlValue::String(String::from("hello, world!")))
+            .is_ok());
+
+        /*
+         * Get objects using their absolute paths.
+         */
+        assert_eq!(namespace.get_by_path(&AmlName::from_str("\\MOO").unwrap()), Ok(&AmlValue::Boolean(true)));
+        assert_eq!(
+            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.A").unwrap()),
+            Ok(&AmlValue::Integer(12345))
+        );
+        assert_eq!(namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.B").unwrap()), Ok(&AmlValue::Integer(6)));
+        assert_eq!(
+            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.C").unwrap()),
+            Ok(&AmlValue::String(String::from("hello, world!")))
+        );
+
+        /*
+         * Search for some objects that should use search rules.
+         */
+        {
+            let (name, _) = namespace
+                .search(&AmlName::from_str("MOO").unwrap(), &AmlName::from_str("\\FOO.BAR.BAZ").unwrap())
+                .unwrap();
+            assert_eq!(name, AmlName::from_str("\\MOO").unwrap());
+        }
+        {
+            let (name, _) = namespace
+                .search(&AmlName::from_str("A").unwrap(), &AmlName::from_str("\\FOO.BAR").unwrap())
+                .unwrap();
+            assert_eq!(name, AmlName::from_str("\\FOO.BAR.A").unwrap());
+        }
+        {
+            let (name, _) = namespace
+                .search(&AmlName::from_str("A").unwrap(), &AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap())
+                .unwrap();
+            assert_eq!(name, AmlName::from_str("\\FOO.BAR.A").unwrap());
+        }
     }
 }
