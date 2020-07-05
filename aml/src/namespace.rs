@@ -30,6 +30,9 @@ pub enum LevelType {
     /// A legacy `Processor` object's sub-objects are stored in a level of this type. Modern tables define
     /// processors as `Device`s.
     Processor,
+    /// A level of this type is created at the same path as the name of a method when it is invoked. It can be
+    /// used by the method to store local variables.
+    MethodLocals,
 }
 
 pub struct NamespaceLevel {
@@ -100,6 +103,22 @@ impl Namespace {
         }
 
         Ok(())
+    }
+
+    pub fn remove_level(&mut self, path: AmlName) -> Result<(), AmlError> {
+        assert!(path.is_absolute());
+        let path = path.normalize()?;
+
+        if path != AmlName::root() {
+            let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+
+            match level.children.remove(&last_seg) {
+                Some(_) => Ok(()),
+                None => Err(AmlError::LevelDoesNotExist(path)),
+            }
+        } else {
+            Err(AmlError::TriedToRemoveRootNamespace)
+        }
     }
 
     /// Add a value to the namespace at the given path, which must be a normalized, absolute AML
@@ -213,6 +232,8 @@ impl Namespace {
         Ok((current_level, last_seg))
     }
 
+    /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
+    /// last segment to index into that level. This must not be called on `\\`.
     fn get_level_for_path_mut(&mut self, path: &AmlName) -> Result<(&mut NamespaceLevel, NameSeg), AmlError> {
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
         let last_seg = last_seg.as_segment().unwrap();

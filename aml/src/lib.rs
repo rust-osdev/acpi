@@ -62,6 +62,7 @@ pub use crate::{
 
 use log::error;
 use misc::{ArgNum, LocalNum};
+use namespace::LevelType;
 use parser::Parser;
 use pkg_length::PkgLength;
 use term_object::term_list;
@@ -128,8 +129,6 @@ impl AmlContext {
     ///     - Processors are expected to be found in `\_PR`, instead of `\_SB`
     ///     - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
     pub fn new(legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
-        use namespace::LevelType;
-
         let mut context = AmlContext {
             legacy_mode,
             namespace: Namespace::new(),
@@ -195,6 +194,11 @@ impl AmlContext {
             self.local_6 = None;
             self.local_7 = None;
 
+            /*
+             * Create a namespace level to store local objects created by the invocation.
+             */
+            self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
+
             log::trace!("Invoking method with {} arguments, code: {:x?}", flags.arg_count(), code);
             let return_value =
                 match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
@@ -206,6 +210,14 @@ impl AmlContext {
                         Err(err)
                     }
                 };
+
+            /*
+             * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do
+             * this by simply removing the method's local object layer.
+             */
+            // TODO: this should also remove objects created by the method outside the method's scope, if they
+            // weren't statically created. This is harder.
+            self.namespace.remove_level(path.clone())?;
 
             /*
              * Now clear the state.
@@ -286,6 +298,7 @@ pub enum AmlError {
     ValueDoesNotExist(AmlName),
     /// Produced when two values with the same name are added to the namespace.
     NameCollision(AmlName),
+    TriedToRemoveRootNamespace,
 
     /*
      * Errors produced executing control methods.
