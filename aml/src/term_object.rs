@@ -591,7 +591,7 @@ mod test {
 
     #[test]
     fn test_computational_data() {
-        let mut context = AmlContext::new(DebugVerbosity::None);
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_ok!(
             computational_data().parse(&[0x00, 0x34, 0x12], &mut context),
             AmlValue::Integer(0),
