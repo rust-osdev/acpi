@@ -186,13 +186,28 @@ impl Namespace {
             loop {
                 // Search for the name at this namespace level. If we find it, we're done.
                 let name = path.resolve(&scope)?;
-                let (level, last_seg) = self.get_level_for_path(&name)?;
-                if let Some(&handle) = level.values.get(&last_seg) {
-                    return Ok((name, handle));
+                match self.get_level_for_path(&name) {
+                    Ok((level, last_seg)) => {
+                        if let Some(&handle) = level.values.get(&last_seg) {
+                            return Ok((name, handle));
+                        }
+                    }
+
+                    /*
+                     * This error is caught specially to avoid a case that seems bizzare but is quite useful - when
+                     * the passed starting scope doesn't exist. Certain methods return values that reference names
+                     * from the point of view of the method, so it makes sense for the starting scope to be inside
+                     * the method.  However, because we have destroyed all the objects created by the method
+                     * dynamically, the level no longer exists.
+                     *
+                     * To avoid erroring here, we simply continue to the parent scope. If the whole scope doesn't
+                     * exist, this will error when we get to the root, so this seems unlikely to introduce bugs.
+                     */
+                    Err(AmlError::LevelDoesNotExist(_)) => (),
+                    Err(err) => return Err(err),
                 }
 
-                // If we don't find it, go up a level in the namespace and search for it there,
-                // recursively.
+                // If we don't find it, go up a level in the namespace and search for it there recursively
                 match scope.parent() {
                     Ok(parent) => scope = parent,
                     // If we still haven't found the value and have run out of parents, return `None`.
@@ -210,6 +225,31 @@ impl Namespace {
             } else {
                 Err(AmlError::ValueDoesNotExist(path.clone()))
             }
+        }
+    }
+
+    pub fn search_for_level(&self, level_name: &AmlName, starting_scope: &AmlName) -> Result<AmlName, AmlError> {
+        if level_name.search_rules_apply() {
+            let mut scope = starting_scope.clone().normalize()?;
+            assert!(scope.is_absolute());
+
+            loop {
+                let name = level_name.resolve(&scope)?;
+                if let Ok((level, last_seg)) = self.get_level_for_path(&name) {
+                    if let Some(_) = level.children.get(&last_seg) {
+                        return Ok(name);
+                    }
+                }
+
+                // If we don't find it, move the scope up a level and search for it there recursively
+                match scope.parent() {
+                    Ok(parent) => scope = parent,
+                    Err(AmlError::RootHasNoParent) => return Err(AmlError::LevelDoesNotExist(level_name.clone())),
+                    Err(err) => return Err(err),
+                }
+            }
+        } else {
+            Ok(level_name.clone())
         }
     }
 
