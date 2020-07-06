@@ -12,7 +12,7 @@ impl AmlContext {
     /// so it's most convenient to have this method on `AmlContext`.
     pub(crate) fn comment(&self, verbosity: DebugVerbosity, message: &str) {
         if verbosity <= self.debug_verbosity {
-            log::trace!("{:indent$}{}", "", message, indent = self.scope_indent + INDENT_PER_SCOPE);
+            log::trace!("{:indent$}{}", "", message, indent = self.scope_indent);
         }
     }
 }
