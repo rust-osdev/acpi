@@ -1,6 +1,7 @@
 use crate::{
     opcode::{self, ext_opcode, opcode},
-    parser::{choice, comment_scope_verbose, id, Parser},
+    parser::{choice, comment_scope, id, Parser},
+    DebugVerbosity,
 };
 
 pub fn debug_obj<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -32,7 +33,9 @@ where
      * Local7Op := 0x67
      */
     let local_parser = |i, local_opcode| {
-        opcode(local_opcode).then(comment_scope_verbose("LocalObj", id())).map(move |((), _)| Ok(i))
+        opcode(local_opcode)
+            .then(comment_scope(DebugVerbosity::AllScopes, "LocalObj", id()))
+            .map(move |((), _)| Ok(i))
     };
 
     choice!(
@@ -64,8 +67,9 @@ where
      * Arg5Op = 0x6d
      * Arg6Op = 0x6e
      */
-    let arg_parser =
-        |i, arg_opcode| opcode(arg_opcode).then(comment_scope_verbose("ArgObj", id())).map(move |((), _)| Ok(i));
+    let arg_parser = |i, arg_opcode| {
+        opcode(arg_opcode).then(comment_scope(DebugVerbosity::AllScopes, "ArgObj", id())).map(move |((), _)| Ok(i))
+    };
 
     choice!(
         arg_parser(0, opcode::ARG0_OP),

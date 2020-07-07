@@ -1,5 +1,5 @@
 use super::AcpiError;
-use core::{mem, slice, str};
+use core::{slice, str};
 
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///

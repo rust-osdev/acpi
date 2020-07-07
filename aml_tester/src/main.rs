@@ -9,18 +9,21 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::AmlContext;
+use aml::{AmlContext, DebugVerbosity};
 use clap::{App, Arg};
 use std::{
     ffi::OsStr,
     fs::{self, File},
-    io::Read,
+    io::{Read, Write},
     ops::Not,
     path::Path,
     process::Command,
 };
 
 fn main() -> std::io::Result<()> {
+    log::set_logger(&Logger).unwrap();
+    log::set_max_level(log::LevelFilter::Trace);
+
     let matches = App::new("aml_tester")
         .version("v0.1.0")
         .author("Isaac Woods")
@@ -29,8 +32,8 @@ fn main() -> std::io::Result<()> {
         .arg(Arg::with_name("no_compile").long("no-compile"))
         .get_matches();
 
-    println!("Running tests in directory: {:?}", matches.value_of("path"));
     let dir_path = Path::new(matches.value_of("path").unwrap());
+    println!("Running tests in directory: {:?}", dir_path);
 
     if !matches.is_present("no_compile") {
         compile_asl_files(dir_path)?;
@@ -46,22 +49,25 @@ fn main() -> std::io::Result<()> {
 
     let (passed, failed) = aml_files.fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry.path());
+        std::io::stdout().flush().unwrap();
 
         let mut file = File::open(file_entry.path()).unwrap();
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
 
         match context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
             Ok(()) => {
                 println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
+                println!("Namespace: {:#?}", context.namespace);
                 (passed + 1, failed)
             }
 
             Err(err) => {
                 println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
+                println!("Namespace: {:#?}", context.namespace);
                 (passed, failed + 1)
             }
         }
@@ -114,4 +120,20 @@ fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
     }
 
     Ok(())
+}
+
+struct Logger;
+
+impl log::Log for Logger {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        println!("[{}] {}", record.level(), record.args());
+    }
+
+    fn flush(&self) {
+        std::io::stdout().flush().unwrap();
+    }
 }

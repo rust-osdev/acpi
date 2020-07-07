@@ -88,18 +88,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_utils::*, AmlError};
+    use crate::{test_utils::*, AmlError, DebugVerbosity};
 
     #[test]
     fn empty() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_err!(opcode(NULL_NAME).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_err!(ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
     }
 
     #[test]
     fn simple_opcodes() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_ok!(opcode(DEF_SCOPE_OP).parse(&[DEF_SCOPE_OP], &mut context), (), &[]);
         check_ok!(
             opcode(DEF_NAME_OP).parse(&[DEF_NAME_OP, 0x31, 0x55, 0xf3], &mut context),
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn extended_opcodes() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_err!(
             ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP], &mut context),
             AmlError::WrongParser,

@@ -91,10 +91,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_utils::*, AmlError};
+    use crate::{test_utils::*, AmlError, DebugVerbosity};
 
     fn test_correct_pkglength(stream: &[u8], expected_raw_length: u32, expected_leftover: &[u8]) {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_ok!(
             pkg_length().parse(stream, &mut context),
             PkgLength::from_raw_length(stream, expected_raw_length),
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_raw_pkg_length() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_ok!(raw_pkg_length().parse(&[0b01000101, 0x14], &mut context), 325, &[]);
         check_ok!(raw_pkg_length().parse(&[0b01000111, 0x14, 0x46], &mut context), 327, &[0x46]);
         check_ok!(raw_pkg_length().parse(&[0b10000111, 0x14, 0x46], &mut context), 287047, &[]);
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn test_pkg_length() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_err!(pkg_length().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         test_correct_pkglength(&[0x00], 0, &[]);
         test_correct_pkglength(&[0x05, 0xf5, 0x7f, 0x3e, 0x54, 0x03], 5, &[0xf5, 0x7f, 0x3e, 0x54, 0x03]);

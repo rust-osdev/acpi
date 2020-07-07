@@ -117,8 +117,8 @@ impl PciRoutingTable {
                             });
                         }
                         AmlValue::String(ref name) => {
-                            let (link_object_name, _) =
-                                context.namespace.search(&AmlName::from_str(name)?, &prt_path)?;
+                            let link_object_name =
+                                context.namespace.search_for_level(&AmlName::from_str(name)?, &prt_path)?;
                             entries.push(PciRoute {
                                 device,
                                 function,

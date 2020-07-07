@@ -1,6 +1,21 @@
-use crate::{pkg_length::PkgLength, AmlContext, AmlError};
+use crate::{pkg_length::PkgLength, AmlContext, AmlError, DebugVerbosity};
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use log::trace;
+
+/// This is the number of spaces added to indent a scope when printing parser debug messages.
+pub const INDENT_PER_SCOPE: usize = 2;
+
+impl AmlContext {
+    /// This is used by the parser to provide debug comments about the current object, which are indented to the
+    /// correct level for the current object. We most often need to print these comments from `map_with_context`s,
+    /// so it's most convenient to have this method on `AmlContext`.
+    pub(crate) fn comment(&self, verbosity: DebugVerbosity, message: &str) {
+        if verbosity <= self.debug_verbosity {
+            log::trace!("{:indent$}{}", "", message, indent = self.scope_indent);
+        }
+    }
+}
 
 pub type ParseResult<'a, 'c, R> =
     Result<(&'a [u8], &'c mut AmlContext, R), (&'a [u8], &'c mut AmlContext, AmlError)>;
@@ -224,41 +239,29 @@ where
     }
 }
 
-pub fn comment_scope<'a, 'c, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, 'c, R>
+pub fn comment_scope<'a, 'c, P, R>(
+    verbosity: DebugVerbosity,
+    scope_name: &'a str,
+    parser: P,
+) -> impl Parser<'a, 'c, R>
 where
     'c: 'a,
     R: core::fmt::Debug,
     P: Parser<'a, 'c, R>,
 {
-    move |input, context| {
-        #[cfg(feature = "debug_parser")]
-        log::trace!("--> {}", scope_name);
+    move |input, context: &'c mut AmlContext| {
+        if verbosity <= context.debug_verbosity {
+            trace!("{:indent$}--> {}", "", scope_name, indent = context.scope_indent);
+            context.scope_indent += INDENT_PER_SCOPE;
+        }
 
         // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
         let (new_input, context, result) = parser.parse(input, context)?;
 
-        #[cfg(feature = "debug_parser")]
-        log::trace!("<-- {}", scope_name);
-
-        Ok((new_input, context, result))
-    }
-}
-
-pub fn comment_scope_verbose<'a, 'c, P, R>(scope_name: &'a str, parser: P) -> impl Parser<'a, 'c, R>
-where
-    'c: 'a,
-    R: core::fmt::Debug,
-    P: Parser<'a, 'c, R>,
-{
-    move |input, context| {
-        #[cfg(feature = "debug_parser_verbose")]
-        log::trace!("--> {}", scope_name);
-
-        // Return if the parse fails, so we don't print the tail. Makes it easier to debug.
-        let (new_input, context, result) = parser.parse(input, context)?;
-
-        #[cfg(feature = "debug_parser_verbose")]
-        log::trace!("<-- {}", scope_name);
+        if verbosity <= context.debug_verbosity {
+            context.scope_indent -= INDENT_PER_SCOPE;
+            trace!("{:indent$}<-- {}", "", scope_name, indent = context.scope_indent);
+        }
 
         Ok((new_input, context, result))
     }
@@ -469,11 +472,11 @@ pub(crate) macro try_with_context($context: expr, $expr: expr) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::*;
+    use crate::{test_utils::*, DebugVerbosity};
 
     #[test]
     fn test_take_n() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_err!(take_n(1).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_err!(take_n(2).parse(&[0xf5], &mut context), AmlError::UnexpectedEndOfStream, &[0xf5]);
 
@@ -484,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_take_ux() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
         check_err!(take_u16().parse(&[0x34], &mut context), AmlError::UnexpectedEndOfStream, &[0x34]);
         check_ok!(take_u16().parse(&[0x34, 0x12], &mut context), 0x1234, &[]);
 

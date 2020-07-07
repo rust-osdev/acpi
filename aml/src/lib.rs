@@ -60,9 +60,9 @@ pub use crate::{
     value::AmlValue,
 };
 
-use alloc::string::String;
 use log::error;
 use misc::{ArgNum, LocalNum};
+use namespace::LevelType;
 use parser::Parser;
 use pkg_length::PkgLength;
 use term_object::term_list;
@@ -72,10 +72,25 @@ use value::Args;
 /// what this is actually used for, but this is ours.
 pub const AML_INTERPRETER_REVISION: u64 = 0;
 
+/// Describes how much debug information the parser should emit. Set the "maximum" expected verbosity in
+/// the context's `debug_verbosity` - everything will be printed that is less or equal in 'verbosity'.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum DebugVerbosity {
+    /// Print no debug information
+    None,
+    /// Print heads and tails when entering and leaving scopes of major objects, but not more minor ones.
+    Scopes,
+    /// Print heads and tails when entering and leaving scopes of all objects.
+    AllScopes,
+    /// Print heads and tails of all objects, and extra debug information as it's parsed.
+    All,
+}
+
 #[derive(Debug)]
 pub struct AmlContext {
+    legacy_mode: bool,
+
     pub namespace: Namespace,
-    current_scope: AmlName,
 
     /*
      * AML local variables. These are used when we invoke a control method. A `None` value
@@ -93,13 +108,30 @@ pub struct AmlContext {
     /// If we're currently invoking a control method, this stores the arguments that were passed to
     /// it. It's `None` if we aren't invoking a method.
     current_args: Option<Args>,
+
+    /*
+     * These track the state of the context while it's parsing an AML table.
+     */
+    current_scope: AmlName,
+    scope_indent: usize,
+    debug_verbosity: DebugVerbosity,
 }
 
 impl AmlContext {
-    pub fn new() -> AmlContext {
-        AmlContext {
+    /// Creates a new `AmlContext` - the central type in managing the AML tables. Only one of these should be
+    /// created, and it should be passed the DSDT and all SSDTs defined by the hardware.
+    ///
+    /// ### Legacy mode
+    /// If `true` is passed in `legacy_mode`, the library will try and remain compatible with a ACPI 1.0
+    /// implementation. The following changes/assumptions are made:
+    ///     - Two extra root namespaces are predefined: `\_PR` and `_TZ`
+    ///     - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
+    ///     - Processors are expected to be found in `\_PR`, instead of `\_SB`
+    ///     - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
+    pub fn new(legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
+        let mut context = AmlContext {
+            legacy_mode,
             namespace: Namespace::new(),
-            current_scope: AmlName::root(),
             local_0: None,
             local_1: None,
             local_2: None,
@@ -109,7 +141,24 @@ impl AmlContext {
             local_6: None,
             local_7: None,
             current_args: None,
+
+            current_scope: AmlName::root(),
+            scope_indent: 0,
+            debug_verbosity,
+        };
+
+        /*
+         * Add the predefined root namespaces.
+         */
+        context.namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), LevelType::Scope).unwrap();
+        context.namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope).unwrap();
+        context.namespace.add_level(AmlName::from_str("\\_SI").unwrap(), LevelType::Scope).unwrap();
+        if legacy_mode {
+            context.namespace.add_level(AmlName::from_str("\\_PR").unwrap(), LevelType::Scope).unwrap();
+            context.namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), LevelType::Scope).unwrap();
         }
+
+        context
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {
@@ -145,6 +194,11 @@ impl AmlContext {
             self.local_6 = None;
             self.local_7 = None;
 
+            /*
+             * Create a namespace level to store local objects created by the invocation.
+             */
+            self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
+
             log::trace!("Invoking method with {} arguments, code: {:x?}", flags.arg_count(), code);
             let return_value =
                 match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
@@ -156,6 +210,14 @@ impl AmlContext {
                         Err(err)
                     }
                 };
+
+            /*
+             * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do
+             * this by simply removing the method's local object layer.
+             */
+            // TODO: this should also remove objects created by the method outside the method's scope, if they
+            // weren't statically created. This is harder.
+            self.namespace.remove_level(path.clone())?;
 
             /*
              * Now clear the state.
@@ -230,11 +292,13 @@ pub enum AmlError {
     /*
      * Errors produced working with the namespace.
      */
-    /// Produced when a path is given that does not point to an object in the AML namespace.
-    ObjectDoesNotExist(String),
-    HandleDoesNotExist(AmlHandle),
+    /// Produced when a sub-level or value is added to a level that has not yet been added to the namespace. The
+    /// `AmlName` is the name of the entire sub-level/value.
+    LevelDoesNotExist(AmlName),
+    ValueDoesNotExist(AmlName),
     /// Produced when two values with the same name are added to the namespace.
     NameCollision(AmlName),
+    TriedToRemoveRootNamespace,
 
     /*
      * Errors produced executing control methods.

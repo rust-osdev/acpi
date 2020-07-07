@@ -2,9 +2,10 @@ use crate::{
     misc::{arg_obj, debug_obj, local_obj, ArgNum, LocalNum},
     namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
-    parser::{choice, comment_scope_verbose, consume, n_of, take, take_while, Parser},
+    parser::{choice, comment_scope, consume, n_of, take, take_while, Parser},
     AmlContext,
     AmlError,
+    DebugVerbosity,
 };
 use alloc::vec::Vec;
 use core::{fmt, str};
@@ -26,7 +27,11 @@ where
      * SuperName := SimpleName | DebugObj | Type6Opcode
      * TODO: this doesn't cover Type6Opcode yet
      */
-    comment_scope_verbose("SuperName", choice!(debug_obj().map(|()| Ok(Target::Debug)), simple_name()))
+    comment_scope(
+        DebugVerbosity::AllScopes,
+        "SuperName",
+        choice!(debug_obj().map(|()| Ok(Target::Debug)), simple_name()),
+    )
 }
 
 pub fn simple_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
@@ -36,7 +41,8 @@ where
     /*
      * SimpleName := NameString | ArgObj | LocalObj
      */
-    comment_scope_verbose(
+    comment_scope(
+        DebugVerbosity::AllScopes,
         "SimpleName",
         choice!(
             name_string().map(move |name| Ok(Target::Name(name))),
@@ -68,7 +74,7 @@ where
         });
 
     // TODO: combinator to select a parser based on a peeked byte?
-    comment_scope_verbose("NameString", move |input: &'a [u8], context| {
+    comment_scope(DebugVerbosity::AllScopes, "NameString", move |input: &'a [u8], context| {
         let first_char = match input.first() {
             Some(&c) => c,
             None => return Err((input, context, AmlError::UnexpectedEndOfStream)),
@@ -222,11 +228,11 @@ fn is_name_char(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{parser::Parser, test_utils::*, AmlContext, AmlError};
+    use crate::{parser::Parser, test_utils::*, AmlContext, AmlError, DebugVerbosity};
 
     #[test]
     fn test_name_seg() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
 
         check_ok!(
             name_seg().parse(&[b'A', b'F', b'3', b'Z'], &mut context),
@@ -248,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_name_path() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
 
         check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
@@ -266,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_prefix_path() {
-        let mut context = AmlContext::new();
+        let mut context = AmlContext::new(false, DebugVerbosity::None);
 
         check_ok!(
             name_string().parse(&[b'^', b'A', b'B', b'C', b'D'], &mut context),
