@@ -36,9 +36,9 @@ pub enum LevelType {
 }
 
 pub struct NamespaceLevel {
-    typ: LevelType,
-    children: BTreeMap<NameSeg, NamespaceLevel>,
-    values: BTreeMap<NameSeg, AmlHandle>,
+    pub typ: LevelType,
+    pub children: BTreeMap<NameSeg, NamespaceLevel>,
+    pub values: BTreeMap<NameSeg, AmlHandle>,
 }
 
 impl NamespaceLevel {
@@ -293,6 +293,35 @@ impl Namespace {
         }
 
         Ok((current_level, last_seg))
+    }
+
+    /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError>` -
+    /// errors terminate the traversal and are propagated, and the `bool` on the successful path marks whether the
+    /// children of the level should also be traversed.
+    pub fn traverse<F>(&mut self, mut f: F) -> Result<(), AmlError>
+    where
+        F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+    {
+        fn traverse_level<F>(level: &NamespaceLevel, scope: &AmlName, f: &mut F) -> Result<(), AmlError>
+        where
+            F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+        {
+            for (name, ref child) in level.children.iter() {
+                let name = AmlName::from_name_seg(*name).resolve(scope)?;
+
+                if f(&name, child)? {
+                    traverse_level(child, &name, f)?;
+                }
+            }
+
+            Ok(())
+        }
+
+        if f(&AmlName::root(), &self.root)? {
+            traverse_level(&self.root, &AmlName::root(), &mut f)?;
+        }
+
+        Ok(())
     }
 }
 
