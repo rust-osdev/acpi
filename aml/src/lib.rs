@@ -330,4 +330,9 @@ pub enum AmlError {
      */
     ReservedResourceType,
     ResourceDescriptorTooShort,
+
+    /*
+     * Errors produced working with AML values.
+     */
+    InvalidStatusObject,
 }

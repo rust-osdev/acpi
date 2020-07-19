@@ -91,6 +91,32 @@ impl MethodFlags {
     }
 }
 
+/// Representation of the return value of a `_STA` method, which represents the status of an object. It must be
+/// evaluated, if present, before evaluating the `_INI` method for an device.
+///
+/// The `Default` implementation of this type is the correct value to use if a device doesn't have a `_STA` object
+/// to evaluate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StatusObject {
+    /// Whether the device is physically present. If this is `false`, `enabled` should also be `false` (i.e. a
+    /// device that is not present can't be enabled). However, this is not enforced here if the firmware is doing
+    /// something wrong.
+    present: bool,
+    /// Whether the device is enabled. Both `present` and `enabled` must be `true` for the device to decode its
+    /// hardware resources.
+    enabled: bool,
+    show_in_ui: bool,
+    functioning: bool,
+    /// Only applicable for Control Method Battery Devices (`PNP0C0A`). For all other devices, ignore this value.
+    battery_present: bool,
+}
+
+impl Default for StatusObject {
+    fn default() -> Self {
+        StatusObject { present: true, enabled: true, show_in_ui: true, functioning: true, battery_present: true }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AmlType {
     Uninitialized,
@@ -175,6 +201,32 @@ impl AmlValue {
             }
 
             _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
+    /// Turns an `AmlValue` returned from a `_STA` method into a `StatusObject`. Should only be called for values
+    /// returned from `_STA`. If you need a `StatusObject`, but the device does not have a `_STA` method, use
+    /// `StatusObject::default()`.
+    pub fn as_status(&self) -> Result<StatusObject, AmlError> {
+        match self {
+            AmlValue::Integer(value) => {
+                /*
+                 * Bits 5+ are reserved and are expected to be cleared.
+                 */
+                if value.get_bits(5..64) != 0 {
+                    return Err(AmlError::InvalidStatusObject);
+                }
+
+                Ok(StatusObject {
+                    present: value.get_bit(0),
+                    enabled: value.get_bit(1),
+                    show_in_ui: value.get_bit(2),
+                    functioning: value.get_bit(3),
+                    battery_present: value.get_bit(4),
+                })
+            }
+
+            _ => Err(AmlError::InvalidStatusObject),
         }
     }
 
