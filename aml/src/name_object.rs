@@ -13,6 +13,7 @@ use core::{fmt, str};
 /// Produced by the `Target`, `SimpleName`, and `SuperName` parsers
 #[derive(Clone, Debug)]
 pub enum Target {
+    Null,
     Name(AmlName),
     Debug,
     Arg(ArgNum),

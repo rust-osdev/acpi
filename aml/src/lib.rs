@@ -62,6 +62,7 @@ pub use crate::{
 
 use log::error;
 use misc::{ArgNum, LocalNum};
+use name_object::Target;
 use namespace::LevelType;
 use parser::Parser;
 use pkg_length::PkgLength;
@@ -176,7 +177,6 @@ impl AmlContext {
         }
     }
 
-    /// Invoke a method referred to by its path in the namespace, with the given arguments.
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
         if let AmlValue::Method { flags, code } = self.namespace.get_by_path(path)?.clone() {
             /*
@@ -239,24 +239,80 @@ impl AmlContext {
     }
 
     pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
-        self.current_args.as_ref().ok_or(AmlError::InvalidArgumentAccess(0xff))?.arg(arg)
+        self.current_args.as_ref().ok_or(AmlError::InvalidArgAccess(0xff))?.arg(arg)
     }
 
     /// Get the current value of a local by its local number.
     ///
     /// ### Panics
     /// Panics if an invalid local number is passed (valid local numbers are `0..=7`)
-    pub(crate) fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
+    pub(crate) fn local(&self, local: LocalNum) -> Option<&AmlValue> {
         match local {
-            0 => self.local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            1 => self.local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            2 => self.local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            3 => self.local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            4 => self.local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            5 => self.local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            6 => self.local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            7 => self.local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            0 => self.local_0.as_ref(),
+            1 => self.local_1.as_ref(),
+            2 => self.local_2.as_ref(),
+            3 => self.local_3.as_ref(),
+            4 => self.local_4.as_ref(),
+            5 => self.local_5.as_ref(),
+            6 => self.local_6.as_ref(),
+            7 => self.local_7.as_ref(),
             _ => panic!("Invalid local number: {}", local),
+        }
+    }
+
+    /// Perform a store into a `Target`. This returns a value read out of the target, if neccessary, as values can
+    /// be altered during a store in some circumstances. If the target is a `Name`, this also performs required
+    /// implicit conversions. Stores to other targets are semantically equivalent to a `CopyObject`.
+    pub fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
+        match target {
+            Target::Name(ref path) => {
+                let (_, handle) = self.namespace.search(path, &self.current_scope)?;
+                let desired_type = self.namespace.get(handle).unwrap().type_of();
+                let converted_object = value.as_type(desired_type)?;
+
+                *self.namespace.get_mut(handle)? = converted_object;
+                Ok(self.namespace.get(handle)?.clone())
+            }
+
+            Target::Debug => {
+                // TODO
+                unimplemented!()
+            }
+
+            Target::Arg(arg_num) => {
+                if let None = self.current_args {
+                    return Err(AmlError::InvalidArgAccess(0xff));
+                }
+
+                match arg_num {
+                    0 => self.current_args.as_mut().unwrap().arg_0 = Some(value.clone()),
+                    1 => self.current_args.as_mut().unwrap().arg_1 = Some(value.clone()),
+                    2 => self.current_args.as_mut().unwrap().arg_2 = Some(value.clone()),
+                    3 => self.current_args.as_mut().unwrap().arg_3 = Some(value.clone()),
+                    4 => self.current_args.as_mut().unwrap().arg_4 = Some(value.clone()),
+                    5 => self.current_args.as_mut().unwrap().arg_5 = Some(value.clone()),
+                    6 => self.current_args.as_mut().unwrap().arg_6 = Some(value.clone()),
+                    _ => return Err(AmlError::InvalidArgAccess(arg_num)),
+                }
+                Ok(value)
+            }
+
+            Target::Local(local_num) => {
+                match local_num {
+                    0 => self.local_0 = Some(value.clone()),
+                    1 => self.local_1 = Some(value.clone()),
+                    2 => self.local_2 = Some(value.clone()),
+                    3 => self.local_3 = Some(value.clone()),
+                    4 => self.local_4 = Some(value.clone()),
+                    5 => self.local_5 = Some(value.clone()),
+                    6 => self.local_6 = Some(value.clone()),
+                    7 => self.local_7 = Some(value.clone()),
+                    _ => return Err(AmlError::InvalidLocalAccess(local_num)),
+                }
+                Ok(value)
+            }
+
+            Target::Null => Ok(value),
         }
     }
 }
@@ -307,7 +363,7 @@ pub enum AmlError {
     /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
     /// arguments are accessed when a method is not being executed, this error is produced with an
     /// argument number of `0xff`.
-    InvalidArgumentAccess(ArgNum),
+    InvalidArgAccess(ArgNum),
     InvalidLocalAccess(LocalNum),
     /// This is not a real error, but is used to propagate return values from within the deep
     /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the

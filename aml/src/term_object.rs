@@ -487,7 +487,14 @@ where
                 (Ok(try_with_context!(context, context.current_arg(arg_num)).clone()), context)
             }),
             local_obj().map_with_context(|local_num, context| {
-                (Ok(try_with_context!(context, context.local(local_num)).clone()), context)
+                (
+                    Ok(try_with_context!(
+                        context,
+                        context.local(local_num).ok_or(AmlError::InvalidLocalAccess(local_num))
+                    )
+                    .clone()),
+                    context,
+                )
             }),
             make_parser_concrete!(type2_opcode())
         ),

@@ -1,5 +1,5 @@
 use crate::{
-    name_object::{name_string, super_name, Target},
+    name_object::{name_string, super_name, target},
     opcode::{self, opcode},
     parser::{choice, comment_scope, id, take, take_to_end_of_pkglength, try_with_context, Parser},
     pkg_length::pkg_length,
@@ -132,32 +132,7 @@ where
     opcode(opcode::DEF_STORE_OP)
         .then(comment_scope(DebugVerbosity::Scopes, "DefStore", term_arg().then(super_name())))
         .map_with_context(|((), (value, target)), context| {
-            match target {
-                Target::Name(ref path) => {
-                    let (_, handle) =
-                        try_with_context!(context, context.namespace.search(path, &context.current_scope));
-                    let desired_type = context.namespace.get(handle).unwrap().type_of();
-                    let converted_object = try_with_context!(context, value.as_type(desired_type));
-
-                    *try_with_context!(context, context.namespace.get_mut(handle)) = converted_object;
-                    (Ok(context.namespace.get(handle).unwrap().clone()), context)
-                }
-
-                Target::Debug => {
-                    // TODO
-                    unimplemented!()
-                }
-
-                Target::Arg(arg_num) => {
-                    // TODO
-                    unimplemented!()
-                }
-
-                Target::Local(local_num) => {
-                    // TODO
-                    unimplemented!()
-                }
-            }
+            (Ok(try_with_context!(context, context.store(target, value))), context)
         })
 }
 
