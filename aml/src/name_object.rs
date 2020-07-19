@@ -45,9 +45,9 @@ where
         DebugVerbosity::AllScopes,
         "SimpleName",
         choice!(
-            name_string().map(move |name| Ok(Target::Name(name))),
             arg_obj().map(|arg_num| Ok(Target::Arg(arg_num))),
-            local_obj().map(|local_num| Ok(Target::Local(local_num)))
+            local_obj().map(|local_num| Ok(Target::Local(local_num))),
+            name_string().map(move |name| Ok(Target::Name(name)))
         ),
     )
 }
