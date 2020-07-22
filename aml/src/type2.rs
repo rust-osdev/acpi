@@ -1,13 +1,24 @@
 use crate::{
     name_object::{name_string, super_name, target},
     opcode::{self, opcode},
-    parser::{choice, comment_scope, id, take, take_to_end_of_pkglength, try_with_context, Parser},
+    parser::{
+        choice,
+        comment_scope,
+        id,
+        make_parser_concrete,
+        take,
+        take_to_end_of_pkglength,
+        try_with_context,
+        Parser,
+    },
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
     value::AmlValue,
+    AmlError,
     DebugVerbosity,
 };
 use alloc::vec::Vec;
+use core::convert::TryInto;
 
 /// Type 2 opcodes return a value and so can be used in expressions.
 pub fn type2_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -24,12 +35,22 @@ where
      *                DefVarPackage | DefRefOf | DefShiftLeft | DefShitRight | DefSizeOf | DefStore |
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
      *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
+     *
+     * NOTE: MethodInvocation should always appear last in the choice.
      */
-    comment_scope(
+    make_parser_concrete!(comment_scope(
         DebugVerbosity::AllScopes,
         "Type2Opcode",
-        choice!(def_buffer(), def_l_equal(), def_package(), def_store(), method_invocation()),
-    )
+        choice!(
+            def_buffer(),
+            def_l_equal(),
+            def_package(),
+            def_shift_left(),
+            def_shift_right(),
+            def_store(),
+            method_invocation()
+        ),
+    ))
 }
 
 pub fn def_buffer<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -114,6 +135,60 @@ where
     'c: 'a,
 {
     choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string.as_string()))))
+}
+
+fn def_shift_left<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefShiftLeft := 0x79 Operand ShiftCount Target
+     * Operand := TermArg => Integer
+     * ShiftCount := TermArg => Integer
+     */
+    opcode(opcode::DEF_SHIFT_LEFT)
+        .then(comment_scope(DebugVerbosity::Scopes, "DefShiftLeft", term_arg().then(term_arg()).then(target())))
+        .map_with_context(|((), ((operand, shift_count), target)), context| {
+            let operand = try_with_context!(context, operand.as_integer());
+            let shift_count = try_with_context!(context, shift_count.as_integer());
+            let shift_count =
+                try_with_context!(context, shift_count.try_into().map_err(|_| AmlError::InvalidShiftLeft));
+
+            let result = AmlValue::Integer(try_with_context!(
+                context,
+                operand.checked_shl(shift_count).ok_or(AmlError::InvalidShiftLeft)
+            ));
+
+            try_with_context!(context, context.store(target, result.clone()));
+            (Ok(result), context)
+        })
+}
+
+fn def_shift_right<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefShiftRight := 0x7a Operand ShiftCount Target
+     * Operand := TermArg => Integer
+     * ShiftCount := TermArg => Integer
+     */
+    opcode(opcode::DEF_SHIFT_RIGHT)
+        .then(comment_scope(DebugVerbosity::Scopes, "DefShiftRight", term_arg().then(term_arg()).then(target())))
+        .map_with_context(|((), ((operand, shift_count), target)), context| {
+            let operand = try_with_context!(context, operand.as_integer());
+            let shift_count = try_with_context!(context, shift_count.as_integer());
+            let shift_count =
+                try_with_context!(context, shift_count.try_into().map_err(|_| AmlError::InvalidShiftRight));
+
+            let result = AmlValue::Integer(try_with_context!(
+                context,
+                operand.checked_shr(shift_count).ok_or(AmlError::InvalidShiftRight)
+            ));
+
+            try_with_context!(context, context.store(target, result.clone()));
+            (Ok(result), context)
+        })
 }
 
 fn def_store<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

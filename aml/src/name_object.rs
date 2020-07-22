@@ -20,6 +20,21 @@ pub enum Target {
     Local(LocalNum),
 }
 
+pub fn target<'a, 'c>() -> impl Parser<'a, 'c, Target>
+where
+    'c: 'a,
+{
+    /*
+     * Target := SuperName | NullName
+     * NullName := 0x00
+     */
+    comment_scope(
+        DebugVerbosity::AllScopes,
+        "Target",
+        choice!(null_name().map(|_| Ok(Target::Null)), super_name()),
+    )
+}
+
 pub fn super_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
 where
     'c: 'a,

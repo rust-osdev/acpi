@@ -391,4 +391,6 @@ pub enum AmlError {
      * Errors produced working with AML values.
      */
     InvalidStatusObject,
+    InvalidShiftLeft,
+    InvalidShiftRight,
 }
