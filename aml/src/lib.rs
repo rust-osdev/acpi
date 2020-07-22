@@ -238,6 +238,62 @@ impl AmlContext {
         }
     }
 
+    pub fn initialize_objects(&mut self) -> Result<(), AmlError> {
+        use name_object::NameSeg;
+        use namespace::NamespaceLevel;
+        use value::StatusObject;
+
+        /*
+         * TODO:
+         *    - unconditionally execute `\_SB._INI`, if it exists
+         *    - traverse namespace, looking for devices
+         *    - if `_STA` is present, evaluate it. If not, assume device is present and functional.
+         *    - if device is present, evaluate `_INI` if it exists
+         *    - if device is present, or isn't present but is functional, traverse it's children for more devices
+         */
+        /*
+         * If `\_SB._INI` exists, we unconditionally execute it at the beginning of device initialization.
+         */
+        match self.invoke_method(&AmlName::from_str("\\_SB._INI").unwrap(), Args::default()) {
+            Ok(_) => (),
+            Err(AmlError::ValueDoesNotExist(_)) => (),
+            Err(err) => return Err(err),
+        }
+
+        /*
+         * Next, we traverse the namespace, looking for devices.
+         *
+         * XXX: we clone the namespace here, which obviously drives up heap burden quite a bit (not as much as you
+         * might first expect though - we're only duplicating the level data structure, not all the objects). The
+         * issue here is that we need to access the namespace during traversal (e.g. to invoke a method), which the
+         * borrow checker really doesn't like. A better solution could be a iterator-like traversal system that
+         * keeps track of the namespace without keeping it borrowed. This works for now.
+         */
+        self.namespace.clone().traverse(|path, level: &NamespaceLevel| match level.typ {
+            LevelType::Device => {
+                let sta = if level.values.contains_key(&NameSeg::from_str("_STA").unwrap()) {
+                    self.invoke_method(&AmlName::from_str("_STA").unwrap().resolve(&path)?, Args::default())?
+                        .as_status()?
+                } else {
+                    StatusObject::default()
+                };
+
+                // TODO: if this object is present, evaluate _INI if it exists
+
+                // TODO: can devices contain other devices?
+                Ok(true)
+            }
+
+            LevelType::Scope => Ok(true),
+
+            // TODO: can either of these contain devices?
+            LevelType::Processor => Ok(false),
+            LevelType::MethodLocals => Ok(false),
+        })?;
+
+        Ok(())
+    }
+
     pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
         self.current_args.as_ref().ok_or(AmlError::InvalidArgAccess(0xff))?.arg(arg)
     }
