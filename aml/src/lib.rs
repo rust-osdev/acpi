@@ -373,6 +373,30 @@ impl AmlContext {
     }
 }
 
+pub trait Handler {
+    fn read_u8(&self, address: usize) -> u8;
+    fn read_u16(&self, address: usize) -> u16;
+    fn read_u32(&self, address: usize) -> u32;
+    fn read_u64(&self, address: usize) -> u64;
+
+    fn write_u8(&mut self, address: usize, value: u8);
+    fn write_u16(&mut self, address: usize, value: u16);
+    fn write_u32(&mut self, address: usize, value: u32);
+    fn write_u64(&mut self, address: usize, value: u64);
+
+    fn read_io_u8(&self, port: u16) -> u8;
+    fn read_io_u16(&self, port: u16) -> u16;
+    fn read_io_u32(&self, port: u16) -> u32;
+    fn read_io_u64(&self, port: u16) -> u64;
+
+    fn write_io_u8(&self, port: u16, value: u8);
+    fn write_io_u16(&self, port: u16, value: u16);
+    fn write_io_u32(&self, port: u16, value: u32);
+    fn write_io_u64(&self, port: u16, value: u64);
+
+    // TODO: PCI config space accessing functions
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AmlError {
     /*
