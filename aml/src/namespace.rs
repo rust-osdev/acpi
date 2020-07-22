@@ -35,6 +35,7 @@ pub enum LevelType {
     MethodLocals,
 }
 
+#[derive(Clone, Debug)]
 pub struct NamespaceLevel {
     pub typ: LevelType,
     pub children: BTreeMap<NameSeg, NamespaceLevel>,
@@ -47,6 +48,7 @@ impl NamespaceLevel {
     }
 }
 
+#[derive(Clone)]
 pub struct Namespace {
     /// This is a running count of ids, which are never reused. This is incremented every time we
     /// add a new object to the namespace. We can then remove objects, freeing their memory, without
