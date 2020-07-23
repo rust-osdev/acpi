@@ -161,15 +161,18 @@ impl Namespace {
         Ok(self.object_map.get_mut(&handle).unwrap())
     }
 
-    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
+    pub fn get_handle(&self, path: &AmlName) -> Result<AmlHandle, AmlError> {
         let (level, last_seg) = self.get_level_for_path(path)?;
-        let &handle = level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?;
+        Ok(*level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?)
+    }
+
+    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
+        let handle = self.get_handle(path)?;
         Ok(self.get(handle).unwrap())
     }
 
     pub fn get_by_path_mut(&mut self, path: &AmlName) -> Result<&mut AmlValue, AmlError> {
-        let (level, last_seg) = self.get_level_for_path(path)?;
-        let &handle = level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?;
+        let handle = self.get_handle(path)?;
         Ok(self.get_mut(handle).unwrap())
     }
 
