@@ -1,4 +1,4 @@
-use crate::{misc::ArgNum, namespace::AmlName, AmlError};
+use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle};
 use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
 
@@ -146,7 +146,7 @@ pub enum AmlValue {
     Integer(u64),
     String(String),
     OpRegion { region: RegionSpace, offset: u64, length: u64 },
-    Field { region: AmlName, flags: FieldFlags, offset: u64, length: u64 },
+    Field { region: AmlHandle, flags: FieldFlags, offset: u64, length: u64 },
     Method { flags: MethodFlags, code: Vec<u8> },
     Buffer { bytes: Vec<u8>, size: u64 },
     Processor { id: u8, pblk_address: u32, pblk_len: u8 },

@@ -22,6 +22,7 @@ use crate::{
     value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
+    AmlHandle,
     DebugVerbosity,
 };
 use alloc::string::String;
@@ -233,11 +234,21 @@ where
      * DefField = ExtOpPrefix 0x81 PkgLength NameString FieldFlags FieldList
      * FieldFlags := ByteData
      */
+    let opregion_as_handle = name_string().map_with_context(|region_name, context| {
+        /*
+         * We search for the opregion that this field is referencing here as we already have the correct starting
+         * scope. If we leave this to later, it becomes much harder as we also need to know the field's scope.
+         */
+        let (_, handle) =
+            try_with_context!(context, context.namespace.search(&region_name, &context.current_scope));
+        (Ok(handle), context)
+    });
+
     ext_opcode(opcode::EXT_DEF_FIELD_OP)
         .then(comment_scope(
             DebugVerbosity::Scopes,
             "DefField",
-            pkg_length().then(name_string()).then(take()).feed(|((list_length, region_name), flags)| {
+            pkg_length().then(opregion_as_handle).then(take()).feed(|((list_length, region_handle), flags)| {
                 move |mut input: &'a [u8], mut context: &'c mut AmlContext| -> ParseResult<'a, 'c, ()> {
                     /*
                      * FieldList := Nothing | <FieldElement FieldList>
@@ -246,7 +257,7 @@ where
                     let mut current_offset = 0;
                     while list_length.still_parsing(input) {
                         let (new_input, new_context, field_length) =
-                            field_element(region_name.clone(), FieldFlags::new(flags), current_offset)
+                            field_element(region_handle, FieldFlags::new(flags), current_offset)
                                 .parse(input, context)?;
                         input = new_input;
                         context = new_context;
@@ -263,7 +274,7 @@ where
 /// Parses a `FieldElement`. Takes the current offset within the field list, and returns the length
 /// of the field element parsed.
 pub fn field_element<'a, 'c>(
-    region_name: AmlName,
+    region_handle: AmlHandle,
     flags: FieldFlags,
     current_offset: u64,
 ) -> impl Parser<'a, 'c, u64>
@@ -308,7 +319,7 @@ where
                 AmlName::from_name_seg(name_seg),
                 &context.current_scope,
                 AmlValue::Field {
-                    region: region_name.clone(),
+                    region: region_handle,
                     flags,
                     offset: current_offset,
                     length: length.raw_length as u64,
