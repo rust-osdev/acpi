@@ -475,4 +475,7 @@ pub enum AmlError {
     InvalidStatusObject,
     InvalidShiftLeft,
     InvalidShiftRight,
+    FieldRegionIsNotOpRegion,
+    FieldInvalidAddress,
+    FieldInvalidAccessSize,
 }

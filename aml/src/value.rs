@@ -1,6 +1,7 @@
 use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle};
 use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
+use core::convert::TryInto;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -200,6 +201,12 @@ impl AmlValue {
                 }))
             }
 
+            /*
+             * Read from a field. This can return either a `Buffer` or an `Integer`, so we make sure to call
+             * `as_integer` on the result.
+             */
+            AmlValue::Field { .. } => self.read_field(context)?.as_integer(context),
+
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }
@@ -254,6 +261,48 @@ impl AmlValue {
         match desired_type {
             AmlType::Integer => self.as_integer(context).map(|value| AmlValue::Integer(value)),
             _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
+    /// Reads from a field of an opregion, returning either a `AmlValue::Integer` or an `AmlValue::Buffer`,
+    /// depending on the size of the field.
+    pub fn read_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
+        if let AmlValue::Field { region, flags, offset, length } = self {
+            let (region_space, region_base, region_length) = {
+                if let AmlValue::OpRegion { region, offset, length } = context.namespace.get(*region)? {
+                    (region, offset, length)
+                } else {
+                    return Err(AmlError::FieldRegionIsNotOpRegion);
+                }
+            };
+
+            match region_space {
+                RegionSpace::SystemMemory => {
+                    let address = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                    match length {
+                        8 => Ok(AmlValue::Integer(context.handler.read_u8(address) as u64)),
+                        16 => Ok(AmlValue::Integer(context.handler.read_u16(address) as u64)),
+                        32 => Ok(AmlValue::Integer(context.handler.read_u32(address) as u64)),
+                        64 => Ok(AmlValue::Integer(context.handler.read_u64(address))),
+                        _ => Err(AmlError::FieldInvalidAccessSize),
+                    }
+                }
+
+                RegionSpace::SystemIo => {
+                    let port = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                    match length {
+                        8 => Ok(AmlValue::Integer(context.handler.read_io_u8(port) as u64)),
+                        16 => Ok(AmlValue::Integer(context.handler.read_io_u16(port) as u64)),
+                        32 => Ok(AmlValue::Integer(context.handler.read_io_u32(port) as u64)),
+                        _ => Err(AmlError::FieldInvalidAccessSize),
+                    }
+                }
+
+                // TODO
+                _ => unimplemented!(),
+            }
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
         }
     }
 }
