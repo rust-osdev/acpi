@@ -178,7 +178,7 @@ impl AmlValue {
         }
     }
 
-    pub fn as_integer(&self) -> Result<u64, AmlError> {
+    pub fn as_integer(&self, context: &AmlContext) -> Result<u64, AmlError> {
         match self {
             AmlValue::Integer(value) => Ok(*value),
 
@@ -241,7 +241,7 @@ impl AmlValue {
     ///     `Integer` from: `Buffer`, `BufferField`, `DdbHandle`, `FieldUnit`, `String`, `Debug`
     ///     `Package` from: `Debug`
     ///     `String` from: `Integer`, `Buffer`, `Debug`
-    pub fn as_type(&self, desired_type: AmlType) -> Result<AmlValue, AmlError> {
+    pub fn as_type(&self, desired_type: AmlType, context: &AmlContext) -> Result<AmlValue, AmlError> {
         // Cache the type of this object
         let our_type = self.type_of();
 
@@ -252,7 +252,7 @@ impl AmlValue {
 
         // TODO: implement all of the rules
         match desired_type {
-            AmlType::Integer => self.as_integer().map(|value| AmlValue::Integer(value)),
+            AmlType::Integer => self.as_integer(context).map(|value| AmlValue::Integer(value)),
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }

@@ -328,7 +328,7 @@ impl AmlContext {
             Target::Name(ref path) => {
                 let (_, handle) = self.namespace.search(path, &self.current_scope)?;
                 let desired_type = self.namespace.get(handle).unwrap().type_of();
-                let converted_object = value.as_type(desired_type)?;
+                let converted_object = value.as_type(desired_type, self)?;
 
                 *self.namespace.get_mut(handle)? = converted_object;
                 Ok(self.namespace.get(handle)?.clone())

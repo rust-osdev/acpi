@@ -87,10 +87,10 @@ impl PciRoutingTable {
                      *   |            |           | pin is connected.                                         |
                      *   | -----------|-----------|-----------------------------------------------------------|
                      */
-                    let address = pin_package[0].as_integer()?;
+                    let address = pin_package[0].as_integer(context)?;
                     let device = address.get_bits(16..32).try_into().map_err(|_| AmlError::PrtInvalidAddress)?;
                     let function = address.get_bits(0..16).try_into().map_err(|_| AmlError::PrtInvalidAddress)?;
-                    let pin = match pin_package[1].as_integer()? {
+                    let pin = match pin_package[1].as_integer(context)? {
                         0 => Pin::IntA,
                         1 => Pin::IntB,
                         2 => Pin::IntC,
@@ -110,7 +110,7 @@ impl PciRoutingTable {
                                 pin,
                                 route_type: PciRouteType::Gsi(
                                     pin_package[3]
-                                        .as_integer()?
+                                        .as_integer(context)?
                                         .try_into()
                                         .map_err(|_| AmlError::PrtInvalidGsi)?,
                                 ),

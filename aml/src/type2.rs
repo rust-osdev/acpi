@@ -70,8 +70,10 @@ where
             DebugVerbosity::AllScopes,
             "DefBuffer",
             pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
-                take_to_end_of_pkglength(pkg_length)
-                    .map(move |bytes| Ok((bytes.to_vec(), buffer_size.as_integer()?)))
+                take_to_end_of_pkglength(pkg_length).map_with_context(move |bytes, context| {
+                    let length = try_with_context!(context, buffer_size.as_integer(context));
+                    (Ok((bytes.to_vec(), length)), context)
+                })
             }),
         ))
         .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
@@ -89,8 +91,10 @@ where
         .then(comment_scope(
             DebugVerbosity::AllScopes,
             "DefLEqual",
-            term_arg().then(term_arg()).map(|(left_arg, right_arg)| {
-                Ok(AmlValue::Boolean(left_arg.as_integer()? == right_arg.as_integer()?))
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                let left = try_with_context!(context, left_arg.as_integer(context));
+                let right = try_with_context!(context, right_arg.as_integer(context));
+                (Ok(AmlValue::Boolean(left == right)), context)
             }),
         ))
         .map(|((), result)| Ok(result))
@@ -149,8 +153,8 @@ where
     opcode(opcode::DEF_SHIFT_LEFT)
         .then(comment_scope(DebugVerbosity::Scopes, "DefShiftLeft", term_arg().then(term_arg()).then(target())))
         .map_with_context(|((), ((operand, shift_count), target)), context| {
-            let operand = try_with_context!(context, operand.as_integer());
-            let shift_count = try_with_context!(context, shift_count.as_integer());
+            let operand = try_with_context!(context, operand.as_integer(context));
+            let shift_count = try_with_context!(context, shift_count.as_integer(context));
             let shift_count =
                 try_with_context!(context, shift_count.try_into().map_err(|_| AmlError::InvalidShiftLeft));
 
@@ -176,8 +180,8 @@ where
     opcode(opcode::DEF_SHIFT_RIGHT)
         .then(comment_scope(DebugVerbosity::Scopes, "DefShiftRight", term_arg().then(term_arg()).then(target())))
         .map_with_context(|((), ((operand, shift_count), target)), context| {
-            let operand = try_with_context!(context, operand.as_integer());
-            let shift_count = try_with_context!(context, shift_count.as_integer());
+            let operand = try_with_context!(context, operand.as_integer(context));
+            let shift_count = try_with_context!(context, shift_count.as_integer(context));
             let shift_count =
                 try_with_context!(context, shift_count.try_into().map_err(|_| AmlError::InvalidShiftRight));
 

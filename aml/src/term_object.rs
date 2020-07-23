@@ -202,11 +202,11 @@ where
                         space @ 0x80..=0xff => RegionSpace::OemDefined(space),
                         byte => return (Err(AmlError::InvalidRegionSpace(byte)), context),
                     };
-                    let offset = match offset.as_integer() {
+                    let offset = match offset.as_integer(context) {
                         Ok(offset) => offset,
                         Err(err) => return (Err(err), context),
                     };
-                    let length = match length.as_integer() {
+                    let length = match length.as_integer(context) {
                         Ok(length) => length,
                         Err(err) => return (Err(err), context),
                     };
