@@ -60,6 +60,7 @@ pub use crate::{
     value::AmlValue,
 };
 
+use alloc::boxed::Box;
 use log::error;
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
@@ -87,8 +88,10 @@ pub enum DebugVerbosity {
     All,
 }
 
-#[derive(Debug)]
 pub struct AmlContext {
+    /// The `Handler` passed from the library user. This is stored as a boxed trait object simply to avoid having
+    /// to add a lifetime and type parameter to `AmlContext`, as they would massively complicate the parser types.
+    handler: Box<dyn Handler>,
     legacy_mode: bool,
 
     pub namespace: Namespace,
@@ -129,8 +132,9 @@ impl AmlContext {
     ///     - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
     ///     - Processors are expected to be found in `\_PR`, instead of `\_SB`
     ///     - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
-    pub fn new(legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
+    pub fn new(handler: Box<dyn Handler>, legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
         let mut context = AmlContext {
+            handler,
             legacy_mode,
             namespace: Namespace::new(),
             local_0: None,
@@ -319,7 +323,7 @@ impl AmlContext {
     /// Perform a store into a `Target`. This returns a value read out of the target, if neccessary, as values can
     /// be altered during a store in some circumstances. If the target is a `Name`, this also performs required
     /// implicit conversions. Stores to other targets are semantically equivalent to a `CopyObject`.
-    pub fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
+    pub(crate) fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
         match target {
             Target::Name(ref path) => {
                 let (_, handle) = self.namespace.search(path, &self.current_scope)?;
@@ -387,12 +391,10 @@ pub trait Handler {
     fn read_io_u8(&self, port: u16) -> u8;
     fn read_io_u16(&self, port: u16) -> u16;
     fn read_io_u32(&self, port: u16) -> u32;
-    fn read_io_u64(&self, port: u16) -> u64;
 
     fn write_io_u8(&self, port: u16, value: u8);
     fn write_io_u16(&self, port: u16, value: u16);
     fn write_io_u32(&self, port: u16, value: u32);
-    fn write_io_u64(&self, port: u16, value: u64);
 
     // TODO: PCI config space accessing functions
 }
