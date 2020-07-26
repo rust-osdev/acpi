@@ -4,7 +4,6 @@ use crate::{
     parser::{
         choice,
         comment_scope,
-        id,
         make_parser_concrete,
         n_of,
         take,
@@ -43,6 +42,7 @@ where
         DebugVerbosity::AllScopes,
         "Type2Opcode",
         choice!(
+            def_and(),
             def_buffer(),
             def_l_equal(),
             def_l_or(),
@@ -53,6 +53,29 @@ where
             method_invocation()
         ),
     ))
+}
+
+pub fn def_and<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefAnd := 0x7b Operand Operand Target
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_AND_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefAnd",
+            term_arg().then(term_arg()).then(target()).map_with_context(
+                |((left_arg, right_arg), target), context| {
+                    let left = try_with_context!(context, left_arg.as_integer(context));
+                    let right = try_with_context!(context, right_arg.as_integer(context));
+                    (Ok(AmlValue::Integer(left & right)), context)
+                },
+            ),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 pub fn def_buffer<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

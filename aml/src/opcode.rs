@@ -45,6 +45,7 @@ pub const DEF_RETURN_OP: u8 = 0xa4;
 pub const DEF_STORE_OP: u8 = 0x70;
 pub const DEF_SHIFT_LEFT: u8 = 0x79;
 pub const DEF_SHIFT_RIGHT: u8 = 0x7a;
+pub const DEF_AND_OP: u8 = 0x7b;
 pub const DEF_L_OR_OP: u8 = 0x91;
 pub const DEF_L_EQUAL_OP: u8 = 0x93;
 
