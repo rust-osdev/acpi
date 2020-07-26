@@ -61,6 +61,7 @@ pub use crate::{
 };
 
 use alloc::boxed::Box;
+use core::mem;
 use log::error;
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
@@ -88,14 +89,7 @@ pub enum DebugVerbosity {
     All,
 }
 
-pub struct AmlContext {
-    /// The `Handler` passed from the library user. This is stored as a boxed trait object simply to avoid having
-    /// to add a lifetime and type parameter to `AmlContext`, as they would massively complicate the parser types.
-    handler: Box<dyn Handler>,
-    legacy_mode: bool,
-
-    pub namespace: Namespace,
-
+struct MethodContext {
     /*
      * AML local variables. These are used when we invoke a control method. A `None` value
      * represents a null AML object.
@@ -111,7 +105,33 @@ pub struct AmlContext {
 
     /// If we're currently invoking a control method, this stores the arguments that were passed to
     /// it. It's `None` if we aren't invoking a method.
-    current_args: Option<Args>,
+    args: Args,
+}
+
+impl MethodContext {
+    fn new(args: Args) -> MethodContext {
+        MethodContext {
+            local_0: None,
+            local_1: None,
+            local_2: None,
+            local_3: None,
+            local_4: None,
+            local_5: None,
+            local_6: None,
+            local_7: None,
+            args,
+        }
+    }
+}
+
+pub struct AmlContext {
+    /// The `Handler` passed from the library user. This is stored as a boxed trait object simply to avoid having
+    /// to add a lifetime and type parameter to `AmlContext`, as they would massively complicate the parser types.
+    handler: Box<dyn Handler>,
+    legacy_mode: bool,
+
+    pub namespace: Namespace,
+    method_context: Option<MethodContext>,
 
     /*
      * These track the state of the context while it's parsing an AML table.
@@ -137,15 +157,7 @@ impl AmlContext {
             handler,
             legacy_mode,
             namespace: Namespace::new(),
-            local_0: None,
-            local_1: None,
-            local_2: None,
-            local_3: None,
-            local_4: None,
-            local_5: None,
-            local_6: None,
-            local_7: None,
-            current_args: None,
+            method_context: None,
 
             current_scope: AmlName::root(),
             scope_indent: 0,
@@ -185,25 +197,18 @@ impl AmlContext {
         if let AmlValue::Method { flags, code } = self.namespace.get_by_path(path)?.clone() {
             /*
              * First, set up the state we expect to enter the method with, but clearing local
-             * variables to "null" and setting the arguments.
+             * variables to "null" and setting the arguments. Save the current method state and scope, so if we're
+             * already executing another control method, we resume into it correctly.
              */
-            self.current_scope = path.clone();
-            self.current_args = Some(args);
-            self.local_0 = None;
-            self.local_1 = None;
-            self.local_2 = None;
-            self.local_3 = None;
-            self.local_4 = None;
-            self.local_5 = None;
-            self.local_6 = None;
-            self.local_7 = None;
+            let old_context = mem::replace(&mut self.method_context, Some(MethodContext::new(args)));
+            let old_scope = mem::replace(&mut self.current_scope, path.clone());
 
             /*
              * Create a namespace level to store local objects created by the invocation.
              */
             self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
 
-            log::trace!("Invoking method with {} arguments, code: {:x?}", flags.arg_count(), code);
+            log::trace!("Invoking method({}) with {} arguments, code: {:x?}", path, flags.arg_count(), code);
             let return_value =
                 match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
                     // If the method doesn't return a value, we implicitly return `0`
@@ -224,17 +229,10 @@ impl AmlContext {
             self.namespace.remove_level(path.clone())?;
 
             /*
-             * Now clear the state.
+             * Restore the old state.
              */
-            self.current_args = None;
-            self.local_0 = None;
-            self.local_1 = None;
-            self.local_2 = None;
-            self.local_3 = None;
-            self.local_4 = None;
-            self.local_5 = None;
-            self.local_6 = None;
-            self.local_7 = None;
+            self.method_context = old_context;
+            self.current_scope = old_scope;
 
             return_value
         } else {
@@ -298,25 +296,27 @@ impl AmlContext {
         Ok(())
     }
 
+    /// Get the value of an argument by its argument number. Can only be executed from inside a control method.
     pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
-        self.current_args.as_ref().ok_or(AmlError::InvalidArgAccess(0xff))?.arg(arg)
+        self.method_context.as_ref().ok_or(AmlError::NotExecutingControlMethod)?.args.arg(arg)
     }
 
-    /// Get the current value of a local by its local number.
-    ///
-    /// ### Panics
-    /// Panics if an invalid local number is passed (valid local numbers are `0..=7`)
-    pub(crate) fn local(&self, local: LocalNum) -> Option<&AmlValue> {
+    /// Get the current value of a local by its local number. Can only be executed from inside a control method.
+    pub(crate) fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
+        if let None = self.method_context {
+            return Err(AmlError::NotExecutingControlMethod);
+        }
+
         match local {
-            0 => self.local_0.as_ref(),
-            1 => self.local_1.as_ref(),
-            2 => self.local_2.as_ref(),
-            3 => self.local_3.as_ref(),
-            4 => self.local_4.as_ref(),
-            5 => self.local_5.as_ref(),
-            6 => self.local_6.as_ref(),
-            7 => self.local_7.as_ref(),
-            _ => panic!("Invalid local number: {}", local),
+            0 => self.method_context.as_ref().unwrap().local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            1 => self.method_context.as_ref().unwrap().local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            2 => self.method_context.as_ref().unwrap().local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            3 => self.method_context.as_ref().unwrap().local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            4 => self.method_context.as_ref().unwrap().local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            5 => self.method_context.as_ref().unwrap().local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            6 => self.method_context.as_ref().unwrap().local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            7 => self.method_context.as_ref().unwrap().local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            _ => Err(AmlError::InvalidLocalAccess(local)),
         }
     }
 
@@ -340,33 +340,36 @@ impl AmlContext {
             }
 
             Target::Arg(arg_num) => {
-                if let None = self.current_args {
-                    return Err(AmlError::InvalidArgAccess(0xff));
+                if let None = self.method_context {
+                    return Err(AmlError::NotExecutingControlMethod);
                 }
 
                 match arg_num {
-                    0 => self.current_args.as_mut().unwrap().arg_0 = Some(value.clone()),
-                    1 => self.current_args.as_mut().unwrap().arg_1 = Some(value.clone()),
-                    2 => self.current_args.as_mut().unwrap().arg_2 = Some(value.clone()),
-                    3 => self.current_args.as_mut().unwrap().arg_3 = Some(value.clone()),
-                    4 => self.current_args.as_mut().unwrap().arg_4 = Some(value.clone()),
-                    5 => self.current_args.as_mut().unwrap().arg_5 = Some(value.clone()),
-                    6 => self.current_args.as_mut().unwrap().arg_6 = Some(value.clone()),
+                    1 => self.method_context.as_mut().unwrap().args.arg_1 = Some(value.clone()),
+                    2 => self.method_context.as_mut().unwrap().args.arg_2 = Some(value.clone()),
+                    3 => self.method_context.as_mut().unwrap().args.arg_3 = Some(value.clone()),
+                    4 => self.method_context.as_mut().unwrap().args.arg_4 = Some(value.clone()),
+                    5 => self.method_context.as_mut().unwrap().args.arg_5 = Some(value.clone()),
+                    6 => self.method_context.as_mut().unwrap().args.arg_6 = Some(value.clone()),
                     _ => return Err(AmlError::InvalidArgAccess(arg_num)),
                 }
                 Ok(value)
             }
 
             Target::Local(local_num) => {
+                if let None = self.method_context {
+                    return Err(AmlError::NotExecutingControlMethod);
+                }
+
                 match local_num {
-                    0 => self.local_0 = Some(value.clone()),
-                    1 => self.local_1 = Some(value.clone()),
-                    2 => self.local_2 = Some(value.clone()),
-                    3 => self.local_3 = Some(value.clone()),
-                    4 => self.local_4 = Some(value.clone()),
-                    5 => self.local_5 = Some(value.clone()),
-                    6 => self.local_6 = Some(value.clone()),
-                    7 => self.local_7 = Some(value.clone()),
+                    0 => self.method_context.as_mut().unwrap().local_0 = Some(value.clone()),
+                    1 => self.method_context.as_mut().unwrap().local_1 = Some(value.clone()),
+                    2 => self.method_context.as_mut().unwrap().local_2 = Some(value.clone()),
+                    3 => self.method_context.as_mut().unwrap().local_3 = Some(value.clone()),
+                    4 => self.method_context.as_mut().unwrap().local_4 = Some(value.clone()),
+                    5 => self.method_context.as_mut().unwrap().local_5 = Some(value.clone()),
+                    6 => self.method_context.as_mut().unwrap().local_6 = Some(value.clone()),
+                    7 => self.method_context.as_mut().unwrap().local_7 = Some(value.clone()),
                     _ => return Err(AmlError::InvalidLocalAccess(local_num)),
                 }
                 Ok(value)
@@ -441,11 +444,13 @@ pub enum AmlError {
     /*
      * Errors produced executing control methods.
      */
+    /// Produced when AML tries to do something only possible in a control method (e.g. read from an argument)
+    /// when there's no control method executing.
+    NotExecutingControlMethod,
     /// Produced when a method accesses an argument it does not have (e.g. a method that takes 2
-    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
-    /// arguments are accessed when a method is not being executed, this error is produced with an
-    /// argument number of `0xff`.
+    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed.
     InvalidArgAccess(ArgNum),
+    /// Produced when a method accesses a local that it has not stored into.
     InvalidLocalAccess(LocalNum),
     /// This is not a real error, but is used to propagate return values from within the deep
     /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
