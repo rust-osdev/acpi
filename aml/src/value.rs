@@ -321,6 +321,19 @@ pub struct Args {
 }
 
 impl Args {
+    pub fn from_list(mut list: Vec<AmlValue>) -> Args {
+        assert!(list.len() <= 7);
+        list.reverse();
+        Args {
+            arg_0: list.pop(),
+            arg_1: list.pop(),
+            arg_2: list.pop(),
+            arg_3: list.pop(),
+            arg_4: list.pop(),
+            arg_5: list.pop(),
+            arg_6: list.pop(),
+        }
+    }
     /// Get an argument by its `ArgNum`.
     ///
     /// ### Panics

@@ -6,6 +6,7 @@ use crate::{
         comment_scope,
         id,
         make_parser_concrete,
+        n_of,
         take,
         take_to_end_of_pkglength,
         try_with_context,
@@ -13,7 +14,7 @@ use crate::{
     },
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
-    value::AmlValue,
+    value::{AmlValue, Args},
     AmlError,
     DebugVerbosity,
 };
@@ -255,23 +256,29 @@ where
         "MethodInvocation",
         name_string()
             .map_with_context(move |name, context| {
-                let (_, handle) =
+                let (full_path, handle) =
                     try_with_context!(context, context.namespace.search(&name, &context.current_scope)).clone();
-                (Ok(handle), context)
+
+                /*
+                 * `None` if the path is not a method and so doesn't have arguments, or `Some(the number of
+                 * arguments to parse)` if it's a method.
+                 */
+                let num_args = if let AmlValue::Method { flags, .. } =
+                    try_with_context!(context, context.namespace.get(handle))
+                {
+                    Some(flags.arg_count())
+                } else {
+                    None
+                };
+                (Ok((full_path, num_args)), context)
             })
-            .feed(|handle| {
-                id().map_with_context(move |(), context| {
-                    let object = try_with_context!(context, context.namespace.get(handle));
-                    if let AmlValue::Method { ref code, .. } = object {
-                        // TODO: we need to allow a method to be invoked from inside another method before we can
-                        // implement this (basically a stack of contexts) then implement this
-                        unimplemented!()
+            .feed(|(path, num_args)| {
+                n_of(term_arg(), num_args.unwrap_or(0) as usize).map_with_context(move |arg_list, context| {
+                    if num_args.is_some() {
+                        let result = context.invoke_method(&path, Args::from_list(arg_list));
+                        (Ok(try_with_context!(context, result)), context)
                     } else {
-                        // We appear to be seeing AML where a MethodInvocation actually doesn't point to a method
-                        // at all, which isn't mentioned in the spec afaict.  However, if we treat it as an
-                        // "invocation" with 0 arguments and simply return the object, the AML seems to do sensible
-                        // things.
-                        (Ok(object.clone()), context)
+                        (Ok(try_with_context!(context, context.namespace.get_by_path(&path)).clone()), context)
                     }
                 })
             }),
