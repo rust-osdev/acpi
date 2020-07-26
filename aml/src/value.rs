@@ -175,6 +175,7 @@ impl AmlValue {
     pub fn as_bool(&self) -> Result<bool, AmlError> {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
+            AmlValue::Integer(value) => Ok(*value != 0),
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }
