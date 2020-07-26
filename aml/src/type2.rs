@@ -44,6 +44,7 @@ where
         choice!(
             def_buffer(),
             def_l_equal(),
+            def_l_or(),
             def_package(),
             def_shift_left(),
             def_shift_right(),
@@ -77,6 +78,27 @@ where
             }),
         ))
         .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
+}
+
+fn def_l_or<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLOr := 0x91 Operand Operand
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_L_OR_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefLOr",
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                let left = try_with_context!(context, left_arg.as_bool());
+                let right = try_with_context!(context, right_arg.as_bool());
+                (Ok(AmlValue::Boolean(left || right)), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 fn def_l_equal<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
