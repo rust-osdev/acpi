@@ -102,19 +102,19 @@ pub struct StatusObject {
     /// Whether the device is physically present. If this is `false`, `enabled` should also be `false` (i.e. a
     /// device that is not present can't be enabled). However, this is not enforced here if the firmware is doing
     /// something wrong.
-    present: bool,
+    pub present: bool,
     /// Whether the device is enabled. Both `present` and `enabled` must be `true` for the device to decode its
     /// hardware resources.
-    enabled: bool,
-    show_in_ui: bool,
-    functioning: bool,
+    pub enabled: bool,
+    pub show_in_ui: bool,
+    pub functional: bool,
     /// Only applicable for Control Method Battery Devices (`PNP0C0A`). For all other devices, ignore this value.
-    battery_present: bool,
+    pub battery_present: bool,
 }
 
 impl Default for StatusObject {
     fn default() -> Self {
-        StatusObject { present: true, enabled: true, show_in_ui: true, functioning: true, battery_present: true }
+        StatusObject { present: true, enabled: true, show_in_ui: true, functional: true, battery_present: true }
     }
 }
 
@@ -255,7 +255,7 @@ impl AmlValue {
                     present: value.get_bit(0),
                     enabled: value.get_bit(1),
                     show_in_ui: value.get_bit(2),
-                    functioning: value.get_bit(3),
+                    functional: value.get_bit(3),
                     battery_present: value.get_bit(4),
                 })
             }

@@ -252,14 +252,6 @@ impl AmlContext {
         use value::StatusObject;
 
         /*
-         * TODO:
-         *    - unconditionally execute `\_SB._INI`, if it exists
-         *    - traverse namespace, looking for devices
-         *    - if `_STA` is present, evaluate it. If not, assume device is present and functional.
-         *    - if device is present, evaluate `_INI` if it exists
-         *    - if device is present, or isn't present but is functional, traverse it's children for more devices
-         */
-        /*
          * If `\_SB._INI` exists, we unconditionally execute it at the beginning of device initialization.
          */
         match self.invoke_method(&AmlName::from_str("\\_SB._INI").unwrap(), Args::default()) {
@@ -279,17 +271,25 @@ impl AmlContext {
          */
         self.namespace.clone().traverse(|path, level: &NamespaceLevel| match level.typ {
             LevelType::Device => {
-                let sta = if level.values.contains_key(&NameSeg::from_str("_STA").unwrap()) {
+                let status = if level.values.contains_key(&NameSeg::from_str("_STA").unwrap()) {
                     self.invoke_method(&AmlName::from_str("_STA").unwrap().resolve(&path)?, Args::default())?
                         .as_status()?
                 } else {
                     StatusObject::default()
                 };
 
-                // TODO: if this object is present, evaluate _INI if it exists
+                /*
+                 * If the device is present and has an `_INI` method, invoke it.
+                 */
+                if status.present && level.values.contains_key(&NameSeg::from_str("_INI").unwrap()) {
+                    log::info!("Invoking _INI at level: {}", path);
+                    self.invoke_method(&AmlName::from_str("_INI").unwrap().resolve(&path)?, Args::default())?;
+                }
 
-                // TODO: can devices contain other devices?
-                Ok(true)
+                /*
+                 * We traverse the children of this device if it's present, or isn't present but is functional.
+                 */
+                Ok(status.present || status.functional)
             }
 
             LevelType::Scope => Ok(true),
