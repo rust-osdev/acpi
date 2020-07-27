@@ -1,4 +1,4 @@
-use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle};
+use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
 use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
 use core::convert::TryInto;
@@ -146,12 +146,38 @@ pub enum AmlValue {
     Boolean(bool),
     Integer(u64),
     String(String),
-    OpRegion { region: RegionSpace, offset: u64, length: u64 },
-    Field { region: AmlHandle, flags: FieldFlags, offset: u64, length: u64 },
-    Method { flags: MethodFlags, code: Vec<u8> },
-    Buffer { bytes: Vec<u8>, size: u64 },
-    Processor { id: u8, pblk_address: u32, pblk_len: u8 },
-    Mutex { sync_level: u8 },
+    /// Describes an operation region. Some regions require other objects to be declared under their parent device
+    /// (e.g. an `_ADR` object for a `PciConfig` region), in which case an absolute path to the object is stored in
+    /// `parent_device`.
+    OpRegion {
+        region: RegionSpace,
+        offset: u64,
+        length: u64,
+        parent_device: Option<AmlName>,
+    },
+    /// Describes a field unit within an operation region.
+    Field {
+        region: AmlHandle,
+        flags: FieldFlags,
+        offset: u64,
+        length: u64,
+    },
+    Method {
+        flags: MethodFlags,
+        code: Vec<u8>,
+    },
+    Buffer {
+        bytes: Vec<u8>,
+        size: u64,
+    },
+    Processor {
+        id: u8,
+        pblk_address: u32,
+        pblk_len: u8,
+    },
+    Mutex {
+        sync_level: u8,
+    },
     Package(Vec<AmlValue>),
 }
 
@@ -269,9 +295,11 @@ impl AmlValue {
     /// depending on the size of the field.
     pub fn read_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
         if let AmlValue::Field { region, flags, offset, length } = self {
-            let (region_space, region_base, region_length) = {
-                if let AmlValue::OpRegion { region, offset, length } = context.namespace.get(*region)? {
-                    (region, offset, length)
+            let (region_space, region_base, region_length, parent_device) = {
+                if let AmlValue::OpRegion { region, offset, length, parent_device } =
+                    context.namespace.get(*region)?
+                {
+                    (region, offset, length, parent_device)
                 } else {
                     return Err(AmlError::FieldRegionIsNotOpRegion);
                 }

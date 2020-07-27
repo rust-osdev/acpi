@@ -210,13 +210,20 @@ where
                         Ok(length) => length,
                         Err(err) => return (Err(err), context),
                     };
+                    let parent_device = match region {
+                        RegionSpace::PciConfig | RegionSpace::IPMI | RegionSpace::GenericSerialBus => {
+                            let resolved_path = try_with_context!(context, name.resolve(&context.current_scope));
+                            Some(try_with_context!(context, resolved_path.parent()))
+                        }
+                        _ => None,
+                    };
 
                     try_with_context!(
                         context,
                         context.namespace.add_value_at_resolved_path(
                             name,
                             &context.current_scope,
-                            AmlValue::OpRegion { region, offset, length }
+                            AmlValue::OpRegion { region, offset, length, parent_device }
                         )
                     );
                     (Ok(()), context)
