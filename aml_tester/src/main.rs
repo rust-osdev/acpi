@@ -186,4 +186,14 @@ impl aml::Handler for Handler {
     fn write_io_u32(&self, port: u16, value: u32) {
         unimplemented!()
     }
+
+    fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8 {
+        unimplemented!()
+    }
+    fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16 {
+        unimplemented!()
+    }
+    fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32 {
+        unimplemented!()
+    }
 }

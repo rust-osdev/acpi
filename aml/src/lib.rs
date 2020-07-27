@@ -405,7 +405,9 @@ pub trait Handler {
     fn write_io_u16(&self, port: u16, value: u16);
     fn write_io_u32(&self, port: u16, value: u32);
 
-    // TODO: PCI config space accessing functions
+    fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8;
+    fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16;
+    fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
