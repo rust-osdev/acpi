@@ -194,49 +194,55 @@ impl AmlContext {
     }
 
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
-        if let AmlValue::Method { flags, code } = self.namespace.get_by_path(path)?.clone() {
-            /*
-             * First, set up the state we expect to enter the method with, but clearing local
-             * variables to "null" and setting the arguments. Save the current method state and scope, so if we're
-             * already executing another control method, we resume into it correctly.
-             */
-            let old_context = mem::replace(&mut self.method_context, Some(MethodContext::new(args)));
-            let old_scope = mem::replace(&mut self.current_scope, path.clone());
+        match self.namespace.get_by_path(path)?.clone() {
+            AmlValue::Method { flags, code } => {
+                /*
+                 * First, set up the state we expect to enter the method with, but clearing local
+                 * variables to "null" and setting the arguments. Save the current method state and scope, so if we're
+                 * already executing another control method, we resume into it correctly.
+                 */
+                let old_context = mem::replace(&mut self.method_context, Some(MethodContext::new(args)));
+                let old_scope = mem::replace(&mut self.current_scope, path.clone());
+
+                /*
+                 * Create a namespace level to store local objects created by the invocation.
+                 */
+                self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
+
+                let return_value =
+                    match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
+                        // If the method doesn't return a value, we implicitly return `0`
+                        Ok(_) => Ok(AmlValue::Integer(0)),
+                        Err((_, _, AmlError::Return(result))) => Ok(result),
+                        Err((_, _, err)) => {
+                            error!("Failed to execute control method: {:?}", err);
+                            Err(err)
+                        }
+                    };
+
+                /*
+                 * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do
+                 * this by simply removing the method's local object layer.
+                 */
+                // TODO: this should also remove objects created by the method outside the method's scope, if they
+                // weren't statically created. This is harder.
+                self.namespace.remove_level(path.clone())?;
+
+                /*
+                 * Restore the old state.
+                 */
+                self.method_context = old_context;
+                self.current_scope = old_scope;
+
+                return_value
+            }
 
             /*
-             * Create a namespace level to store local objects created by the invocation.
+             * AML can encode methods that don't require any computation simply as the value that would otherwise be
+             * returned (e.g. a `_STA` object simply being an `AmlValue::Integer`, instead of a method that just
+             * returns an integer).
              */
-            self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
-
-            log::trace!("Invoking method({}) with {} arguments, code: {:x?}", path, flags.arg_count(), code);
-            let return_value =
-                match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
-                    // If the method doesn't return a value, we implicitly return `0`
-                    Ok(_) => Ok(AmlValue::Integer(0)),
-                    Err((_, _, AmlError::Return(result))) => Ok(result),
-                    Err((_, _, err)) => {
-                        error!("Failed to execute control method: {:?}", err);
-                        Err(err)
-                    }
-                };
-
-            /*
-             * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do
-             * this by simply removing the method's local object layer.
-             */
-            // TODO: this should also remove objects created by the method outside the method's scope, if they
-            // weren't statically created. This is harder.
-            self.namespace.remove_level(path.clone())?;
-
-            /*
-             * Restore the old state.
-             */
-            self.method_context = old_context;
-            self.current_scope = old_scope;
-
-            return_value
-        } else {
-            Err(AmlError::IncompatibleValueConversion)
+            value => Ok(value),
         }
     }
 
