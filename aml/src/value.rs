@@ -327,6 +327,57 @@ impl AmlValue {
                     }
                 }
 
+                RegionSpace::PciConfig => {
+                    /*
+                     * First, we need to get some extra information out of objects in the parent object. Both
+                     * `_SEG` and `_BBN` seem optional, with defaults that line up with legacy PCI implementations
+                     * (e.g. systems with a single segment group and a single root, respectively).
+                     */
+                    let parent_device = parent_device.as_ref().unwrap();
+                    let seg = match context.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
+                        Ok((_, handle)) => context
+                            .namespace
+                            .get(handle)?
+                            .as_integer(context)?
+                            .try_into()
+                            .map_err(|_| AmlError::FieldInvalidAddress)?,
+                        Err(AmlError::ValueDoesNotExist(_)) => 0,
+                        Err(err) => return Err(err),
+                    };
+                    let bbn = match context.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
+                        Ok((_, handle)) => context
+                            .namespace
+                            .get(handle)?
+                            .as_integer(context)?
+                            .try_into()
+                            .map_err(|_| AmlError::FieldInvalidAddress)?,
+                        Err(AmlError::ValueDoesNotExist(_)) => 0,
+                        Err(err) => return Err(err),
+                    };
+                    let adr = {
+                        let (_, handle) =
+                            context.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
+                        context.namespace.get(handle)?.as_integer(context)?
+                    };
+
+                    let device = adr.get_bits(16..24) as u8;
+                    let function = adr.get_bits(0..8) as u8;
+                    let offset = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+
+                    match length {
+                        8 => Ok(AmlValue::Integer(
+                            context.handler.read_pci_u8(seg, bbn, device, function, offset) as u64,
+                        )),
+                        16 => Ok(AmlValue::Integer(
+                            context.handler.read_pci_u16(seg, bbn, device, function, offset) as u64,
+                        )),
+                        32 => Ok(AmlValue::Integer(
+                            context.handler.read_pci_u32(seg, bbn, device, function, offset) as u64,
+                        )),
+                        _ => Err(AmlError::FieldInvalidAccessSize),
+                    }
+                }
+
                 // TODO
                 _ => unimplemented!(),
             }
