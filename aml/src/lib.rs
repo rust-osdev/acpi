@@ -384,6 +384,94 @@ impl AmlContext {
             Target::Null => Ok(value),
         }
     }
+
+    /// Read from an operation-region, performing only standard-sized reads (supported powers-of-2 only. If a field
+    /// is not one of these sizes, it may need to be masked, or multiple reads may need to be performed).
+    pub(crate) fn read_region(&self, region_handle: AmlHandle, offset: u64, length: u64) -> Result<u64, AmlError> {
+        use bit_field::BitField;
+        use core::convert::TryInto;
+        use value::RegionSpace;
+
+        let (region_space, region_base, region_length, parent_device) = {
+            if let AmlValue::OpRegion { region, offset, length, parent_device } =
+                self.namespace.get(region_handle)?
+            {
+                (region, offset, length, parent_device)
+            } else {
+                return Err(AmlError::FieldRegionIsNotOpRegion);
+            }
+        };
+
+        match region_space {
+            RegionSpace::SystemMemory => {
+                let address = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.read_u8(address) as u64),
+                    16 => Ok(self.handler.read_u16(address) as u64),
+                    32 => Ok(self.handler.read_u32(address) as u64),
+                    64 => Ok(self.handler.read_u64(address)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::SystemIo => {
+                let port = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.read_io_u8(port) as u64),
+                    16 => Ok(self.handler.read_io_u16(port) as u64),
+                    32 => Ok(self.handler.read_io_u32(port) as u64),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::PciConfig => {
+                /*
+                 * First, we need to get some extra information out of objects in the parent object. Both
+                 * `_SEG` and `_BBN` seem optional, with defaults that line up with legacy PCI implementations
+                 * (e.g. systems with a single segment group and a single root, respectively).
+                 */
+                let parent_device = parent_device.as_ref().unwrap();
+                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let adr = {
+                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
+                    self.namespace.get(handle)?.as_integer(self)?
+                };
+
+                let device = adr.get_bits(16..24) as u8;
+                let function = adr.get_bits(0..8) as u8;
+                let offset = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+
+                match length {
+                    8 => Ok(self.handler.read_pci_u8(seg, bbn, device, function, offset) as u64),
+                    16 => Ok(self.handler.read_pci_u16(seg, bbn, device, function, offset) as u64),
+                    32 => Ok(self.handler.read_pci_u32(seg, bbn, device, function, offset) as u64),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            // TODO
+            _ => unimplemented!(),
+        }
+    }
 }
 
 pub trait Handler {
