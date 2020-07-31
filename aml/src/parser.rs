@@ -472,11 +472,11 @@ pub(crate) macro try_with_context($context: expr, $expr: expr) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_utils::*, DebugVerbosity};
+    use crate::test_utils::*;
 
     #[test]
     fn test_take_n() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = make_test_context();
         check_err!(take_n(1).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_err!(take_n(2).parse(&[0xf5], &mut context), AmlError::UnexpectedEndOfStream, &[0xf5]);
 
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_take_ux() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = make_test_context();
         check_err!(take_u16().parse(&[0x34], &mut context), AmlError::UnexpectedEndOfStream, &[0x34]);
         check_ok!(take_u16().parse(&[0x34, 0x12], &mut context), 0x1234, &[]);
 

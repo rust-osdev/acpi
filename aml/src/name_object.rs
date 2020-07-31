@@ -244,11 +244,11 @@ fn is_name_char(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{parser::Parser, test_utils::*, AmlContext, AmlError, DebugVerbosity};
+    use crate::{parser::Parser, test_utils::*, AmlError};
 
     #[test]
     fn test_name_seg() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
             name_seg().parse(&[b'A', b'F', b'3', b'Z'], &mut context),
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_name_path() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = crate::test_utils::make_test_context();
 
         check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_prefix_path() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
             name_string().parse(&[b'^', b'A', b'B', b'C', b'D'], &mut context),

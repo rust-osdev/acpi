@@ -141,68 +141,68 @@ impl log::Log for Logger {
 struct Handler;
 
 impl aml::Handler for Handler {
-    fn read_u8(&self, address: usize) -> u8 {
+    fn read_u8(&self, _address: usize) -> u8 {
         unimplemented!()
     }
-    fn read_u16(&self, address: usize) -> u16 {
+    fn read_u16(&self, _address: usize) -> u16 {
         unimplemented!()
     }
-    fn read_u32(&self, address: usize) -> u32 {
+    fn read_u32(&self, _address: usize) -> u32 {
         unimplemented!()
     }
-    fn read_u64(&self, address: usize) -> u64 {
-        unimplemented!()
-    }
-
-    fn write_u8(&mut self, address: usize, value: u8) {
-        unimplemented!()
-    }
-    fn write_u16(&mut self, address: usize, value: u16) {
-        unimplemented!()
-    }
-    fn write_u32(&mut self, address: usize, value: u32) {
-        unimplemented!()
-    }
-    fn write_u64(&mut self, address: usize, value: u64) {
+    fn read_u64(&self, _address: usize) -> u64 {
         unimplemented!()
     }
 
-    fn read_io_u8(&self, port: u16) -> u8 {
+    fn write_u8(&mut self, _address: usize, _value: u8) {
         unimplemented!()
     }
-    fn read_io_u16(&self, port: u16) -> u16 {
+    fn write_u16(&mut self, _address: usize, _value: u16) {
         unimplemented!()
     }
-    fn read_io_u32(&self, port: u16) -> u32 {
+    fn write_u32(&mut self, _address: usize, _value: u32) {
         unimplemented!()
     }
-
-    fn write_io_u8(&self, port: u16, value: u8) {
-        unimplemented!()
-    }
-    fn write_io_u16(&self, port: u16, value: u16) {
-        unimplemented!()
-    }
-    fn write_io_u32(&self, port: u16, value: u32) {
+    fn write_u64(&mut self, _address: usize, _value: u64) {
         unimplemented!()
     }
 
-    fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8 {
+    fn read_io_u8(&self, _port: u16) -> u8 {
         unimplemented!()
     }
-    fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16 {
+    fn read_io_u16(&self, _port: u16) -> u16 {
         unimplemented!()
     }
-    fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32 {
+    fn read_io_u32(&self, _port: u16) -> u32 {
         unimplemented!()
     }
-    fn write_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u8) {
+
+    fn write_io_u8(&self, _port: u16, _value: u8) {
         unimplemented!()
     }
-    fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16) {
+    fn write_io_u16(&self, _port: u16, _value: u16) {
         unimplemented!()
     }
-    fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32) {
+    fn write_io_u32(&self, _port: u16, _value: u32) {
+        unimplemented!()
+    }
+
+    fn read_pci_u8(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16) -> u8 {
+        unimplemented!()
+    }
+    fn read_pci_u16(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16) -> u16 {
+        unimplemented!()
+    }
+    fn read_pci_u32(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16) -> u32 {
+        unimplemented!()
+    }
+    fn write_pci_u8(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u8) {
+        unimplemented!()
+    }
+    fn write_pci_u16(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u16) {
+        unimplemented!()
+    }
+    fn write_pci_u32(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u32) {
         unimplemented!()
     }
 }
