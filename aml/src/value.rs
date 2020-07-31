@@ -293,13 +293,41 @@ impl AmlValue {
     /// depending on the size of the field.
     pub fn read_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
         if let AmlValue::Field { region, flags, offset, length } = self {
+            let maximum_access_size = {
+                if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {
+                    match region {
+                        RegionSpace::SystemMemory => 64,
+                        RegionSpace::SystemIo | RegionSpace::PciConfig => 32,
+                        _ => unimplemented!(),
+                    }
+                } else {
+                    return Err(AmlError::FieldRegionIsNotOpRegion);
+                }
+            };
+            let minimum_access_size = match flags.access_type()? {
+                FieldAccessType::Any => 8,
+                FieldAccessType::Byte => 8,
+                FieldAccessType::Word => 16,
+                FieldAccessType::DWord => 32,
+                FieldAccessType::QWord => 64,
+                FieldAccessType::Buffer => 8, // TODO
+            };
+
+            /*
+             * Find the access size, as either the minimum access size allowed by the region, or the field length
+             * rounded up to the next power-of-2, whichever is larger.
+             */
+            let access_size = u64::max(minimum_access_size, length.next_power_of_two());
+
             /*
              * TODO: we need to decide properly how to read from the region itself. Complications:
              *    - if the region has a minimum access size greater than the desired length, we need to read the
              *      minimum and mask it (reading a byte from a WordAcc region)
              *    - if the desired length is larger than we can read, we need to do multiple reads
              */
-            Ok(AmlValue::Integer(context.read_region(*region, *offset, *length)?))
+            Ok(AmlValue::Integer(
+                context.read_region(*region, *offset, access_size)?.get_bits(0..(*length as usize)),
+            ))
         } else {
             Err(AmlError::IncompatibleValueConversion)
         }
