@@ -138,6 +138,11 @@ where
             DebugVerbosity::AllScopes,
             "DefLEqual",
             term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                /*
+                 * TODO: we should also be able to compare strings and buffers. `left_arg` decides the type that we
+                 * need to use - we have to try and convert `right_arg` into that type and then compare them in the
+                 * correct way.
+                 */
                 let left = try_with_context!(context, left_arg.as_integer(context));
                 let right = try_with_context!(context, right_arg.as_integer(context));
                 (Ok(AmlValue::Boolean(left == right)), context)
