@@ -1,13 +1,24 @@
 use crate::{
-    name_object::{name_string, super_name, Target},
+    name_object::{name_string, super_name, target},
     opcode::{self, opcode},
-    parser::{choice, comment_scope, id, take, take_to_end_of_pkglength, try_with_context, Parser},
+    parser::{
+        choice,
+        comment_scope,
+        make_parser_concrete,
+        n_of,
+        take,
+        take_to_end_of_pkglength,
+        try_with_context,
+        Parser,
+    },
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
-    value::AmlValue,
+    value::{AmlValue, Args},
+    AmlError,
     DebugVerbosity,
 };
 use alloc::vec::Vec;
+use core::convert::TryInto;
 
 /// Type 2 opcodes return a value and so can be used in expressions.
 pub fn type2_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -24,12 +35,47 @@ where
      *                DefVarPackage | DefRefOf | DefShiftLeft | DefShitRight | DefSizeOf | DefStore |
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
      *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
+     *
+     * NOTE: MethodInvocation should always appear last in the choice.
      */
-    comment_scope(
+    make_parser_concrete!(comment_scope(
         DebugVerbosity::AllScopes,
         "Type2Opcode",
-        choice!(def_buffer(), def_l_equal(), def_package(), def_store(), method_invocation()),
-    )
+        choice!(
+            def_and(),
+            def_buffer(),
+            def_l_equal(),
+            def_l_or(),
+            def_package(),
+            def_shift_left(),
+            def_shift_right(),
+            def_store(),
+            method_invocation()
+        ),
+    ))
+}
+
+pub fn def_and<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefAnd := 0x7b Operand Operand Target
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_AND_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefAnd",
+            term_arg().then(term_arg()).then(target()).map_with_context(
+                |((left_arg, right_arg), target), context| {
+                    let left = try_with_context!(context, left_arg.as_integer(context));
+                    let right = try_with_context!(context, right_arg.as_integer(context));
+                    (Ok(AmlValue::Integer(left & right)), context)
+                },
+            ),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 pub fn def_buffer<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -49,11 +95,34 @@ where
             DebugVerbosity::AllScopes,
             "DefBuffer",
             pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
-                take_to_end_of_pkglength(pkg_length)
-                    .map(move |bytes| Ok((bytes.to_vec(), buffer_size.as_integer()?)))
+                take_to_end_of_pkglength(pkg_length).map_with_context(move |bytes, context| {
+                    let length = try_with_context!(context, buffer_size.as_integer(context));
+                    (Ok((bytes.to_vec(), length)), context)
+                })
             }),
         ))
         .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
+}
+
+fn def_l_or<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLOr := 0x91 Operand Operand
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_L_OR_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefLOr",
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                let left = try_with_context!(context, left_arg.as_bool());
+                let right = try_with_context!(context, right_arg.as_bool());
+                (Ok(AmlValue::Boolean(left || right)), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 fn def_l_equal<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -68,8 +137,15 @@ where
         .then(comment_scope(
             DebugVerbosity::AllScopes,
             "DefLEqual",
-            term_arg().then(term_arg()).map(|(left_arg, right_arg)| {
-                Ok(AmlValue::Boolean(left_arg.as_integer()? == right_arg.as_integer()?))
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                /*
+                 * TODO: we should also be able to compare strings and buffers. `left_arg` decides the type that we
+                 * need to use - we have to try and convert `right_arg` into that type and then compare them in the
+                 * correct way.
+                 */
+                let left = try_with_context!(context, left_arg.as_integer(context));
+                let right = try_with_context!(context, right_arg.as_integer(context));
+                (Ok(AmlValue::Boolean(left == right)), context)
             }),
         ))
         .map(|((), result)| Ok(result))
@@ -116,6 +192,60 @@ where
     choice!(data_ref_object(), name_string().map(|string| Ok(AmlValue::String(string.as_string()))))
 }
 
+fn def_shift_left<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefShiftLeft := 0x79 Operand ShiftCount Target
+     * Operand := TermArg => Integer
+     * ShiftCount := TermArg => Integer
+     */
+    opcode(opcode::DEF_SHIFT_LEFT)
+        .then(comment_scope(DebugVerbosity::Scopes, "DefShiftLeft", term_arg().then(term_arg()).then(target())))
+        .map_with_context(|((), ((operand, shift_count), target)), context| {
+            let operand = try_with_context!(context, operand.as_integer(context));
+            let shift_count = try_with_context!(context, shift_count.as_integer(context));
+            let shift_count =
+                try_with_context!(context, shift_count.try_into().map_err(|_| AmlError::InvalidShiftLeft));
+
+            let result = AmlValue::Integer(try_with_context!(
+                context,
+                operand.checked_shl(shift_count).ok_or(AmlError::InvalidShiftLeft)
+            ));
+
+            try_with_context!(context, context.store(target, result.clone()));
+            (Ok(result), context)
+        })
+}
+
+fn def_shift_right<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefShiftRight := 0x7a Operand ShiftCount Target
+     * Operand := TermArg => Integer
+     * ShiftCount := TermArg => Integer
+     */
+    opcode(opcode::DEF_SHIFT_RIGHT)
+        .then(comment_scope(DebugVerbosity::Scopes, "DefShiftRight", term_arg().then(term_arg()).then(target())))
+        .map_with_context(|((), ((operand, shift_count), target)), context| {
+            let operand = try_with_context!(context, operand.as_integer(context));
+            let shift_count = try_with_context!(context, shift_count.as_integer(context));
+            let shift_count =
+                try_with_context!(context, shift_count.try_into().map_err(|_| AmlError::InvalidShiftRight));
+
+            let result = AmlValue::Integer(try_with_context!(
+                context,
+                operand.checked_shr(shift_count).ok_or(AmlError::InvalidShiftRight)
+            ));
+
+            try_with_context!(context, context.store(target, result.clone()));
+            (Ok(result), context)
+        })
+}
+
 fn def_store<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
@@ -132,32 +262,7 @@ where
     opcode(opcode::DEF_STORE_OP)
         .then(comment_scope(DebugVerbosity::Scopes, "DefStore", term_arg().then(super_name())))
         .map_with_context(|((), (value, target)), context| {
-            match target {
-                Target::Name(ref path) => {
-                    let (_, handle) =
-                        try_with_context!(context, context.namespace.search(path, &context.current_scope));
-                    let desired_type = context.namespace.get(handle).unwrap().type_of();
-                    let converted_object = try_with_context!(context, value.as_type(desired_type));
-
-                    *try_with_context!(context, context.namespace.get_mut(handle)) = converted_object;
-                    (Ok(context.namespace.get(handle).unwrap().clone()), context)
-                }
-
-                Target::Debug => {
-                    // TODO
-                    unimplemented!()
-                }
-
-                Target::Arg(arg_num) => {
-                    // TODO
-                    unimplemented!()
-                }
-
-                Target::Local(local_num) => {
-                    // TODO
-                    unimplemented!()
-                }
-            }
+            (Ok(try_with_context!(context, context.store(target, value))), context)
         })
 }
 
@@ -179,23 +284,29 @@ where
         "MethodInvocation",
         name_string()
             .map_with_context(move |name, context| {
-                let (_, handle) =
+                let (full_path, handle) =
                     try_with_context!(context, context.namespace.search(&name, &context.current_scope)).clone();
-                (Ok(handle), context)
+
+                /*
+                 * `None` if the path is not a method and so doesn't have arguments, or `Some(the number of
+                 * arguments to parse)` if it's a method.
+                 */
+                let num_args = if let AmlValue::Method { flags, .. } =
+                    try_with_context!(context, context.namespace.get(handle))
+                {
+                    Some(flags.arg_count())
+                } else {
+                    None
+                };
+                (Ok((full_path, num_args)), context)
             })
-            .feed(|handle| {
-                id().map_with_context(move |(), context| {
-                    let object = try_with_context!(context, context.namespace.get(handle));
-                    if let AmlValue::Method { ref code, .. } = object {
-                        // TODO: we need to allow a method to be invoked from inside another method before we can
-                        // implement this (basically a stack of contexts) then implement this
-                        unimplemented!()
+            .feed(|(path, num_args)| {
+                n_of(term_arg(), num_args.unwrap_or(0) as usize).map_with_context(move |arg_list, context| {
+                    if num_args.is_some() {
+                        let result = context.invoke_method(&path, Args::from_list(arg_list));
+                        (Ok(try_with_context!(context, result)), context)
                     } else {
-                        // We appear to be seeing AML where a MethodInvocation actually doesn't point to a method
-                        // at all, which isn't mentioned in the spec afaict.  However, if we treat it as an
-                        // "invocation" with 0 arguments and simply return the object, the AML seems to do sensible
-                        // things.
-                        (Ok(object.clone()), context)
+                        (Ok(try_with_context!(context, context.namespace.get_by_path(&path)).clone()), context)
                     }
                 })
             }),

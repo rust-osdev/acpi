@@ -13,10 +13,26 @@ use core::{fmt, str};
 /// Produced by the `Target`, `SimpleName`, and `SuperName` parsers
 #[derive(Clone, Debug)]
 pub enum Target {
+    Null,
     Name(AmlName),
     Debug,
     Arg(ArgNum),
     Local(LocalNum),
+}
+
+pub fn target<'a, 'c>() -> impl Parser<'a, 'c, Target>
+where
+    'c: 'a,
+{
+    /*
+     * Target := SuperName | NullName
+     * NullName := 0x00
+     */
+    comment_scope(
+        DebugVerbosity::AllScopes,
+        "Target",
+        choice!(null_name().map(|_| Ok(Target::Null)), super_name()),
+    )
 }
 
 pub fn super_name<'a, 'c>() -> impl Parser<'a, 'c, Target>
@@ -45,9 +61,9 @@ where
         DebugVerbosity::AllScopes,
         "SimpleName",
         choice!(
-            name_string().map(move |name| Ok(Target::Name(name))),
             arg_obj().map(|arg_num| Ok(Target::Arg(arg_num))),
-            local_obj().map(|local_num| Ok(Target::Local(local_num)))
+            local_obj().map(|local_num| Ok(Target::Local(local_num))),
+            name_string().map(move |name| Ok(Target::Name(name)))
         ),
     )
 }
@@ -228,11 +244,11 @@ fn is_name_char(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{parser::Parser, test_utils::*, AmlContext, AmlError, DebugVerbosity};
+    use crate::{parser::Parser, test_utils::*, AmlError};
 
     #[test]
     fn test_name_seg() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
             name_seg().parse(&[b'A', b'F', b'3', b'Z'], &mut context),
@@ -254,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_name_path() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = crate::test_utils::make_test_context();
 
         check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
@@ -272,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_prefix_path() {
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
             name_string().parse(&[b'^', b'A', b'B', b'C', b'D'], &mut context),

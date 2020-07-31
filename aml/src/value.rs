@@ -1,4 +1,4 @@
-use crate::{misc::ArgNum, namespace::AmlName, AmlError};
+use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
 use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
 
@@ -25,7 +25,6 @@ pub enum FieldAccessType {
     DWord,
     QWord,
     Buffer,
-    Reserved,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -91,6 +90,32 @@ impl MethodFlags {
     }
 }
 
+/// Representation of the return value of a `_STA` method, which represents the status of an object. It must be
+/// evaluated, if present, before evaluating the `_INI` method for an device.
+///
+/// The `Default` implementation of this type is the correct value to use if a device doesn't have a `_STA` object
+/// to evaluate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StatusObject {
+    /// Whether the device is physically present. If this is `false`, `enabled` should also be `false` (i.e. a
+    /// device that is not present can't be enabled). However, this is not enforced here if the firmware is doing
+    /// something wrong.
+    pub present: bool,
+    /// Whether the device is enabled. Both `present` and `enabled` must be `true` for the device to decode its
+    /// hardware resources.
+    pub enabled: bool,
+    pub show_in_ui: bool,
+    pub functional: bool,
+    /// Only applicable for Control Method Battery Devices (`PNP0C0A`). For all other devices, ignore this value.
+    pub battery_present: bool,
+}
+
+impl Default for StatusObject {
+    fn default() -> Self {
+        StatusObject { present: true, enabled: true, show_in_ui: true, functional: true, battery_present: true }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AmlType {
     Uninitialized,
@@ -119,12 +144,38 @@ pub enum AmlValue {
     Boolean(bool),
     Integer(u64),
     String(String),
-    OpRegion { region: RegionSpace, offset: u64, length: u64 },
-    Field { region: AmlName, flags: FieldFlags, offset: u64, length: u64 },
-    Method { flags: MethodFlags, code: Vec<u8> },
-    Buffer { bytes: Vec<u8>, size: u64 },
-    Processor { id: u8, pblk_address: u32, pblk_len: u8 },
-    Mutex { sync_level: u8 },
+    /// Describes an operation region. Some regions require other objects to be declared under their parent device
+    /// (e.g. an `_ADR` object for a `PciConfig` region), in which case an absolute path to the object is stored in
+    /// `parent_device`.
+    OpRegion {
+        region: RegionSpace,
+        offset: u64,
+        length: u64,
+        parent_device: Option<AmlName>,
+    },
+    /// Describes a field unit within an operation region.
+    Field {
+        region: AmlHandle,
+        flags: FieldFlags,
+        offset: u64,
+        length: u64,
+    },
+    Method {
+        flags: MethodFlags,
+        code: Vec<u8>,
+    },
+    Buffer {
+        bytes: Vec<u8>,
+        size: u64,
+    },
+    Processor {
+        id: u8,
+        pblk_address: u32,
+        pblk_len: u8,
+    },
+    Mutex {
+        sync_level: u8,
+    },
     Package(Vec<AmlValue>),
 }
 
@@ -148,11 +199,12 @@ impl AmlValue {
     pub fn as_bool(&self) -> Result<bool, AmlError> {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
+            AmlValue::Integer(value) => Ok(*value != 0),
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }
 
-    pub fn as_integer(&self) -> Result<u64, AmlError> {
+    pub fn as_integer(&self, context: &AmlContext) -> Result<u64, AmlError> {
         match self {
             AmlValue::Integer(value) => Ok(*value),
 
@@ -174,7 +226,39 @@ impl AmlValue {
                 }))
             }
 
+            /*
+             * Read from a field. This can return either a `Buffer` or an `Integer`, so we make sure to call
+             * `as_integer` on the result.
+             */
+            AmlValue::Field { .. } => self.read_field(context)?.as_integer(context),
+
             _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
+    /// Turns an `AmlValue` returned from a `_STA` method into a `StatusObject`. Should only be called for values
+    /// returned from `_STA`. If you need a `StatusObject`, but the device does not have a `_STA` method, use
+    /// `StatusObject::default()`.
+    pub fn as_status(&self) -> Result<StatusObject, AmlError> {
+        match self {
+            AmlValue::Integer(value) => {
+                /*
+                 * Bits 5+ are reserved and are expected to be cleared.
+                 */
+                if value.get_bits(5..64) != 0 {
+                    return Err(AmlError::InvalidStatusObject);
+                }
+
+                Ok(StatusObject {
+                    present: value.get_bit(0),
+                    enabled: value.get_bit(1),
+                    show_in_ui: value.get_bit(2),
+                    functional: value.get_bit(3),
+                    battery_present: value.get_bit(4),
+                })
+            }
+
+            _ => Err(AmlError::InvalidStatusObject),
         }
     }
 
@@ -189,19 +273,112 @@ impl AmlValue {
     ///     `Integer` from: `Buffer`, `BufferField`, `DdbHandle`, `FieldUnit`, `String`, `Debug`
     ///     `Package` from: `Debug`
     ///     `String` from: `Integer`, `Buffer`, `Debug`
-    pub fn as_type(&self, desired_type: AmlType) -> Result<AmlValue, AmlError> {
-        // Cache the type of this object
-        let our_type = self.type_of();
-
+    pub fn as_type(&self, desired_type: AmlType, context: &AmlContext) -> Result<AmlValue, AmlError> {
         // If the value is already of the correct type, just return it as is
-        if our_type == desired_type {
+        if self.type_of() == desired_type {
             return Ok(self.clone());
         }
 
         // TODO: implement all of the rules
         match desired_type {
-            AmlType::Integer => self.as_integer().map(|value| AmlValue::Integer(value)),
+            AmlType::Integer => self.as_integer(context).map(|value| AmlValue::Integer(value)),
+            AmlType::FieldUnit => panic!(
+                "Can't implicitly convert to FieldUnit. This must be special-cased by the caller for now :("
+            ),
             _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
+    /// Reads from a field of an opregion, returning either a `AmlValue::Integer` or an `AmlValue::Buffer`,
+    /// depending on the size of the field.
+    pub fn read_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
+        if let AmlValue::Field { region, flags, offset, length } = self {
+            let maximum_access_size = {
+                if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {
+                    match region {
+                        RegionSpace::SystemMemory => 64,
+                        RegionSpace::SystemIo | RegionSpace::PciConfig => 32,
+                        _ => unimplemented!(),
+                    }
+                } else {
+                    return Err(AmlError::FieldRegionIsNotOpRegion);
+                }
+            };
+            let minimum_access_size = match flags.access_type()? {
+                FieldAccessType::Any => 8,
+                FieldAccessType::Byte => 8,
+                FieldAccessType::Word => 16,
+                FieldAccessType::DWord => 32,
+                FieldAccessType::QWord => 64,
+                FieldAccessType::Buffer => 8, // TODO
+            };
+
+            /*
+             * Find the access size, as either the minimum access size allowed by the region, or the field length
+             * rounded up to the next power-of-2, whichever is larger.
+             */
+            let access_size = u64::max(minimum_access_size, length.next_power_of_two());
+
+            /*
+             * TODO: we need to decide properly how to read from the region itself. Complications:
+             *    - if the region has a minimum access size greater than the desired length, we need to read the
+             *      minimum and mask it (reading a byte from a WordAcc region)
+             *    - if the desired length is larger than we can read, we need to do multiple reads
+             */
+            Ok(AmlValue::Integer(
+                context.read_region(*region, *offset, access_size)?.get_bits(0..(*length as usize)),
+            ))
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
+        }
+    }
+
+    pub fn write_field(&mut self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
+        /*
+         * TODO:
+         * If we need to preserve the field's value, we'll need the contents of the field before we write it. To
+         * appease the borrow-checker, this is done before we destructure the field for now, but it would be more
+         * efficient if we could only do this if the field's update rule is Preserve.
+         */
+        let field_value = self.read_field(context)?.as_integer(context)?;
+
+        if let AmlValue::Field { region, flags, offset, length } = self {
+            let maximum_access_size = {
+                if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {
+                    match region {
+                        RegionSpace::SystemMemory => 64,
+                        RegionSpace::SystemIo | RegionSpace::PciConfig => 32,
+                        _ => unimplemented!(),
+                    }
+                } else {
+                    return Err(AmlError::FieldRegionIsNotOpRegion);
+                }
+            };
+            let minimum_access_size = match flags.access_type()? {
+                FieldAccessType::Any => 8,
+                FieldAccessType::Byte => 8,
+                FieldAccessType::Word => 16,
+                FieldAccessType::DWord => 32,
+                FieldAccessType::QWord => 64,
+                FieldAccessType::Buffer => 8, // TODO
+            };
+
+            /*
+             * Find the access size, as either the minimum access size allowed by the region, or the field length
+             * rounded up to the next power-of-2, whichever is larger.
+             */
+            let access_size = u64::max(minimum_access_size, length.next_power_of_two());
+
+            let mut value_to_write = match flags.field_update_rule()? {
+                FieldUpdateRule::Preserve => field_value,
+                FieldUpdateRule::WriteAsOnes => 0xffffffff_ffffffff,
+                FieldUpdateRule::WriteAsZeros => 0x0,
+            };
+            value_to_write.set_bits(0..(*length as usize), value.as_integer(context)?);
+
+            context.write_region(*region, *offset, access_size, value_to_write)
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
         }
     }
 }
@@ -219,20 +396,33 @@ pub struct Args {
 }
 
 impl Args {
+    pub fn from_list(mut list: Vec<AmlValue>) -> Args {
+        assert!(list.len() <= 7);
+        list.reverse();
+        Args {
+            arg_0: list.pop(),
+            arg_1: list.pop(),
+            arg_2: list.pop(),
+            arg_3: list.pop(),
+            arg_4: list.pop(),
+            arg_5: list.pop(),
+            arg_6: list.pop(),
+        }
+    }
     /// Get an argument by its `ArgNum`.
     ///
     /// ### Panics
     /// Panics if passed an invalid argument number (valid argument numbers are `0..=6`)
     pub fn arg(&self, num: ArgNum) -> Result<&AmlValue, AmlError> {
         match num {
-            0 => self.arg_0.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            1 => self.arg_1.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            2 => self.arg_2.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            3 => self.arg_3.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            4 => self.arg_4.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            5 => self.arg_5.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            6 => self.arg_6.as_ref().ok_or(AmlError::InvalidArgumentAccess(num)),
-            _ => panic!("Invalid argument number: {}", num),
+            0 => self.arg_0.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            1 => self.arg_1.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            2 => self.arg_2.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            3 => self.arg_3.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            4 => self.arg_4.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            5 => self.arg_5.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            6 => self.arg_6.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
+            _ => Err(AmlError::InvalidArgAccess(num)),
         }
     }
 }

@@ -35,10 +35,11 @@ pub enum LevelType {
     MethodLocals,
 }
 
+#[derive(Clone, Debug)]
 pub struct NamespaceLevel {
-    typ: LevelType,
-    children: BTreeMap<NameSeg, NamespaceLevel>,
-    values: BTreeMap<NameSeg, AmlHandle>,
+    pub typ: LevelType,
+    pub children: BTreeMap<NameSeg, NamespaceLevel>,
+    pub values: BTreeMap<NameSeg, AmlHandle>,
 }
 
 impl NamespaceLevel {
@@ -47,6 +48,7 @@ impl NamespaceLevel {
     }
 }
 
+#[derive(Clone)]
 pub struct Namespace {
     /// This is a running count of ids, which are never reused. This is incremented every time we
     /// add a new object to the namespace. We can then remove objects, freeing their memory, without
@@ -159,15 +161,18 @@ impl Namespace {
         Ok(self.object_map.get_mut(&handle).unwrap())
     }
 
-    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
+    pub fn get_handle(&self, path: &AmlName) -> Result<AmlHandle, AmlError> {
         let (level, last_seg) = self.get_level_for_path(path)?;
-        let &handle = level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?;
+        Ok(*level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?)
+    }
+
+    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
+        let handle = self.get_handle(path)?;
         Ok(self.get(handle).unwrap())
     }
 
     pub fn get_by_path_mut(&mut self, path: &AmlName) -> Result<&mut AmlValue, AmlError> {
-        let (level, last_seg) = self.get_level_for_path(path)?;
-        let &handle = level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?;
+        let handle = self.get_handle(path)?;
         Ok(self.get_mut(handle).unwrap())
     }
 
@@ -293,6 +298,35 @@ impl Namespace {
         }
 
         Ok((current_level, last_seg))
+    }
+
+    /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError>` -
+    /// errors terminate the traversal and are propagated, and the `bool` on the successful path marks whether the
+    /// children of the level should also be traversed.
+    pub fn traverse<F>(&mut self, mut f: F) -> Result<(), AmlError>
+    where
+        F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+    {
+        fn traverse_level<F>(level: &NamespaceLevel, scope: &AmlName, f: &mut F) -> Result<(), AmlError>
+        where
+            F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+        {
+            for (name, ref child) in level.children.iter() {
+                let name = AmlName::from_name_seg(*name).resolve(scope)?;
+
+                if f(&name, child)? {
+                    traverse_level(child, &name, f)?;
+                }
+            }
+
+            Ok(())
+        }
+
+        if f(&AmlName::root(), &self.root)? {
+            traverse_level(&self.root, &AmlName::root(), &mut f)?;
+        }
+
+        Ok(())
     }
 }
 

@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
         file.read_to_end(&mut contents).unwrap();
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
-        let mut context = AmlContext::new(false, DebugVerbosity::None);
+        let mut context = AmlContext::new(Box::new(Handler), false, DebugVerbosity::None);
 
         match context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
             Ok(()) => {
@@ -135,5 +135,74 @@ impl log::Log for Logger {
 
     fn flush(&self) {
         std::io::stdout().flush().unwrap();
+    }
+}
+
+struct Handler;
+
+impl aml::Handler for Handler {
+    fn read_u8(&self, _address: usize) -> u8 {
+        unimplemented!()
+    }
+    fn read_u16(&self, _address: usize) -> u16 {
+        unimplemented!()
+    }
+    fn read_u32(&self, _address: usize) -> u32 {
+        unimplemented!()
+    }
+    fn read_u64(&self, _address: usize) -> u64 {
+        unimplemented!()
+    }
+
+    fn write_u8(&mut self, _address: usize, _value: u8) {
+        unimplemented!()
+    }
+    fn write_u16(&mut self, _address: usize, _value: u16) {
+        unimplemented!()
+    }
+    fn write_u32(&mut self, _address: usize, _value: u32) {
+        unimplemented!()
+    }
+    fn write_u64(&mut self, _address: usize, _value: u64) {
+        unimplemented!()
+    }
+
+    fn read_io_u8(&self, _port: u16) -> u8 {
+        unimplemented!()
+    }
+    fn read_io_u16(&self, _port: u16) -> u16 {
+        unimplemented!()
+    }
+    fn read_io_u32(&self, _port: u16) -> u32 {
+        unimplemented!()
+    }
+
+    fn write_io_u8(&self, _port: u16, _value: u8) {
+        unimplemented!()
+    }
+    fn write_io_u16(&self, _port: u16, _value: u16) {
+        unimplemented!()
+    }
+    fn write_io_u32(&self, _port: u16, _value: u32) {
+        unimplemented!()
+    }
+
+    fn read_pci_u8(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16) -> u8 {
+        unimplemented!()
+    }
+    fn read_pci_u16(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16) -> u16 {
+        unimplemented!()
+    }
+    fn read_pci_u32(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16) -> u32 {
+        unimplemented!()
+    }
+    fn write_pci_u8(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u8) {
+        unimplemented!()
+    }
+    fn write_pci_u16(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u16) {
+        unimplemented!()
+    }
+    fn write_pci_u32(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u32) {
+        unimplemented!()
     }
 }

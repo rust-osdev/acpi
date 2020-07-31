@@ -60,8 +60,11 @@ pub use crate::{
     value::AmlValue,
 };
 
+use alloc::boxed::Box;
+use core::mem;
 use log::error;
 use misc::{ArgNum, LocalNum};
+use name_object::Target;
 use namespace::LevelType;
 use parser::Parser;
 use pkg_length::PkgLength;
@@ -86,12 +89,7 @@ pub enum DebugVerbosity {
     All,
 }
 
-#[derive(Debug)]
-pub struct AmlContext {
-    legacy_mode: bool,
-
-    pub namespace: Namespace,
-
+struct MethodContext {
     /*
      * AML local variables. These are used when we invoke a control method. A `None` value
      * represents a null AML object.
@@ -107,7 +105,33 @@ pub struct AmlContext {
 
     /// If we're currently invoking a control method, this stores the arguments that were passed to
     /// it. It's `None` if we aren't invoking a method.
-    current_args: Option<Args>,
+    args: Args,
+}
+
+impl MethodContext {
+    fn new(args: Args) -> MethodContext {
+        MethodContext {
+            local_0: None,
+            local_1: None,
+            local_2: None,
+            local_3: None,
+            local_4: None,
+            local_5: None,
+            local_6: None,
+            local_7: None,
+            args,
+        }
+    }
+}
+
+pub struct AmlContext {
+    /// The `Handler` passed from the library user. This is stored as a boxed trait object simply to avoid having
+    /// to add a lifetime and type parameter to `AmlContext`, as they would massively complicate the parser types.
+    handler: Box<dyn Handler>,
+    legacy_mode: bool,
+
+    pub namespace: Namespace,
+    method_context: Option<MethodContext>,
 
     /*
      * These track the state of the context while it's parsing an AML table.
@@ -128,19 +152,12 @@ impl AmlContext {
     ///     - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
     ///     - Processors are expected to be found in `\_PR`, instead of `\_SB`
     ///     - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
-    pub fn new(legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
+    pub fn new(handler: Box<dyn Handler>, legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
         let mut context = AmlContext {
+            handler,
             legacy_mode,
             namespace: Namespace::new(),
-            local_0: None,
-            local_1: None,
-            local_2: None,
-            local_3: None,
-            local_4: None,
-            local_5: None,
-            local_6: None,
-            local_7: None,
-            current_args: None,
+            method_context: None,
 
             current_scope: AmlName::root(),
             scope_indent: 0,
@@ -176,89 +193,417 @@ impl AmlContext {
         }
     }
 
-    /// Invoke a method referred to by its path in the namespace, with the given arguments.
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
-        if let AmlValue::Method { flags, code } = self.namespace.get_by_path(path)?.clone() {
-            /*
-             * First, set up the state we expect to enter the method with, but clearing local
-             * variables to "null" and setting the arguments.
-             */
-            self.current_scope = path.clone();
-            self.current_args = Some(args);
-            self.local_0 = None;
-            self.local_1 = None;
-            self.local_2 = None;
-            self.local_3 = None;
-            self.local_4 = None;
-            self.local_5 = None;
-            self.local_6 = None;
-            self.local_7 = None;
+        match self.namespace.get_by_path(path)?.clone() {
+            AmlValue::Method { flags, code } => {
+                /*
+                 * First, set up the state we expect to enter the method with, but clearing local
+                 * variables to "null" and setting the arguments. Save the current method state and scope, so if we're
+                 * already executing another control method, we resume into it correctly.
+                 */
+                let old_context = mem::replace(&mut self.method_context, Some(MethodContext::new(args)));
+                let old_scope = mem::replace(&mut self.current_scope, path.clone());
+
+                /*
+                 * Create a namespace level to store local objects created by the invocation.
+                 */
+                self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
+
+                let return_value =
+                    match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
+                        // If the method doesn't return a value, we implicitly return `0`
+                        Ok(_) => Ok(AmlValue::Integer(0)),
+                        Err((_, _, AmlError::Return(result))) => Ok(result),
+                        Err((_, _, err)) => {
+                            error!("Failed to execute control method: {:?}", err);
+                            Err(err)
+                        }
+                    };
+
+                /*
+                 * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do
+                 * this by simply removing the method's local object layer.
+                 */
+                // TODO: this should also remove objects created by the method outside the method's scope, if they
+                // weren't statically created. This is harder.
+                self.namespace.remove_level(path.clone())?;
+
+                /*
+                 * Restore the old state.
+                 */
+                self.method_context = old_context;
+                self.current_scope = old_scope;
+
+                return_value
+            }
 
             /*
-             * Create a namespace level to store local objects created by the invocation.
+             * AML can encode methods that don't require any computation simply as the value that would otherwise be
+             * returned (e.g. a `_STA` object simply being an `AmlValue::Integer`, instead of a method that just
+             * returns an integer).
              */
-            self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
+            value => Ok(value),
+        }
+    }
 
-            log::trace!("Invoking method with {} arguments, code: {:x?}", flags.arg_count(), code);
-            let return_value =
-                match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
-                    // If the method doesn't return a value, we implicitly return `0`
-                    Ok(_) => Ok(AmlValue::Integer(0)),
-                    Err((_, _, AmlError::Return(result))) => Ok(result),
-                    Err((_, _, err)) => {
-                        error!("Failed to execute control method: {:?}", err);
-                        Err(err)
-                    }
+    pub fn initialize_objects(&mut self) -> Result<(), AmlError> {
+        use name_object::NameSeg;
+        use namespace::NamespaceLevel;
+        use value::StatusObject;
+
+        /*
+         * If `\_SB._INI` exists, we unconditionally execute it at the beginning of device initialization.
+         */
+        match self.invoke_method(&AmlName::from_str("\\_SB._INI").unwrap(), Args::default()) {
+            Ok(_) => (),
+            Err(AmlError::ValueDoesNotExist(_)) => (),
+            Err(err) => return Err(err),
+        }
+
+        /*
+         * Next, we traverse the namespace, looking for devices.
+         *
+         * XXX: we clone the namespace here, which obviously drives up heap burden quite a bit (not as much as you
+         * might first expect though - we're only duplicating the level data structure, not all the objects). The
+         * issue here is that we need to access the namespace during traversal (e.g. to invoke a method), which the
+         * borrow checker really doesn't like. A better solution could be a iterator-like traversal system that
+         * keeps track of the namespace without keeping it borrowed. This works for now.
+         */
+        self.namespace.clone().traverse(|path, level: &NamespaceLevel| match level.typ {
+            LevelType::Device => {
+                let status = if level.values.contains_key(&NameSeg::from_str("_STA").unwrap()) {
+                    self.invoke_method(&AmlName::from_str("_STA").unwrap().resolve(&path)?, Args::default())?
+                        .as_status()?
+                } else {
+                    StatusObject::default()
                 };
 
-            /*
-             * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do
-             * this by simply removing the method's local object layer.
-             */
-            // TODO: this should also remove objects created by the method outside the method's scope, if they
-            // weren't statically created. This is harder.
-            self.namespace.remove_level(path.clone())?;
+                /*
+                 * If the device is present and has an `_INI` method, invoke it.
+                 */
+                if status.present && level.values.contains_key(&NameSeg::from_str("_INI").unwrap()) {
+                    log::info!("Invoking _INI at level: {}", path);
+                    self.invoke_method(&AmlName::from_str("_INI").unwrap().resolve(&path)?, Args::default())?;
+                }
 
-            /*
-             * Now clear the state.
-             */
-            self.current_args = None;
-            self.local_0 = None;
-            self.local_1 = None;
-            self.local_2 = None;
-            self.local_3 = None;
-            self.local_4 = None;
-            self.local_5 = None;
-            self.local_6 = None;
-            self.local_7 = None;
+                /*
+                 * We traverse the children of this device if it's present, or isn't present but is functional.
+                 */
+                Ok(status.present || status.functional)
+            }
 
-            return_value
-        } else {
-            Err(AmlError::IncompatibleValueConversion)
-        }
+            LevelType::Scope => Ok(true),
+
+            // TODO: can either of these contain devices?
+            LevelType::Processor => Ok(false),
+            LevelType::MethodLocals => Ok(false),
+        })?;
+
+        Ok(())
     }
 
+    /// Get the value of an argument by its argument number. Can only be executed from inside a control method.
     pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
-        self.current_args.as_ref().ok_or(AmlError::InvalidArgumentAccess(0xff))?.arg(arg)
+        self.method_context.as_ref().ok_or(AmlError::NotExecutingControlMethod)?.args.arg(arg)
     }
 
-    /// Get the current value of a local by its local number.
-    ///
-    /// ### Panics
-    /// Panics if an invalid local number is passed (valid local numbers are `0..=7`)
+    /// Get the current value of a local by its local number. Can only be executed from inside a control method.
     pub(crate) fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
+        if let None = self.method_context {
+            return Err(AmlError::NotExecutingControlMethod);
+        }
+
         match local {
-            0 => self.local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            1 => self.local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            2 => self.local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            3 => self.local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            4 => self.local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            5 => self.local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            6 => self.local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            7 => self.local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            _ => panic!("Invalid local number: {}", local),
+            0 => self.method_context.as_ref().unwrap().local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            1 => self.method_context.as_ref().unwrap().local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            2 => self.method_context.as_ref().unwrap().local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            3 => self.method_context.as_ref().unwrap().local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            4 => self.method_context.as_ref().unwrap().local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            5 => self.method_context.as_ref().unwrap().local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            6 => self.method_context.as_ref().unwrap().local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            7 => self.method_context.as_ref().unwrap().local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
+            _ => Err(AmlError::InvalidLocalAccess(local)),
         }
     }
+
+    /// Perform a store into a `Target`. This returns a value read out of the target, if neccessary, as values can
+    /// be altered during a store in some circumstances. If the target is a `Name`, this also performs required
+    /// implicit conversions. Stores to other targets are semantically equivalent to a `CopyObject`.
+    pub(crate) fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
+        use value::AmlType;
+
+        match target {
+            Target::Name(ref path) => {
+                let (_, handle) = self.namespace.search(path, &self.current_scope)?;
+                let converted_object = match self.namespace.get(handle).unwrap().type_of() {
+                    /*
+                     * We special-case FieldUnits here because we don't have the needed information to actually do
+                     * the write if we try and convert using `as_type`.
+                     */
+                    AmlType::FieldUnit => {
+                        let mut field = self.namespace.get(handle).unwrap().clone();
+                        field.write_field(value, self)?;
+                        field.read_field(self)?
+                    }
+                    typ => value.as_type(typ, self)?,
+                };
+
+                *self.namespace.get_mut(handle)? = converted_object;
+                Ok(self.namespace.get(handle)?.clone())
+            }
+
+            Target::Debug => {
+                // TODO
+                unimplemented!()
+            }
+
+            Target::Arg(arg_num) => {
+                if let None = self.method_context {
+                    return Err(AmlError::NotExecutingControlMethod);
+                }
+
+                match arg_num {
+                    1 => self.method_context.as_mut().unwrap().args.arg_1 = Some(value.clone()),
+                    2 => self.method_context.as_mut().unwrap().args.arg_2 = Some(value.clone()),
+                    3 => self.method_context.as_mut().unwrap().args.arg_3 = Some(value.clone()),
+                    4 => self.method_context.as_mut().unwrap().args.arg_4 = Some(value.clone()),
+                    5 => self.method_context.as_mut().unwrap().args.arg_5 = Some(value.clone()),
+                    6 => self.method_context.as_mut().unwrap().args.arg_6 = Some(value.clone()),
+                    _ => return Err(AmlError::InvalidArgAccess(arg_num)),
+                }
+                Ok(value)
+            }
+
+            Target::Local(local_num) => {
+                if let None = self.method_context {
+                    return Err(AmlError::NotExecutingControlMethod);
+                }
+
+                match local_num {
+                    0 => self.method_context.as_mut().unwrap().local_0 = Some(value.clone()),
+                    1 => self.method_context.as_mut().unwrap().local_1 = Some(value.clone()),
+                    2 => self.method_context.as_mut().unwrap().local_2 = Some(value.clone()),
+                    3 => self.method_context.as_mut().unwrap().local_3 = Some(value.clone()),
+                    4 => self.method_context.as_mut().unwrap().local_4 = Some(value.clone()),
+                    5 => self.method_context.as_mut().unwrap().local_5 = Some(value.clone()),
+                    6 => self.method_context.as_mut().unwrap().local_6 = Some(value.clone()),
+                    7 => self.method_context.as_mut().unwrap().local_7 = Some(value.clone()),
+                    _ => return Err(AmlError::InvalidLocalAccess(local_num)),
+                }
+                Ok(value)
+            }
+
+            Target::Null => Ok(value),
+        }
+    }
+
+    /// Read from an operation-region, performing only standard-sized reads (supported powers-of-2 only. If a field
+    /// is not one of these sizes, it may need to be masked, or multiple reads may need to be performed).
+    pub(crate) fn read_region(&self, region_handle: AmlHandle, offset: u64, length: u64) -> Result<u64, AmlError> {
+        use bit_field::BitField;
+        use core::convert::TryInto;
+        use value::RegionSpace;
+
+        let (region_space, region_base, region_length, parent_device) = {
+            if let AmlValue::OpRegion { region, offset, length, parent_device } =
+                self.namespace.get(region_handle)?
+            {
+                (region, offset, length, parent_device)
+            } else {
+                return Err(AmlError::FieldRegionIsNotOpRegion);
+            }
+        };
+
+        match region_space {
+            RegionSpace::SystemMemory => {
+                let address = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.read_u8(address) as u64),
+                    16 => Ok(self.handler.read_u16(address) as u64),
+                    32 => Ok(self.handler.read_u32(address) as u64),
+                    64 => Ok(self.handler.read_u64(address)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::SystemIo => {
+                let port = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.read_io_u8(port) as u64),
+                    16 => Ok(self.handler.read_io_u16(port) as u64),
+                    32 => Ok(self.handler.read_io_u32(port) as u64),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::PciConfig => {
+                /*
+                 * First, we need to get some extra information out of objects in the parent object. Both
+                 * `_SEG` and `_BBN` seem optional, with defaults that line up with legacy PCI implementations
+                 * (e.g. systems with a single segment group and a single root, respectively).
+                 */
+                let parent_device = parent_device.as_ref().unwrap();
+                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let adr = {
+                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
+                    self.namespace.get(handle)?.as_integer(self)?
+                };
+
+                let device = adr.get_bits(16..24) as u8;
+                let function = adr.get_bits(0..8) as u8;
+                let offset = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+
+                match length {
+                    8 => Ok(self.handler.read_pci_u8(seg, bbn, device, function, offset) as u64),
+                    16 => Ok(self.handler.read_pci_u16(seg, bbn, device, function, offset) as u64),
+                    32 => Ok(self.handler.read_pci_u32(seg, bbn, device, function, offset) as u64),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            // TODO
+            _ => unimplemented!(),
+        }
+    }
+
+    pub(crate) fn write_region(
+        &mut self,
+        region_handle: AmlHandle,
+        offset: u64,
+        length: u64,
+        value: u64,
+    ) -> Result<(), AmlError> {
+        use bit_field::BitField;
+        use core::convert::TryInto;
+        use value::RegionSpace;
+
+        let (region_space, region_base, region_length, parent_device) = {
+            if let AmlValue::OpRegion { region, offset, length, parent_device } =
+                self.namespace.get(region_handle)?
+            {
+                (region, offset, length, parent_device)
+            } else {
+                return Err(AmlError::FieldRegionIsNotOpRegion);
+            }
+        };
+
+        match region_space {
+            RegionSpace::SystemMemory => {
+                let address = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.write_u8(address, value as u8)),
+                    16 => Ok(self.handler.write_u16(address, value as u16)),
+                    32 => Ok(self.handler.write_u32(address, value as u32)),
+                    64 => Ok(self.handler.write_u64(address, value)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::SystemIo => {
+                let port = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.write_io_u8(port, value as u8)),
+                    16 => Ok(self.handler.write_io_u16(port, value as u16)),
+                    32 => Ok(self.handler.write_io_u32(port, value as u32)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::PciConfig => {
+                /*
+                 * First, we need to get some extra information out of objects in the parent object. Both
+                 * `_SEG` and `_BBN` seem optional, with defaults that line up with legacy PCI implementations
+                 * (e.g. systems with a single segment group and a single root, respectively).
+                 */
+                let parent_device = parent_device.as_ref().unwrap();
+                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let adr = {
+                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
+                    self.namespace.get(handle)?.as_integer(self)?
+                };
+
+                let device = adr.get_bits(16..24) as u8;
+                let function = adr.get_bits(0..8) as u8;
+                let offset = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+
+                match length {
+                    8 => Ok(self.handler.write_pci_u8(seg, bbn, device, function, offset, value as u8)),
+                    16 => Ok(self.handler.write_pci_u16(seg, bbn, device, function, offset, value as u16)),
+                    32 => Ok(self.handler.write_pci_u32(seg, bbn, device, function, offset, value as u32)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            // TODO
+            _ => unimplemented!(),
+        }
+    }
+}
+
+pub trait Handler {
+    fn read_u8(&self, address: usize) -> u8;
+    fn read_u16(&self, address: usize) -> u16;
+    fn read_u32(&self, address: usize) -> u32;
+    fn read_u64(&self, address: usize) -> u64;
+
+    fn write_u8(&mut self, address: usize, value: u8);
+    fn write_u16(&mut self, address: usize, value: u16);
+    fn write_u32(&mut self, address: usize, value: u32);
+    fn write_u64(&mut self, address: usize, value: u64);
+
+    fn read_io_u8(&self, port: u16) -> u8;
+    fn read_io_u16(&self, port: u16) -> u16;
+    fn read_io_u32(&self, port: u16) -> u32;
+
+    fn write_io_u8(&self, port: u16, value: u8);
+    fn write_io_u16(&self, port: u16, value: u16);
+    fn write_io_u32(&self, port: u16, value: u32);
+
+    fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8;
+    fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16;
+    fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32;
+
+    fn write_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u8);
+    fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16);
+    fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -303,11 +648,13 @@ pub enum AmlError {
     /*
      * Errors produced executing control methods.
      */
+    /// Produced when AML tries to do something only possible in a control method (e.g. read from an argument)
+    /// when there's no control method executing.
+    NotExecutingControlMethod,
     /// Produced when a method accesses an argument it does not have (e.g. a method that takes 2
-    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed. If any
-    /// arguments are accessed when a method is not being executed, this error is produced with an
-    /// argument number of `0xff`.
-    InvalidArgumentAccess(ArgNum),
+    /// arguments accesses `Arg4`). The inner value is the number of the argument accessed.
+    InvalidArgAccess(ArgNum),
+    /// Produced when a method accesses a local that it has not stored into.
     InvalidLocalAccess(LocalNum),
     /// This is not a real error, but is used to propagate return values from within the deep
     /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
@@ -330,4 +677,14 @@ pub enum AmlError {
      */
     ReservedResourceType,
     ResourceDescriptorTooShort,
+
+    /*
+     * Errors produced working with AML values.
+     */
+    InvalidStatusObject,
+    InvalidShiftLeft,
+    InvalidShiftRight,
+    FieldRegionIsNotOpRegion,
+    FieldInvalidAddress,
+    FieldInvalidAccessSize,
 }
