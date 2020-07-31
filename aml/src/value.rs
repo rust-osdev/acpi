@@ -1,7 +1,6 @@
 use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
 use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
-use core::convert::TryInto;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -26,7 +25,6 @@ pub enum FieldAccessType {
     DWord,
     QWord,
     Buffer,
-    Reserved,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -276,17 +274,17 @@ impl AmlValue {
     ///     `Package` from: `Debug`
     ///     `String` from: `Integer`, `Buffer`, `Debug`
     pub fn as_type(&self, desired_type: AmlType, context: &AmlContext) -> Result<AmlValue, AmlError> {
-        // Cache the type of this object
-        let our_type = self.type_of();
-
         // If the value is already of the correct type, just return it as is
-        if our_type == desired_type {
+        if self.type_of() == desired_type {
             return Ok(self.clone());
         }
 
         // TODO: implement all of the rules
         match desired_type {
             AmlType::Integer => self.as_integer(context).map(|value| AmlValue::Integer(value)),
+            AmlType::FieldUnit => panic!(
+                "Can't implicitly convert to FieldUnit. This must be special-cased by the caller for now :("
+            ),
             _ => Err(AmlError::IncompatibleValueConversion),
         }
     }
@@ -302,6 +300,55 @@ impl AmlValue {
              *    - if the desired length is larger than we can read, we need to do multiple reads
              */
             Ok(AmlValue::Integer(context.read_region(*region, *offset, *length)?))
+        } else {
+            Err(AmlError::IncompatibleValueConversion)
+        }
+    }
+
+    pub fn write_field(&mut self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
+        /*
+         * TODO:
+         * If we need to preserve the field's value, we'll need the contents of the field before we write it. To
+         * appease the borrow-checker, this is done before we destructure the field for now, but it would be more
+         * efficient if we could only do this if the field's update rule is Preserve.
+         */
+        let field_value = self.read_field(context)?.as_integer(context)?;
+
+        if let AmlValue::Field { region, flags, offset, length } = self {
+            let maximum_access_size = {
+                if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {
+                    match region {
+                        RegionSpace::SystemMemory => 64,
+                        RegionSpace::SystemIo | RegionSpace::PciConfig => 32,
+                        _ => unimplemented!(),
+                    }
+                } else {
+                    return Err(AmlError::FieldRegionIsNotOpRegion);
+                }
+            };
+            let minimum_access_size = match flags.access_type()? {
+                FieldAccessType::Any => 8,
+                FieldAccessType::Byte => 8,
+                FieldAccessType::Word => 16,
+                FieldAccessType::DWord => 32,
+                FieldAccessType::QWord => 64,
+                FieldAccessType::Buffer => 8, // TODO
+            };
+
+            /*
+             * Find the access size, as either the minimum access size allowed by the region, or the field length
+             * rounded up to the next power-of-2, whichever is larger.
+             */
+            let access_size = u64::max(minimum_access_size, length.next_power_of_two());
+
+            let mut value_to_write = match flags.field_update_rule()? {
+                FieldUpdateRule::Preserve => field_value,
+                FieldUpdateRule::WriteAsOnes => 0xffffffff_ffffffff,
+                FieldUpdateRule::WriteAsZeros => 0x0,
+            };
+            value_to_write.set_bits(0..(*length as usize), value.as_integer(context)?);
+
+            context.write_region(*region, *offset, access_size, value_to_write)
         } else {
             Err(AmlError::IncompatibleValueConversion)
         }

@@ -330,11 +330,23 @@ impl AmlContext {
     /// be altered during a store in some circumstances. If the target is a `Name`, this also performs required
     /// implicit conversions. Stores to other targets are semantically equivalent to a `CopyObject`.
     pub(crate) fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
+        use value::AmlType;
+
         match target {
             Target::Name(ref path) => {
                 let (_, handle) = self.namespace.search(path, &self.current_scope)?;
-                let desired_type = self.namespace.get(handle).unwrap().type_of();
-                let converted_object = value.as_type(desired_type, self)?;
+                let converted_object = match self.namespace.get(handle).unwrap().type_of() {
+                    /*
+                     * We special-case FieldUnits here because we don't have the needed information to actually do
+                     * the write if we try and convert using `as_type`.
+                     */
+                    AmlType::FieldUnit => {
+                        let mut field = self.namespace.get(handle).unwrap().clone();
+                        field.write_field(value, self)?;
+                        field.read_field(self)?
+                    }
+                    typ => value.as_type(typ, self)?,
+                };
 
                 *self.namespace.get_mut(handle)? = converted_object;
                 Ok(self.namespace.get(handle)?.clone())
@@ -472,6 +484,98 @@ impl AmlContext {
             _ => unimplemented!(),
         }
     }
+
+    pub(crate) fn write_region(
+        &mut self,
+        region_handle: AmlHandle,
+        offset: u64,
+        length: u64,
+        value: u64,
+    ) -> Result<(), AmlError> {
+        use bit_field::BitField;
+        use core::convert::TryInto;
+        use value::RegionSpace;
+
+        let (region_space, region_base, region_length, parent_device) = {
+            if let AmlValue::OpRegion { region, offset, length, parent_device } =
+                self.namespace.get(region_handle)?
+            {
+                (region, offset, length, parent_device)
+            } else {
+                return Err(AmlError::FieldRegionIsNotOpRegion);
+            }
+        };
+
+        match region_space {
+            RegionSpace::SystemMemory => {
+                let address = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.write_u8(address, value as u8)),
+                    16 => Ok(self.handler.write_u16(address, value as u16)),
+                    32 => Ok(self.handler.write_u32(address, value as u32)),
+                    64 => Ok(self.handler.write_u64(address, value)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::SystemIo => {
+                let port = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+                match length {
+                    8 => Ok(self.handler.write_io_u8(port, value as u8)),
+                    16 => Ok(self.handler.write_io_u16(port, value as u16)),
+                    32 => Ok(self.handler.write_io_u32(port, value as u32)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            RegionSpace::PciConfig => {
+                /*
+                 * First, we need to get some extra information out of objects in the parent object. Both
+                 * `_SEG` and `_BBN` seem optional, with defaults that line up with legacy PCI implementations
+                 * (e.g. systems with a single segment group and a single root, respectively).
+                 */
+                let parent_device = parent_device.as_ref().unwrap();
+                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
+                    Ok((_, handle)) => self
+                        .namespace
+                        .get(handle)?
+                        .as_integer(self)?
+                        .try_into()
+                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                    Err(AmlError::ValueDoesNotExist(_)) => 0,
+                    Err(err) => return Err(err),
+                };
+                let adr = {
+                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
+                    self.namespace.get(handle)?.as_integer(self)?
+                };
+
+                let device = adr.get_bits(16..24) as u8;
+                let function = adr.get_bits(0..8) as u8;
+                let offset = (region_base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
+
+                match length {
+                    8 => Ok(self.handler.write_pci_u8(seg, bbn, device, function, offset, value as u8)),
+                    16 => Ok(self.handler.write_pci_u16(seg, bbn, device, function, offset, value as u16)),
+                    32 => Ok(self.handler.write_pci_u32(seg, bbn, device, function, offset, value as u32)),
+                    _ => Err(AmlError::FieldInvalidAccessSize),
+                }
+            }
+
+            // TODO
+            _ => unimplemented!(),
+        }
+    }
 }
 
 pub trait Handler {
@@ -496,6 +600,10 @@ pub trait Handler {
     fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8;
     fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16;
     fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32;
+
+    fn write_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u8);
+    fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16);
+    fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
