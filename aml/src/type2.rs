@@ -45,6 +45,7 @@ where
             def_and(),
             def_buffer(),
             def_l_equal(),
+            def_l_greater(),
             def_l_or(),
             def_package(),
             def_shift_left(),
@@ -143,6 +144,22 @@ where
             }),
         ))
         .map(|((), result)| Ok(result))
+}
+
+fn def_l_greater<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLGreater := 0x94 Operand Operand
+     */
+    opcode(opcode::DEF_L_GREATER_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefLGreater",
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                let ord = try_with_context!(context, left_arg.cmp(right_arg, context));
+                (Ok(AmlValue::Boolean(ord == Ordering::Greater)), context)
             }),
         ))
         .map(|((), result)| Ok(result))
