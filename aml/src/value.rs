@@ -1,6 +1,7 @@
 use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
 use alloc::{string::String, vec::Vec};
 use bit_field::BitField;
+use core::cmp;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -379,6 +380,25 @@ impl AmlValue {
             context.write_region(*region, *offset, access_size, value_to_write)
         } else {
             Err(AmlError::IncompatibleValueConversion)
+        }
+    }
+
+    /// Logically compare two `AmlValue`s, according to the rules that govern opcodes like `DefLEqual`, `DefLLess`,
+    /// etc. The type of `self` dictates the type that `other` will be converted to, and the method by which the
+    /// values will be compared:
+    ///    - `Integer`s are simply compared by numeric comparison
+    ///    - `String`s and `Buffer`s are compared lexicographically - `other` is compared byte-wise until a byte
+    ///      is discovered that is either less or greater than the corresponding byte of `self`. If the bytes are
+    ///      identical, the lengths are compared.
+    pub fn cmp(&self, other: AmlValue, context: &mut AmlContext) -> Result<cmp::Ordering, AmlError> {
+        let self_inner =
+            if self.type_of() == AmlType::FieldUnit { self.read_field(context)? } else { self.clone() };
+
+        match self_inner.type_of() {
+            AmlType::Integer => Ok(self.as_integer(context)?.cmp(&other.as_integer(context)?)),
+            AmlType::Buffer => unimplemented!(),
+            AmlType::String => unimplemented!(),
+            typ => Err(AmlError::TypeCannotBeCompared(typ)),
         }
     }
 }

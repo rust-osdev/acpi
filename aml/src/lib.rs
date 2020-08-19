@@ -69,7 +69,7 @@ use namespace::LevelType;
 use parser::Parser;
 use pkg_length::PkgLength;
 use term_object::term_list;
-use value::Args;
+use value::{AmlType, Args};
 
 /// AML has a `RevisionOp` operator that returns the "AML interpreter revision". It's not clear
 /// what this is actually used for, but this is ours.
@@ -330,8 +330,6 @@ impl AmlContext {
     /// be altered during a store in some circumstances. If the target is a `Name`, this also performs required
     /// implicit conversions. Stores to other targets are semantically equivalent to a `CopyObject`.
     pub(crate) fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
-        use value::AmlType;
-
         match target {
             Target::Name(ref path) => {
                 let (_, handle) = self.namespace.search(path, &self.current_scope)?;
@@ -687,4 +685,5 @@ pub enum AmlError {
     FieldRegionIsNotOpRegion,
     FieldInvalidAddress,
     FieldInvalidAccessSize,
+    TypeCannotBeCompared(AmlType),
 }
