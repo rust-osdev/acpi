@@ -336,12 +336,20 @@ impl AmlValue {
 
     pub fn write_field(&mut self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
         /*
-         * TODO:
-         * If we need to preserve the field's value, we'll need the contents of the field before we write it. To
-         * appease the borrow-checker, this is done before we destructure the field for now, but it would be more
-         * efficient if we could only do this if the field's update rule is Preserve.
+         * If the field's update rule is `Preserve`, we need to read the initial value of the field, so we can
+         * overwrite the correct bits. We destructure the field to do the actual write, so we read from it if
+         * needed here, otherwise the borrow-checker doesn't understand.
          */
-        let field_value = self.read_field(context)?.as_integer(context)?;
+        let field_update_rule = if let AmlValue::Field { region, flags, offset, length } = self {
+            flags.field_update_rule()?
+        } else {
+            return Err(AmlError::IncompatibleValueConversion);
+        };
+        let mut field_value = match field_update_rule {
+            FieldUpdateRule::Preserve => self.read_field(context)?.as_integer(context)?,
+            FieldUpdateRule::WriteAsOnes => 0xffffffff_ffffffff,
+            FieldUpdateRule::WriteAsZeros => 0x0,
+        };
 
         if let AmlValue::Field { region, flags, offset, length } = self {
             let maximum_access_size = {
@@ -370,14 +378,8 @@ impl AmlValue {
              */
             let access_size = u64::max(minimum_access_size, length.next_power_of_two());
 
-            let mut value_to_write = match flags.field_update_rule()? {
-                FieldUpdateRule::Preserve => field_value,
-                FieldUpdateRule::WriteAsOnes => 0xffffffff_ffffffff,
-                FieldUpdateRule::WriteAsZeros => 0x0,
-            };
-            value_to_write.set_bits(0..(*length as usize), value.as_integer(context)?);
-
-            context.write_region(*region, *offset, access_size, value_to_write)
+            field_value.set_bits(0..(*length as usize), value.as_integer(context)?);
+            context.write_region(*region, *offset, access_size, field_value)
         } else {
             Err(AmlError::IncompatibleValueConversion)
         }
