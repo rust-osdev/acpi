@@ -38,20 +38,22 @@ where
      *
      * NOTE: MethodInvocation should always appear last in the choice.
      */
+    // TODO: we're struggling a little with the type limit here, is there a better way than making everything
+    // concrete?
     make_parser_concrete!(comment_scope(
         DebugVerbosity::AllScopes,
         "Type2Opcode",
         choice!(
-            def_and(),
-            def_buffer(),
-            def_l_equal(),
-            def_l_greater(),
-            def_l_or(),
-            def_package(),
-            def_shift_left(),
-            def_shift_right(),
-            def_store(),
-            method_invocation()
+            make_parser_concrete!(def_and()),
+            make_parser_concrete!(def_buffer()),
+            make_parser_concrete!(def_l_equal()),
+            make_parser_concrete!(def_l_greater()),
+            make_parser_concrete!(def_l_or()),
+            make_parser_concrete!(def_package()),
+            make_parser_concrete!(def_shift_left()),
+            make_parser_concrete!(def_shift_right()),
+            make_parser_concrete!(def_store()),
+            make_parser_concrete!(method_invocation())
         ),
     ))
 }
