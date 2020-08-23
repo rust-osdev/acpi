@@ -49,6 +49,7 @@ where
             make_parser_concrete!(def_l_equal()),
             make_parser_concrete!(def_l_greater()),
             make_parser_concrete!(def_l_greater_equal()),
+            make_parser_concrete!(def_l_less()),
             make_parser_concrete!(def_l_or()),
             make_parser_concrete!(def_package()),
             make_parser_concrete!(def_shift_left()),
@@ -186,6 +187,25 @@ where
             }),
         ))
         .map(|(((), ()), result)| Ok(result))
+}
+
+fn def_l_less<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLLess := 0x95 Operand Operand
+     */
+    opcode(opcode::DEF_L_LESS_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefLLess",
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                let ord = try_with_context!(context, left_arg.cmp(right_arg, context));
+                (Ok(AmlValue::Boolean(ord == Ordering::Less)), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 pub fn def_package<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
