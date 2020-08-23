@@ -47,8 +47,10 @@ pub const DEF_SHIFT_LEFT: u8 = 0x79;
 pub const DEF_SHIFT_RIGHT: u8 = 0x7a;
 pub const DEF_AND_OP: u8 = 0x7b;
 pub const DEF_L_OR_OP: u8 = 0x91;
+pub const DEF_L_NOT_OP: u8 = 0x92;
 pub const DEF_L_EQUAL_OP: u8 = 0x93;
 pub const DEF_L_GREATER_OP: u8 = 0x94;
+pub const DEF_L_LESS_OP: u8 = 0x95;
 
 /*
  * Miscellaneous objects
