@@ -7,7 +7,7 @@ use core::{mem, slice};
 /// function of a PCIe device, the `physical_address` method on this will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PciConfigRegions {
     regions: Vec<McfgEntry>,
 }
