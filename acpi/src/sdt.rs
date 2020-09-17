@@ -1,6 +1,5 @@
-use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, Acpi, AcpiError, AcpiHandler, AmlTable};
+use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, AcpiError, AcpiHandler, AmlTable};
 use core::{fmt, mem, mem::MaybeUninit, str};
-use log::{trace, warn};
 
 pub const ACPI_VERSION_2_0: u8 = 20;
 
@@ -118,7 +117,7 @@ impl SdtHeader {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Signature([u8; 4]);
 
@@ -156,64 +155,5 @@ where
 {
     let mapping =
         unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
-    let header = (*mapping).clone();
-    handler.unmap_physical_region(mapping);
-
-    header
-}
-
-/// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
-/// function parses that table.
-pub(crate) fn dispatch_sdt<H>(acpi: &mut Acpi, handler: &mut H, physical_address: usize) -> Result<(), AcpiError>
-where
-    H: AcpiHandler,
-{
-    let header = peek_at_sdt_header(handler, physical_address);
-    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
-
-    /*
-     * For a recognised signature, a new physical mapping should be created with the correct type
-     * and length, and then the dispatched to the correct function to actually parse the table.
-     */
-    match header.signature {
-        Signature::FADT => {
-            let fadt_mapping =
-                unsafe { handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
-            crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
-            handler.unmap_physical_region(fadt_mapping);
-        }
-
-        Signature::HPET => {
-            let hpet_mapping =
-                unsafe { handler.map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>()) };
-            crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
-            handler.unmap_physical_region(hpet_mapping);
-        }
-
-        Signature::MADT => {
-            let madt_mapping =
-                unsafe { handler.map_physical_region::<Madt>(physical_address, header.length as usize) };
-            crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
-            handler.unmap_physical_region(madt_mapping);
-        }
-
-        Signature::MCFG => {
-            let mcfg_mapping =
-                unsafe { handler.map_physical_region::<Mcfg>(physical_address, header.length as usize) };
-            crate::mcfg::parse_mcfg(acpi, &mcfg_mapping)?;
-            handler.unmap_physical_region(mcfg_mapping);
-        }
-
-        Signature::SSDT => acpi.ssdts.push(AmlTable::new(physical_address, header.length)),
-
-        signature => {
-            /*
-             * We don't recognise this signature. Early on, this probably just means we don't
-             * have support yet, but later on maybe this should become an actual error
-             */
-            warn!("Unsupported SDT signature: {}. Skipping.", signature);
-        }
-    }
-
-    Ok(())
+    (*mapping).clone()
 }

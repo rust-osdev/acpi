@@ -53,8 +53,9 @@ use crate::{
     rsdp::Rsdp,
     sdt::{SdtHeader, Signature},
 };
-use alloc::vec::Vec;
-use core::mem;
+use alloc::{collections::BTreeMap, vec::Vec};
+use core::{marker::PhantomData, mem};
+use log::trace;
 
 #[derive(Debug)]
 pub enum AcpiError {
@@ -68,6 +69,7 @@ pub enum AcpiError {
     SdtInvalidTableId(Signature),
     SdtInvalidChecksum(Signature),
 
+    InvalidDsdtAddress,
     InvalidMadt(MadtError),
 }
 
@@ -81,32 +83,164 @@ pub(crate) struct GenericAddress {
     address: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProcessorState {
-    /// A processor in this state is unusable, and you must not attempt to bring it up.
-    Disabled,
-
-    /// A processor waiting for a SIPI (Startup Inter-processor Interrupt) is currently not active,
-    /// but may be brought up.
-    WaitingForSipi,
-
-    /// A Running processor is currently brought up and running code.
-    Running,
+pub struct AcpiTables<H>
+where
+    H: AcpiHandler,
+{
+    /// The revision of ACPI that the system uses, as inferred from the revision of the RSDT/XSDT.
+    pub revision: u8,
+    pub sdts: BTreeMap<sdt::Signature, Sdt>,
+    pub dsdt: Option<AmlTable>,
+    pub ssdts: Vec<AmlTable>,
+    _phantom: PhantomData<H>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Processor {
-    pub processor_uid: u8,
-    pub local_apic_id: u8,
+impl<H> AcpiTables<H>
+where
+    H: AcpiHandler,
+{
+    /// Create an `AcpiTables` if you have the physical address of the RSDP.
+    pub unsafe fn from_rsdp(handler: &mut H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
+        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
+        rsdp_mapping.validate()?;
 
-    /// The state of this processor. Always check that the processor is not `Disabled` before
-    /// attempting to bring it up!
-    pub state: ProcessorState,
+        Self::from_validated_rsdp(handler, rsdp_mapping)
+    }
 
-    /// Whether this processor is the Bootstrap Processor (BSP), or an Application Processor (AP).
-    /// When the bootloader is entered, the BSP is the only processor running code. To run code on
-    /// more than one processor, you need to "bring up" the APs.
-    pub is_ap: bool,
+    /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
+    /// from `from_rsdp` after validation, and also from the RSDP search routines since they need to validate the
+    /// RSDP anyways.
+    fn from_validated_rsdp(
+        handler: &mut H,
+        rsdp_mapping: PhysicalMapping<H, Rsdp>,
+    ) -> Result<AcpiTables<H>, AcpiError> {
+        let revision = rsdp_mapping.revision();
+
+        if revision == 0 {
+            /*
+             * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
+             */
+            let rsdt_address = rsdp_mapping.rsdt_address();
+            unsafe { Self::from_rsdt(handler, revision, rsdt_address as usize) }
+        } else {
+            /*
+             * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
+             * to 32 bits on x86.
+             */
+            let xsdt_address = rsdp_mapping.xsdt_address();
+            unsafe { Self::from_rsdt(handler, revision, xsdt_address as usize) }
+        }
+    }
+
+    /// Create an `AcpiTables` if you have the physical address of the RSDT. This is useful, for example, if your chosen
+    /// bootloader reads the RSDP and passes you the address of the RSDT. You also need to supply the correct ACPI
+    /// revision - if `0`, a RSDT is expected, while a `XSDT` is expected for greater revisions.
+    pub unsafe fn from_rsdt(
+        handler: &mut H,
+        revision: u8,
+        rsdt_address: usize,
+    ) -> Result<AcpiTables<H>, AcpiError> {
+        let mut result =
+            AcpiTables { revision, sdts: BTreeMap::new(), dsdt: None, ssdts: Vec::new(), _phantom: PhantomData };
+
+        let header = sdt::peek_at_sdt_header(handler, rsdt_address);
+        let mapping = unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, header.length as usize) };
+
+        if revision == 0 {
+            /*
+             * ACPI Version 1.0. It's a RSDT!
+             */
+            mapping.validate(sdt::Signature::RSDT)?;
+
+            let num_tables = (mapping.length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
+            let tables_base =
+                ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
+
+            for i in 0..num_tables {
+                result.process_sdt(handler, unsafe { *tables_base.offset(i as isize) as usize })?;
+            }
+        } else {
+            /*
+             * ACPI Version 2.0+. It's a XSDT!
+             */
+            mapping.validate(sdt::Signature::XSDT)?;
+
+            let num_tables = (mapping.length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
+            let tables_base =
+                ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
+
+            for i in 0..num_tables {
+                result.process_sdt(handler, unsafe { *tables_base.offset(i as isize) as usize })?;
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn process_sdt(&mut self, handler: &mut H, physical_address: usize) -> Result<(), AcpiError> {
+        let header = sdt::peek_at_sdt_header(handler, physical_address);
+        trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
+
+        match header.signature {
+            Signature::FADT => {
+                use fadt::Fadt;
+
+                /*
+                 * For whatever reason, they chose to put the DSDT inside the FADT, instead of just listing it
+                 * as another SDT. We extract it here to provide a nicer public API.
+                 */
+                let fadt_mapping =
+                    unsafe { handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
+                fadt_mapping.validate()?;
+
+                let dsdt_address = fadt_mapping.dsdt_address()?;
+                let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_address);
+                self.dsdt = Some(AmlTable::new(dsdt_address, dsdt_header.length));
+
+                /*
+                 * We've already validated the FADT to get the DSDT out, so it doesn't need to be done again.
+                 */
+                self.sdts
+                    .insert(Signature::FADT, Sdt { physical_address, length: header.length, validated: true });
+            }
+            Signature::SSDT => {
+                self.ssdts.push(AmlTable::new(physical_address, header.length));
+            }
+            signature => {
+                self.sdts.insert(signature, Sdt { physical_address, length: header.length, validated: false });
+            }
+        }
+
+        Ok(())
+    }
+
+    pub unsafe fn get_sdt<T>(
+        &self,
+        handler: &mut H,
+        signature: sdt::Signature,
+    ) -> Result<Option<PhysicalMapping<H, T>>, AcpiError> {
+        let sdt = match self.sdts.get(&signature) {
+            Some(sdt) => sdt,
+            None => return Ok(None),
+        };
+        let mapping =
+            unsafe { handler.map_physical_region::<SdtHeader>(sdt.physical_address, sdt.length as usize) };
+
+        if !sdt.validated {
+            mapping.validate(signature)?;
+        }
+
+        Ok(Some(mapping.coerce_type()))
+    }
+}
+
+pub struct Sdt {
+    /// Physical address of the start of the SDT, including the header.
+    pub physical_address: usize,
+    /// Length of the table in bytes.
+    pub length: u32,
+    /// Whether this SDT has been validated. This is set to `true` the first time it is mapped and validated.
+    pub validated: bool,
 }
 
 #[derive(Debug)]
@@ -125,124 +259,4 @@ impl AmlTable {
             length: length - mem::size_of::<SdtHeader>() as u32,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct Acpi {
-    pub acpi_revision: u8,
-
-    /// The boot processor. Until you bring up any APs, this is the only processor running code.
-    pub boot_processor: Option<Processor>,
-
-    /// Application processes. These are not brought up until you do so, and must be brought up in
-    /// the order they appear in this list.
-    pub application_processors: Vec<Processor>,
-
-    /// ACPI theoretically allows for more than one interrupt model to be supported by the same
-    /// hardware. For simplicity and because hardware practically will only support one model, we
-    /// just error in cases that the tables detail more than one.
-    pub interrupt_model: Option<InterruptModel>,
-    pub hpet: Option<HpetInfo>,
-    pub power_profile: PowerProfile,
-
-    /// Info about the DSDT, if we find it.
-    pub dsdt: Option<AmlTable>,
-
-    /// Info about any SSDTs, if there are any.
-    pub ssdts: Vec<AmlTable>,
-
-    /// Info about the PCI-E configuration memory regions, collected from the MCFG.
-    pub pci_config_regions: Option<PciConfigRegions>,
-}
-
-/// This is the entry point of `acpi` if you have the **physical** address of the RSDP. It maps
-/// the RSDP, works out what version of ACPI the hardware supports, and passes the physical
-/// address of the RSDT/XSDT to `parse_rsdt`.
-pub unsafe fn parse_rsdp<H>(handler: &mut H, rsdp_address: usize) -> Result<Acpi, AcpiError>
-where
-    H: AcpiHandler,
-{
-    let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
-    (*rsdp_mapping).validate()?;
-
-    parse_validated_rsdp(handler, rsdp_mapping)
-}
-
-fn parse_validated_rsdp<H>(handler: &mut H, rsdp_mapping: PhysicalMapping<Rsdp>) -> Result<Acpi, AcpiError>
-where
-    H: AcpiHandler,
-{
-    let revision = (*rsdp_mapping).revision();
-
-    if revision == 0 {
-        /*
-         * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
-         */
-        let rsdt_address = (*rsdp_mapping).rsdt_address();
-        handler.unmap_physical_region(rsdp_mapping);
-        unsafe { parse_rsdt(handler, revision, rsdt_address as usize) }
-    } else {
-        /*
-         * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
-         * to 32 bits on x86.
-         */
-        let xsdt_address = (*rsdp_mapping).xsdt_address();
-        handler.unmap_physical_region(rsdp_mapping);
-        unsafe { parse_rsdt(handler, revision, xsdt_address as usize) }
-    }
-}
-
-/// This is the entry point of `acpi` if you already have the **physical** address of the
-/// RSDT/XSDT; it parses all the SDTs in the RSDT/XSDT, calling the relevant handlers in the
-/// implementation's `AcpiHandler`.
-///
-/// If the given revision is 0, an address to the RSDT is expected. Otherwise, an address to
-/// the XSDT is expected.
-pub unsafe fn parse_rsdt<H>(handler: &mut H, revision: u8, physical_address: usize) -> Result<Acpi, AcpiError>
-where
-    H: AcpiHandler,
-{
-    let mut acpi = Acpi {
-        acpi_revision: revision,
-        boot_processor: None,
-        application_processors: Vec::new(),
-        interrupt_model: None,
-        hpet: None,
-        power_profile: PowerProfile::Unspecified,
-        dsdt: None,
-        ssdts: Vec::new(),
-        pci_config_regions: None,
-    };
-
-    let header = sdt::peek_at_sdt_header(handler, physical_address);
-    let mapping = unsafe { handler.map_physical_region::<SdtHeader>(physical_address, header.length as usize) };
-
-    if revision == 0 {
-        /*
-         * ACPI Version 1.0. It's a RSDT!
-         */
-        (*mapping).validate(sdt::Signature::RSDT)?;
-
-        let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
-        let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
-
-        for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
-        }
-    } else {
-        /*
-         * ACPI Version 2.0+. It's a XSDT!
-         */
-        (*mapping).validate(sdt::Signature::XSDT)?;
-
-        let num_tables = ((*mapping).length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
-        let tables_base = ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
-
-        for i in 0..num_tables {
-            sdt::dispatch_sdt(&mut acpi, handler, unsafe { *tables_base.offset(i as isize) } as usize)?;
-        }
-    }
-
-    handler.unmap_physical_region(mapping);
-    Ok(acpi)
 }
