@@ -31,6 +31,25 @@ where
     ) -> PhysicalMapping<H, T> {
         PhysicalMapping { physical_start, virtual_start, region_length, mapped_length, handler: Some(handler) }
     }
+
+    pub(crate) unsafe fn coerce_type<N>(mut self) -> PhysicalMapping<H, N> {
+        /*
+         * Ideally, we'd like to assert something like `self.region_length >= mem::size_of::<N>()` here, but we
+         * can't as some types are actually sometimes larger than their tables, and use mechanisms such as
+         * `ExtendedField` to mediate access.
+         */
+        assert!((self.virtual_start.as_ptr() as usize) % mem::align_of::<N>() == 0);
+
+        let result = PhysicalMapping {
+            physical_start: self.physical_start,
+            virtual_start: NonNull::new(self.virtual_start.as_ptr() as *mut N).unwrap(),
+            region_length: self.region_length,
+            mapped_length: self.mapped_length,
+            handler: mem::replace(&mut self.handler, None),
+        };
+        mem::forget(self);
+        result
+    }
 }
 
 impl<H, T> Deref for PhysicalMapping<H, T>
