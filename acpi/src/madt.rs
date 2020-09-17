@@ -1,22 +1,23 @@
 use crate::{
-    interrupt::{
+    platform::{
         Apic,
         InterruptModel,
         InterruptSourceOverride,
         IoApic,
+        LocalInterruptLine,
         NmiLine,
         NmiProcessor,
         NmiSource,
         Polarity,
+        Processor,
+        ProcessorInfo,
+        ProcessorState,
         TriggerMode,
     },
     sdt::SdtHeader,
-    Acpi,
     AcpiError,
     AcpiHandler,
     PhysicalMapping,
-    Processor,
-    ProcessorState,
 };
 use alloc::vec::Vec;
 use bit_field::BitField;
@@ -40,14 +41,14 @@ pub enum MadtError {
 ///     * The Streamlined Advanced Programmable Interrupt Controller (SAPIC) model
 ///     * The Generic Interrupt Controller (GIC) model (ARM systems only)
 #[repr(C, packed)]
-pub(crate) struct Madt {
+pub struct Madt {
     header: SdtHeader,
     local_apic_address: u32,
     flags: u32,
 }
 
 impl Madt {
-    fn entries(&self) -> MadtEntryIter {
+    pub fn entries(&self) -> MadtEntryIter {
         MadtEntryIter {
             pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
             remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
@@ -55,12 +56,177 @@ impl Madt {
         }
     }
 
-    fn supports_8259(&self) -> bool {
+    pub fn supports_8259(&self) -> bool {
         unsafe { self.flags.get_bit(0) }
+    }
+
+    pub fn parse_interrupt_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
+        /*
+         * We first do a pass through the MADT to determine which interrupt model is being used.
+         */
+        for entry in self.entries() {
+            match entry {
+            MadtEntry::LocalApic(_) |
+            MadtEntry::IoApic(_) |
+            MadtEntry::InterruptSourceOverride(_) |
+            MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
+            MadtEntry::LocalApicNmi(_) |
+            MadtEntry::LocalApicAddressOverride(_) => {
+                return self.parse_apic_model();
+            }
+
+            MadtEntry::IoSapic(_) |
+            MadtEntry::LocalSapic(_) |
+            MadtEntry::PlatformInterruptSource(_) => {
+                unimplemented!();
+            }
+
+            MadtEntry::LocalX2Apic(_) |
+            MadtEntry::X2ApicNmi(_) => {
+                unimplemented!();
+            }
+
+            MadtEntry::Gicc(_) |
+            MadtEntry::Gicd(_) |
+            MadtEntry::GicMsiFrame(_) |
+            MadtEntry::GicRedistributor(_) |
+            MadtEntry::GicInterruptTranslationService(_) => {
+                unimplemented!();
+            }
+        }
+        }
+
+        Ok((InterruptModel::Unknown, None))
+    }
+
+    pub fn parse_apic_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
+        let mut local_apic_address = self.local_apic_address as u64;
+        let mut io_apic_count = 0;
+        let mut iso_count = 0;
+        let mut nmi_source_count = 0;
+        let mut local_nmi_line_count = 0;
+        let mut processor_count = 0usize;
+
+        // Do a pass over the entries so we know how much space we should reserve in the vectors
+        for entry in self.entries() {
+            match entry {
+                MadtEntry::IoApic(_) => io_apic_count += 1,
+                MadtEntry::InterruptSourceOverride(_) => iso_count += 1,
+                MadtEntry::NmiSource(_) => nmi_source_count += 1,
+                MadtEntry::LocalApicNmi(_) => local_nmi_line_count += 1,
+                MadtEntry::LocalApic(_) => processor_count += 1,
+                _ => (),
+            }
+        }
+
+        let mut io_apics = Vec::with_capacity(io_apic_count);
+        let mut interrupt_source_overrides = Vec::with_capacity(iso_count);
+        let mut nmi_sources = Vec::with_capacity(nmi_source_count);
+        let mut local_apic_nmi_lines = Vec::with_capacity(local_nmi_line_count);
+        let mut boot_processor = None;
+        let mut application_processors = Vec::with_capacity(processor_count.saturating_sub(1)); // Subtract one for the BSP
+
+        for entry in self.entries() {
+            match entry {
+                MadtEntry::LocalApic(ref entry) => {
+                    /*
+                     * The first processor is the BSP. Subsequent ones are APs. If we haven't found
+                     * the BSP yet, this must be it.
+                     */
+                    let is_ap = boot_processor.is_some();
+                    let is_disabled = !unsafe { entry.flags.get_bit(0) };
+
+                    let state = match (is_ap, is_disabled) {
+                        (_, true) => ProcessorState::Disabled,
+                        (true, false) => ProcessorState::WaitingForSipi,
+                        (false, false) => ProcessorState::Running,
+                    };
+
+                    let processor = Processor {
+                        processor_uid: entry.processor_id,
+                        local_apic_id: entry.apic_id,
+                        state,
+                        is_ap,
+                    };
+
+                    if is_ap {
+                        application_processors.push(processor);
+                    } else {
+                        boot_processor = Some(processor);
+                    }
+                }
+
+                MadtEntry::IoApic(ref entry) => {
+                    io_apics.push(IoApic {
+                        id: entry.io_apic_id,
+                        address: entry.io_apic_address,
+                        global_system_interrupt_base: entry.global_system_interrupt_base,
+                    });
+                }
+
+                MadtEntry::InterruptSourceOverride(ref entry) => {
+                    if entry.bus != 0 {
+                        return Err(AcpiError::InvalidMadt(MadtError::InterruptOverrideEntryHasInvalidBus));
+                    }
+
+                    let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
+
+                    interrupt_source_overrides.push(InterruptSourceOverride {
+                        isa_source: entry.irq,
+                        global_system_interrupt: entry.global_system_interrupt,
+                        polarity,
+                        trigger_mode,
+                    });
+                }
+
+                MadtEntry::NmiSource(ref entry) => {
+                    let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
+
+                    nmi_sources.push(NmiSource {
+                        global_system_interrupt: entry.global_system_interrupt,
+                        polarity,
+                        trigger_mode,
+                    });
+                }
+
+                MadtEntry::LocalApicNmi(ref entry) => local_apic_nmi_lines.push(NmiLine {
+                    processor: if entry.processor_id == 0xff {
+                        NmiProcessor::All
+                    } else {
+                        NmiProcessor::ProcessorUid(entry.processor_id as u32)
+                    },
+                    line: match entry.nmi_line {
+                        0 => LocalInterruptLine::Lint0,
+                        1 => LocalInterruptLine::Lint1,
+                        _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                    },
+                }),
+
+                MadtEntry::LocalApicAddressOverride(ref entry) => {
+                    local_apic_address = entry.local_apic_address;
+                }
+
+                _ => {
+                    return Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry));
+                }
+            }
+        }
+
+        Ok((
+            InterruptModel::Apic(Apic {
+                local_apic_address,
+                io_apics,
+                local_apic_nmi_lines,
+                interrupt_source_overrides,
+                nmi_sources,
+                also_has_legacy_pics: self.supports_8259(),
+            }),
+            Some(ProcessorInfo { boot_processor: boot_processor.unwrap(), application_processors }),
+        ))
     }
 }
 
-struct MadtEntryIter<'a> {
+pub struct MadtEntryIter<'a> {
     pointer: *const u8,
     /*
      * The iterator can only have at most `u32::MAX` remaining bytes, because the length of the
@@ -70,7 +236,7 @@ struct MadtEntryIter<'a> {
     _phantom: PhantomData<&'a ()>,
 }
 
-enum MadtEntry<'a> {
+pub enum MadtEntry<'a> {
     LocalApic(&'a LocalApicEntry),
     IoApic(&'a IoApicEntry),
     InterruptSourceOverride(&'a InterruptSourceOverrideEntry),
@@ -158,13 +324,13 @@ impl<'a> Iterator for MadtEntryIter<'a> {
 
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
-struct EntryHeader {
+pub struct EntryHeader {
     entry_type: u8,
     length: u8,
 }
 
 #[repr(C, packed)]
-struct LocalApicEntry {
+pub struct LocalApicEntry {
     header: EntryHeader,
     processor_id: u8,
     apic_id: u8,
@@ -172,7 +338,7 @@ struct LocalApicEntry {
 }
 
 #[repr(C, packed)]
-struct IoApicEntry {
+pub struct IoApicEntry {
     header: EntryHeader,
     io_apic_id: u8,
     _reserved: u8,
@@ -181,7 +347,7 @@ struct IoApicEntry {
 }
 
 #[repr(C, packed)]
-struct InterruptSourceOverrideEntry {
+pub struct InterruptSourceOverrideEntry {
     header: EntryHeader,
     bus: u8, // 0 - ISA bus
     irq: u8, // This is bus-relative
@@ -190,14 +356,14 @@ struct InterruptSourceOverrideEntry {
 }
 
 #[repr(C, packed)]
-struct NmiSourceEntry {
+pub struct NmiSourceEntry {
     header: EntryHeader,
     flags: u16,
     global_system_interrupt: u32,
 }
 
 #[repr(C, packed)]
-struct LocalApicNmiEntry {
+pub struct LocalApicNmiEntry {
     header: EntryHeader,
     processor_id: u8,
     flags: u16,
@@ -205,7 +371,7 @@ struct LocalApicNmiEntry {
 }
 
 #[repr(C, packed)]
-struct LocalApicAddressOverrideEntry {
+pub struct LocalApicAddressOverrideEntry {
     header: EntryHeader,
     _reserved: u16,
     local_apic_address: u64,
@@ -214,7 +380,7 @@ struct LocalApicAddressOverrideEntry {
 /// If this entry is present, the system has an I/O SAPIC, which must be used instead of the I/O
 /// APIC.
 #[repr(C, packed)]
-struct IoSapicEntry {
+pub struct IoSapicEntry {
     header: EntryHeader,
     io_apic_id: u8,
     _reserved: u8,
@@ -223,7 +389,7 @@ struct IoSapicEntry {
 }
 
 #[repr(C, packed)]
-struct LocalSapicEntry {
+pub struct LocalSapicEntry {
     header: EntryHeader,
     processor_id: u8,
     local_sapic_id: u8,
@@ -240,7 +406,7 @@ struct LocalSapicEntry {
 }
 
 #[repr(C, packed)]
-struct PlatformInterruptSourceEntry {
+pub struct PlatformInterruptSourceEntry {
     header: EntryHeader,
     flags: u16,
     interrupt_type: u8,
@@ -252,7 +418,7 @@ struct PlatformInterruptSourceEntry {
 }
 
 #[repr(C, packed)]
-struct LocalX2ApicEntry {
+pub struct LocalX2ApicEntry {
     header: EntryHeader,
     _reserved: u16,
     x2apic_id: u32,
@@ -261,7 +427,7 @@ struct LocalX2ApicEntry {
 }
 
 #[repr(C, packed)]
-struct X2ApicNmiEntry {
+pub struct X2ApicNmiEntry {
     header: EntryHeader,
     flags: u16,
     processor_uid: u32,
@@ -273,7 +439,7 @@ struct X2ApicNmiEntry {
 /// Controller. In the GICC interrupt model, each logical process has a Processor Device object in
 /// the namespace, and uses this structure to convey its GIC information.
 #[repr(C, packed)]
-struct GiccEntry {
+pub struct GiccEntry {
     header: EntryHeader,
     _reserved1: u16,
     cpu_interface_number: u32,
@@ -292,7 +458,7 @@ struct GiccEntry {
 }
 
 #[repr(C, packed)]
-struct GicdEntry {
+pub struct GicdEntry {
     header: EntryHeader,
     _reserved1: u16,
     gic_id: u32,
@@ -311,7 +477,7 @@ struct GicdEntry {
 }
 
 #[repr(C, packed)]
-struct GicMsiFrameEntry {
+pub struct GicMsiFrameEntry {
     header: EntryHeader,
     _reserved: u16,
     frame_id: u32,
@@ -322,7 +488,7 @@ struct GicMsiFrameEntry {
 }
 
 #[repr(C, packed)]
-struct GicRedistributorEntry {
+pub struct GicRedistributorEntry {
     header: EntryHeader,
     _reserved: u16,
     discovery_range_base_address: u64,
@@ -330,193 +496,12 @@ struct GicRedistributorEntry {
 }
 
 #[repr(C, packed)]
-struct GicInterruptTranslationServiceEntry {
+pub struct GicInterruptTranslationServiceEntry {
     header: EntryHeader,
     _reserved1: u16,
     id: u32,
     physical_base_address: u64,
     _reserved2: u32,
-}
-
-pub(crate) fn parse_madt<H>(
-    acpi: &mut Acpi,
-    _handler: &mut H,
-    mapping: &PhysicalMapping<Madt>,
-) -> Result<(), AcpiError>
-where
-    H: AcpiHandler,
-{
-    (*mapping).header.validate(crate::sdt::Signature::MADT)?;
-
-    /*
-     * If the MADT doesn't contain another supported interrupt model (either APIC, SAPIC, X2APIC
-     * or GIC), and the system supports the legacy i8259 PIC, recommend that.
-     * TODO: It's not clear how trustworthy this field is - should we be relying on it in any
-     * way?
-     */
-    if (*mapping).supports_8259() {
-        acpi.interrupt_model = Some(InterruptModel::Pic);
-    }
-
-    /*
-     * We first do a pass through the MADT to determine which interrupt model is being used.
-     */
-    for entry in (*mapping).entries() {
-        match entry {
-            MadtEntry::LocalApic(_) |
-            MadtEntry::IoApic(_) |
-            MadtEntry::InterruptSourceOverride(_) |
-            MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
-            MadtEntry::LocalApicNmi(_) |
-            MadtEntry::LocalApicAddressOverride(_) => {
-                acpi.interrupt_model = Some(parse_apic_model(acpi, mapping)?);
-                break;
-            }
-
-            MadtEntry::IoSapic(_) |
-            MadtEntry::LocalSapic(_) |
-            MadtEntry::PlatformInterruptSource(_) => {
-                unimplemented!();
-            }
-
-            MadtEntry::LocalX2Apic(_) |
-            MadtEntry::X2ApicNmi(_) => {
-                unimplemented!();
-            }
-
-            MadtEntry::Gicc(_) |
-            MadtEntry::Gicd(_) |
-            MadtEntry::GicMsiFrame(_) |
-            MadtEntry::GicRedistributor(_) |
-            MadtEntry::GicInterruptTranslationService(_) => {
-                unimplemented!();
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// This parses the MADT and gathers information about a APIC interrupt model. We error if we
-/// encounter an entry that doesn't configure the APIC.
-fn parse_apic_model(acpi: &mut Acpi, mapping: &PhysicalMapping<Madt>) -> Result<InterruptModel, AcpiError> {
-    use crate::interrupt::LocalInterruptLine;
-
-    let mut local_apic_address = (*mapping).local_apic_address as u64;
-    let mut io_apic_count = 0;
-    let mut iso_count = 0;
-    let mut nmi_source_count = 0;
-    let mut local_nmi_line_count = 0;
-    let mut processor_count = 0usize;
-
-    // Do a pass over the entries so we know how much space we should reserve in the vectors
-    for entry in (*mapping).entries() {
-        match entry {
-            MadtEntry::IoApic(_) => io_apic_count += 1,
-            MadtEntry::InterruptSourceOverride(_) => iso_count += 1,
-            MadtEntry::NmiSource(_) => nmi_source_count += 1,
-            MadtEntry::LocalApicNmi(_) => local_nmi_line_count += 1,
-            MadtEntry::LocalApic(_) => processor_count += 1,
-            _ => (),
-        }
-    }
-
-    let mut io_apics = Vec::with_capacity(io_apic_count);
-    let mut interrupt_source_overrides = Vec::with_capacity(iso_count);
-    let mut nmi_sources = Vec::with_capacity(nmi_source_count);
-    let mut local_apic_nmi_lines = Vec::with_capacity(local_nmi_line_count);
-    acpi.application_processors = Vec::with_capacity(processor_count.saturating_sub(1)); // Subtract one for the BSP
-
-    for entry in (*mapping).entries() {
-        match entry {
-            MadtEntry::LocalApic(ref entry) => {
-                /*
-                 * The first processor is the BSP. Subsequent ones are APs. If we haven't found
-                 * the BSP yet, this must be it.
-                 */
-                let is_ap = acpi.boot_processor.is_some();
-                let is_disabled = !unsafe { entry.flags.get_bit(0) };
-
-                let state = match (is_ap, is_disabled) {
-                    (_, true) => ProcessorState::Disabled,
-                    (true, false) => ProcessorState::WaitingForSipi,
-                    (false, false) => ProcessorState::Running,
-                };
-
-                let processor =
-                    Processor { processor_uid: entry.processor_id, local_apic_id: entry.apic_id, state, is_ap };
-
-                if is_ap {
-                    acpi.application_processors.push(processor);
-                } else {
-                    acpi.boot_processor = Some(processor);
-                }
-            }
-
-            MadtEntry::IoApic(ref entry) => {
-                io_apics.push(IoApic {
-                    id: entry.io_apic_id,
-                    address: entry.io_apic_address,
-                    global_system_interrupt_base: entry.global_system_interrupt_base,
-                });
-            }
-
-            MadtEntry::InterruptSourceOverride(ref entry) => {
-                if entry.bus != 0 {
-                    return Err(AcpiError::InvalidMadt(MadtError::InterruptOverrideEntryHasInvalidBus));
-                }
-
-                let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
-
-                interrupt_source_overrides.push(InterruptSourceOverride {
-                    isa_source: entry.irq,
-                    global_system_interrupt: entry.global_system_interrupt,
-                    polarity,
-                    trigger_mode,
-                });
-            }
-
-            MadtEntry::NmiSource(ref entry) => {
-                let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
-
-                nmi_sources.push(NmiSource {
-                    global_system_interrupt: entry.global_system_interrupt,
-                    polarity,
-                    trigger_mode,
-                });
-            }
-
-            MadtEntry::LocalApicNmi(ref entry) => local_apic_nmi_lines.push(NmiLine {
-                processor: if entry.processor_id == 0xff {
-                    NmiProcessor::All
-                } else {
-                    NmiProcessor::ProcessorUid(entry.processor_id as u32)
-                },
-                line: match entry.nmi_line {
-                    0 => LocalInterruptLine::Lint0,
-                    1 => LocalInterruptLine::Lint1,
-                    _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
-                },
-            }),
-
-            MadtEntry::LocalApicAddressOverride(ref entry) => {
-                local_apic_address = entry.local_apic_address;
-            }
-
-            _ => {
-                return Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry));
-            }
-        }
-    }
-
-    Ok(InterruptModel::Apic(Apic {
-        local_apic_address,
-        io_apics,
-        local_apic_nmi_lines,
-        interrupt_source_overrides,
-        nmi_sources,
-        also_has_legacy_pics: (*mapping).supports_8259(),
-    }))
 }
 
 fn parse_mps_inti_flags(flags: u16) -> Result<(Polarity, TriggerMode), AcpiError> {

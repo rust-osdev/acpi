@@ -32,21 +32,19 @@ extern crate std;
 mod fadt;
 pub mod handler;
 mod hpet;
-pub mod interrupt;
 mod madt;
 mod mcfg;
+pub mod platform;
 mod rsdp;
-mod rsdp_search;
 mod sdt;
 
 pub use crate::{
     fadt::PowerProfile,
     handler::{AcpiHandler, PhysicalMapping},
     hpet::HpetInfo,
-    interrupt::InterruptModel,
     madt::MadtError,
     mcfg::PciConfigRegions,
-    rsdp_search::search_for_rsdp_bios,
+    platform::{InterruptModel, PlatformInfo},
 };
 
 use crate::{
@@ -69,6 +67,7 @@ pub enum AcpiError {
     SdtInvalidTableId(Signature),
     SdtInvalidChecksum(Signature),
 
+    TableMissing(Signature),
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
 }
