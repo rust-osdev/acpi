@@ -56,6 +56,9 @@ impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
 ///     "SRAT" - System Resource Affinity Table
 ///     "SSDT" - Secondary System Description Table
 ///     "XSDT" - eXtended System Descriptor Table
+///
+/// We've come across some more ACPI tables in the wild:
+///     "WAET" - Windows ACPI Emulated device Table
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
