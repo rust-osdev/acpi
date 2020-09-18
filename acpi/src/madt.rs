@@ -92,7 +92,7 @@ impl Madt {
         Ok((InterruptModel::Unknown, None))
     }
 
-    pub fn parse_apic_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
+    fn parse_apic_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
         let mut local_apic_address = self.local_apic_address as u64;
         let mut io_apic_count = 0;
         let mut iso_count = 0;

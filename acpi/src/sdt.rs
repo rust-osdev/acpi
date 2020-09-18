@@ -1,4 +1,4 @@
-use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, AcpiError, AcpiHandler, AmlTable};
+use crate::{AcpiError, AcpiHandler};
 use core::{fmt, mem, mem::MaybeUninit, str};
 
 pub const ACPI_VERSION_2_0: u8 = 20;
@@ -16,7 +16,7 @@ impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
     /// If a bogus ACPI version is passed, this function may access uninitialised data, which is unsafe.
     pub unsafe fn access(&self, version: u8) -> Option<T> {
         if version >= MIN_VERSION {
-            Some(self.0.assume_init())
+            Some(unsafe { self.0.assume_init() })
         } else {
             None
         }

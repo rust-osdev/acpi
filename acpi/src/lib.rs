@@ -23,6 +23,7 @@
 
 #![no_std]
 #![feature(const_generics, unsafe_block_in_unsafe_fn)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
 #[cfg_attr(test, macro_use)]
@@ -249,6 +250,12 @@ where
 
         Ok(Some(mapping))
     }
+
+    /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
+    /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
+    /// the platform from the ACPI tables.
+    pub fn platform_info(&self) -> Result<PlatformInfo, AcpiError> {
+        PlatformInfo::new(self)
     }
 }
 

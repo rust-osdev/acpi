@@ -71,10 +71,6 @@ impl Rsdp {
         Ok(())
     }
 
-    pub(crate) fn oem_id<'a>(&'a self) -> &'a str {
-        str::from_utf8(&self.oem_id).unwrap()
-    }
-
     pub(crate) fn revision(&self) -> u8 {
         self.revision
     }
