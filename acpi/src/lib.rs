@@ -1,25 +1,37 @@
 //! A library for parsing ACPI tables. This crate can be used by bootloaders and kernels for
-//! architectures that support ACPI. The crate is far from feature-complete, but can still be used
-//! for finding and parsing the static tables, which is enough to set up hardware such as the APIC
-//! and HPET on x86_64.
+//! architectures that support ACPI. This crate is not feature-complete, but can parse lots of the more common
+//! tables. Parsing the ACPI tables is required for correctly setting up the APICs, HPET, and provides useful
+//! information about power management and many other platform capabilities.
 //!
-//! The crate is designed for use in conjunction with the `aml` crate, which is the (much
-//! less complete) AML parser used to parse the DSDT and SSDTs. These crates are separate because
-//! some kernels may want to detect the static tables, but delay AML parsing to a later stage.
+//! This crate is designed to find and parse the static tables ACPI provides. It should be used in conjunction with
+//! the `aml` crate, which is the (much less complete) AML parser used to parse the DSDT and SSDTs. These crates
+//! are separate because some kernels may want to detect the static tables, but delay AML parsing to a later stage.
 //!
 //! ### Usage
-//! To use the library, you will need to provide an implementation of the `AcpiHandler` trait,
-//! which allows the library to make requests such as mapping a particular region of physical
-//! memory into the virtual address space.
+//! To use the library, you will need to provide an implementation of the `AcpiHandler` trait, which allows the
+//! library to make requests such as mapping a particular region of physical memory into the virtual address space.
 //!
-//! You should then call one of the entry points, based on how much information you have:
-//! * Call `parse_rsdp` if you have the physical address of the RSDP
-//! * Call `parse_rsdt` if you have the physical address of the RSDT / XSDT
-//! * Call `search_for_rsdp_bios` if you don't have the address of either structure, but **you know
-//! you're running on BIOS, not UEFI**
+//! You then need to construct an instance of `AcpiTables`, which can be done in a few ways depending on how much
+//! information you have:
+//! * Use `AcpiTables::from_rsdp` if you have the physical address of the RSDP
+//! * Use `AcpiTables::from_rsdt` if you have the physical address of the RSDT/XSDT
+//! * Use `AcpiTables::search_for_rsdp_bios` if you don't have the address of either, but **you know you are
+//! running on BIOS, not UEFI**
+//! * Use `AcpiTables::from_tables_direct` if you are using the library in an unusual setting, such as in usermode,
+//!   and have a custom method to enumerate and access the tables.
 //!
-//! All of these methods return an instance of `Acpi`. This struct contains all the information
-//! gathered from the static tables, and can be queried to set up hardware etc.
+//! `AcpiTables` stores the addresses of all of the tables detected on a platform. The SDTs are parsed by this
+//! library, or can be accessed directly with `from_sdt`, while the `DSDT` and any `SSDTs` should be parsed with
+//! `aml`.
+//!
+//! To gather information out of the static tables, a few of the types you should take a look at are:
+//!    - [`PlatformInfo`](crate::platform::PlatformInfo) parses the FADT and MADT to create a nice view of the
+//!      processor topology and interrupt controllers on `x86_64`, and the interrupt controllers on other platforms.
+//!      `AcpiTables::platform_info` is a convenience method for constructing a `PlatformInfo`.
+//!    - [`HpetInfo`](crate::hpet::HpetInfo) parses the HPET table and tells you how to configure the High
+//!      Precision Event Timer.
+//!    - [`PciConfigRegions`](crate::mcfg::PciConfigRegions) parses the MCFG and tells you how PCIe configuration
+//!      space is mapped into physical memory.
 
 #![no_std]
 #![feature(const_generics, unsafe_block_in_unsafe_fn)]
