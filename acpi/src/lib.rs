@@ -222,21 +222,33 @@ where
         Ok(())
     }
 
+    /// Create a mapping to a SDT, given its signature. This validates the SDT if it has not already been
+    /// validated.
+    ///
+    /// ### Safety
+    /// The table's memory is naively interpreted as a `T`, and so you must be careful in providing a type that
+    /// correctly represents the table's structure. Regardless of the provided type's size, the region mapped will
+    /// be the size specified in the SDT's header. Providing a `T` that is larger than this, *may* lead to
+    /// page-faults, aliasing references, or derefencing uninitialized memory (the latter two of which are UB).
+    /// This isn't forbidden, however, because some tables rely on `T` being larger than a provided SDT in some
+    /// versions of ACPI (the [`ExtendedField`](crate::sdt::ExtendedField) type will be useful if you need to do
+    /// this. See our [`Fadt`](crate::fadt::Fadt) type for an example of this).
     pub unsafe fn get_sdt<T>(&self, signature: sdt::Signature) -> Result<Option<PhysicalMapping<H, T>>, AcpiError>
     where
         T: AcpiTable,
+    {
         let sdt = match self.sdts.get(&signature) {
             Some(sdt) => sdt,
             None => return Ok(None),
         };
-        let mapping =
-            unsafe { self.handler.map_physical_region::<SdtHeader>(sdt.physical_address, sdt.length as usize) };
+        let mapping = unsafe { self.handler.map_physical_region::<T>(sdt.physical_address, sdt.length as usize) };
 
         if !sdt.validated {
-            mapping.validate(signature)?;
+            mapping.header().validate(signature)?;
         }
 
-        Ok(Some(mapping.coerce_type()))
+        Ok(Some(mapping))
+    }
     }
 }
 
@@ -247,6 +259,11 @@ pub struct Sdt {
     pub length: u32,
     /// Whether this SDT has been validated. This is set to `true` the first time it is mapped and validated.
     pub validated: bool,
+}
+
+/// All types representing ACPI tables should implement this trait.
+pub trait AcpiTable {
+    fn header(&self) -> &sdt::SdtHeader;
 }
 
 #[derive(Debug)]

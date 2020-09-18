@@ -1,10 +1,8 @@
 use crate::{
     sdt::{ExtendedField, SdtHeader, ACPI_VERSION_2_0},
     AcpiError,
-    AcpiHandler,
-    AmlTable,
+    AcpiTable,
     GenericAddress,
-    PhysicalMapping,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -90,6 +88,12 @@ pub struct Fadt {
     sleep_control_reg: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
     sleep_status_reg: ExtendedField<GenericAddress, ACPI_VERSION_2_0>,
     hypervisor_vendor_id: ExtendedField<u64, ACPI_VERSION_2_0>,
+}
+
+impl AcpiTable for Fadt {
+    fn header(&self) -> &SdtHeader {
+        &self.header
+    }
 }
 
 impl Fadt {

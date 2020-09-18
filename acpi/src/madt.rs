@@ -16,8 +16,7 @@ use crate::{
     },
     sdt::SdtHeader,
     AcpiError,
-    AcpiHandler,
-    PhysicalMapping,
+    AcpiTable,
 };
 use alloc::vec::Vec;
 use bit_field::BitField;
@@ -47,19 +46,13 @@ pub struct Madt {
     flags: u32,
 }
 
+impl AcpiTable for Madt {
+    fn header(&self) -> &SdtHeader {
+        &self.header
+    }
+}
+
 impl Madt {
-    pub fn entries(&self) -> MadtEntryIter {
-        MadtEntryIter {
-            pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
-            remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn supports_8259(&self) -> bool {
-        unsafe { self.flags.get_bit(0) }
-    }
-
     pub fn parse_interrupt_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
         /*
          * We first do a pass through the MADT to determine which interrupt model is being used.
@@ -223,6 +216,18 @@ impl Madt {
             }),
             Some(ProcessorInfo { boot_processor: boot_processor.unwrap(), application_processors }),
         ))
+    }
+
+    pub fn entries(&self) -> MadtEntryIter {
+        MadtEntryIter {
+            pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
+            remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn supports_8259(&self) -> bool {
+        unsafe { self.flags.get_bit(0) }
     }
 }
 

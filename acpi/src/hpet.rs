@@ -1,4 +1,4 @@
-use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTables, GenericAddress, PhysicalMapping};
+use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables, GenericAddress};
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -60,4 +60,10 @@ pub(crate) struct HpetTable {
     hpet_number: u8,
     clock_tick_unit: u16,
     page_protection_oem: u8,
+}
+
+impl AcpiTable for HpetTable {
+    fn header(&self) -> &SdtHeader {
+        &self.header
+    }
 }

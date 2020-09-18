@@ -1,4 +1,4 @@
-use crate::{handler::PhysicalMapping, sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTables};
+use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
 use alloc::vec::Vec;
 use core::{mem, slice};
 
@@ -50,6 +50,12 @@ pub(crate) struct Mcfg {
     header: SdtHeader,
     _reserved: u64,
     // Followed by `n` entries with format `McfgEntry`
+}
+
+impl AcpiTable for Mcfg {
+    fn header(&self) -> &SdtHeader {
+        &self.header
+    }
 }
 
 impl Mcfg {
