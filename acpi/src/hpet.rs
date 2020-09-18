@@ -23,13 +23,13 @@ pub struct HpetInfo {
 }
 
 impl HpetInfo {
-    pub fn new<H>(tables: &AcpiTables<H>, handler: &mut H) -> Result<HpetInfo, AcpiError>
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<HpetInfo, AcpiError>
     where
         H: AcpiHandler,
     {
         let hpet = unsafe {
             tables
-                .get_sdt::<HpetTable>(handler, crate::sdt::Signature::HPET)?
+                .get_sdt::<HpetTable>(crate::sdt::Signature::HPET)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::HPET))?
         };
 

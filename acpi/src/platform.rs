@@ -1,4 +1,4 @@
-use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PhysicalMapping, PowerProfile};
+use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
 use alloc::vec::Vec;
 
 #[derive(Debug)]
@@ -139,18 +139,18 @@ pub struct PlatformInfo {
 }
 
 impl PlatformInfo {
-    pub fn new<H>(tables: &AcpiTables<H>, handler: &mut H) -> Result<PlatformInfo, AcpiError>
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PlatformInfo, AcpiError>
     where
         H: AcpiHandler,
     {
         let fadt = unsafe {
             tables
-                .get_sdt::<Fadt>(handler, crate::sdt::Signature::FADT)?
+                .get_sdt::<Fadt>(crate::sdt::Signature::FADT)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
         };
         let power_profile = fadt.power_profile();
 
-        let madt = unsafe { tables.get_sdt::<Madt>(handler, crate::sdt::Signature::MADT)? };
+        let madt = unsafe { tables.get_sdt::<Madt>(crate::sdt::Signature::MADT)? };
         let (interrupt_model, processor_info) = match madt {
             Some(madt) => madt.parse_interrupt_model()?,
             None => (InterruptModel::Unknown, None),

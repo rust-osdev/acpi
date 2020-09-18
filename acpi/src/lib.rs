@@ -52,7 +52,7 @@ use crate::{
     sdt::{SdtHeader, Signature},
 };
 use alloc::{collections::BTreeMap, vec::Vec};
-use core::{marker::PhantomData, mem};
+use core::mem;
 use log::trace;
 
 #[derive(Debug)]
@@ -91,7 +91,7 @@ where
     pub sdts: BTreeMap<sdt::Signature, Sdt>,
     pub dsdt: Option<AmlTable>,
     pub ssdts: Vec<AmlTable>,
-    _phantom: PhantomData<H>,
+    handler: H,
 }
 
 impl<H> AcpiTables<H>
@@ -99,7 +99,7 @@ where
     H: AcpiHandler,
 {
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
-    pub unsafe fn from_rsdp(handler: &mut H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
+    pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
         rsdp_mapping.validate()?;
 
@@ -110,7 +110,7 @@ where
     /// from `from_rsdp` after validation, and also from the RSDP search routines since they need to validate the
     /// RSDP anyways.
     fn from_validated_rsdp(
-        handler: &mut H,
+        handler: H,
         rsdp_mapping: PhysicalMapping<H, Rsdp>,
     ) -> Result<AcpiTables<H>, AcpiError> {
         let revision = rsdp_mapping.revision();
@@ -134,16 +134,12 @@ where
     /// Create an `AcpiTables` if you have the physical address of the RSDT. This is useful, for example, if your chosen
     /// bootloader reads the RSDP and passes you the address of the RSDT. You also need to supply the correct ACPI
     /// revision - if `0`, a RSDT is expected, while a `XSDT` is expected for greater revisions.
-    pub unsafe fn from_rsdt(
-        handler: &mut H,
-        revision: u8,
-        rsdt_address: usize,
-    ) -> Result<AcpiTables<H>, AcpiError> {
-        let mut result =
-            AcpiTables { revision, sdts: BTreeMap::new(), dsdt: None, ssdts: Vec::new(), _phantom: PhantomData };
+    pub unsafe fn from_rsdt(handler: H, revision: u8, rsdt_address: usize) -> Result<AcpiTables<H>, AcpiError> {
+        let mut result = AcpiTables { revision, sdts: BTreeMap::new(), dsdt: None, ssdts: Vec::new(), handler };
 
-        let header = sdt::peek_at_sdt_header(handler, rsdt_address);
-        let mapping = unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, header.length as usize) };
+        let header = sdt::peek_at_sdt_header(&result.handler, rsdt_address);
+        let mapping =
+            unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, header.length as usize) };
 
         if revision == 0 {
             /*
@@ -156,7 +152,7 @@ where
                 ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
             for i in 0..num_tables {
-                result.process_sdt(handler, unsafe { *tables_base.offset(i as isize) as usize })?;
+                result.process_sdt(unsafe { *tables_base.offset(i as isize) as usize })?;
             }
         } else {
             /*
@@ -169,15 +165,28 @@ where
                 ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
             for i in 0..num_tables {
-                result.process_sdt(handler, unsafe { *tables_base.offset(i as isize) as usize })?;
+                result.process_sdt(unsafe { *tables_base.offset(i as isize) as usize })?;
             }
         }
 
         Ok(result)
     }
 
-    fn process_sdt(&mut self, handler: &mut H, physical_address: usize) -> Result<(), AcpiError> {
-        let header = sdt::peek_at_sdt_header(handler, physical_address);
+    /// Construct an `AcpiTables` from a custom set of "discovered" tables. This is provided to allow the library
+    /// to be used from unconventional settings (e.g. in userspace), for example with a `AcpiHandler` that detects
+    /// accesses to specific physical addresses, and provides the correct data.
+    pub fn from_tables_direct(
+        handler: H,
+        revision: u8,
+        sdts: BTreeMap<sdt::Signature, Sdt>,
+        dsdt: Option<AmlTable>,
+        ssdts: Vec<AmlTable>,
+    ) -> AcpiTables<H> {
+        AcpiTables { revision, sdts, dsdt, ssdts, handler }
+    }
+
+    fn process_sdt(&mut self, physical_address: usize) -> Result<(), AcpiError> {
+        let header = sdt::peek_at_sdt_header(&self.handler, physical_address);
         trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
 
         match header.signature {
@@ -189,11 +198,11 @@ where
                  * as another SDT. We extract it here to provide a nicer public API.
                  */
                 let fadt_mapping =
-                    unsafe { handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
+                    unsafe { self.handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
                 fadt_mapping.validate()?;
 
                 let dsdt_address = fadt_mapping.dsdt_address()?;
-                let dsdt_header = sdt::peek_at_sdt_header(handler, dsdt_address);
+                let dsdt_header = sdt::peek_at_sdt_header(&self.handler, dsdt_address);
                 self.dsdt = Some(AmlTable::new(dsdt_address, dsdt_header.length));
 
                 /*
@@ -213,17 +222,15 @@ where
         Ok(())
     }
 
-    pub unsafe fn get_sdt<T>(
-        &self,
-        handler: &mut H,
-        signature: sdt::Signature,
-    ) -> Result<Option<PhysicalMapping<H, T>>, AcpiError> {
+    pub unsafe fn get_sdt<T>(&self, signature: sdt::Signature) -> Result<Option<PhysicalMapping<H, T>>, AcpiError>
+    where
+        T: AcpiTable,
         let sdt = match self.sdts.get(&signature) {
             Some(sdt) => sdt,
             None => return Ok(None),
         };
         let mapping =
-            unsafe { handler.map_physical_region::<SdtHeader>(sdt.physical_address, sdt.length as usize) };
+            unsafe { self.handler.map_physical_region::<SdtHeader>(sdt.physical_address, sdt.length as usize) };
 
         if !sdt.validated {
             mapping.validate(signature)?;

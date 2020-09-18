@@ -13,13 +13,13 @@ pub struct PciConfigRegions {
 }
 
 impl PciConfigRegions {
-    pub fn new<H>(tables: &AcpiTables<H>, handler: &mut H) -> Result<PciConfigRegions, AcpiError>
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
     where
         H: AcpiHandler,
     {
         let mcfg = unsafe {
             tables
-                .get_sdt::<Mcfg>(handler, crate::sdt::Signature::MCFG)?
+                .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
         };
         Ok(PciConfigRegions { regions: mcfg.entries().iter().map(|&entry| entry).collect() })
