@@ -43,37 +43,33 @@ extern crate alloc;
 extern crate std;
 
 mod fadt;
-pub mod handler;
 mod hpet;
 mod madt;
 mod mcfg;
 pub mod platform;
-mod rsdp;
 mod sdt;
 
 pub use crate::{
     fadt::PowerProfile,
-    handler::{AcpiHandler, PhysicalMapping},
     hpet::HpetInfo,
     madt::MadtError,
     mcfg::PciConfigRegions,
     platform::{InterruptModel, PlatformInfo},
 };
-
-use crate::{
-    rsdp::Rsdp,
-    sdt::{SdtHeader, Signature},
+pub use rsdp_search::{
+    handler::{AcpiHandler, PhysicalMapping},
+    RsdpError,
 };
+
+use crate::sdt::{SdtHeader, Signature};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::mem;
 use log::trace;
+use rsdp_search::Rsdp;
 
 #[derive(Debug)]
 pub enum AcpiError {
-    RsdpIncorrectSignature,
-    RsdpInvalidOemId,
-    RsdpInvalidChecksum,
-    NoValidRsdp,
+    Rsdp(RsdpError),
 
     SdtInvalidSignature(Signature),
     SdtInvalidOemId(Signature),
@@ -83,16 +79,6 @@ pub enum AcpiError {
     TableMissing(Signature),
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
-}
-
-#[derive(Clone, Copy, Debug)]
-#[repr(C, packed)]
-pub(crate) struct GenericAddress {
-    address_space: u8,
-    bit_width: u8,
-    bit_offset: u8,
-    access_size: u8,
-    address: u64,
 }
 
 pub struct AcpiTables<H>
@@ -114,15 +100,15 @@ where
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
     pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
-        rsdp_mapping.validate()?;
+        rsdp_mapping.validate().map_err(|err| AcpiError::Rsdp(err))?;
 
         Self::from_validated_rsdp(handler, rsdp_mapping)
     }
 
     /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
-    /// from `from_rsdp` after validation, and also from the RSDP search routines since they need to validate the
-    /// RSDP anyways.
-    fn from_validated_rsdp(
+    /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
+    /// system.
+    pub fn from_validated_rsdp(
         handler: H,
         rsdp_mapping: PhysicalMapping<H, Rsdp>,
     ) -> Result<AcpiTables<H>, AcpiError> {
@@ -301,4 +287,14 @@ impl AmlTable {
             length: length - mem::size_of::<SdtHeader>() as u32,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(C, packed)]
+pub(crate) struct GenericAddress {
+    address_space: u8,
+    bit_width: u8,
+    bit_offset: u8,
+    access_size: u8,
+    address: u64,
 }

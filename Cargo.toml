@@ -1,2 +1,2 @@
 [workspace]
-members = ["acpi", "aml", "acpi-dumper", "aml_tester"]
+members = ["rsdp_search", "acpi", "aml", "acpi-dumper", "aml_tester"]
