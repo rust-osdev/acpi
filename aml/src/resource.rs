@@ -103,7 +103,7 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
             0x11 => unimplemented!("Pin Group Function Descriptor"),
             0x12 => unimplemented!("Pin Group Configuration Descriptor"),
 
-            0x00 | 0x13..=0x7f => Err(AmlError::ReservedResourceType(descriptor_type)),
+            0x00 | 0x13..=0x7f => Err(AmlError::ReservedResourceType),
             0x80..=0xff => unreachable!(),
         }?;
         
@@ -134,7 +134,7 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
         let length: usize = bytes[0].get_bits(0..=2) as usize;
 
         let descriptor = match descriptor_type {
-            0x00..=0x03 => Err(AmlError::ReservedResourceType(descriptor_type)),
+            0x00..=0x03 => Err(AmlError::ReservedResourceType),
             0x04 => irq_format_descriptor(&bytes[0..=length]),
             0x05 => dma_format_descriptor(&bytes[0..=length]),
             0x06 => unimplemented!("Start Dependent Functions Descriptor"),
@@ -142,7 +142,7 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
             0x08 => io_port_descriptor(&bytes[0..=length]),
             0x09 => unimplemented!("Fixed Location IO Port Descriptor"),
             0x0A => unimplemented!("Fixed DMA Descriptor"),
-            0x0B..=0x0D => Err(AmlError::ReservedResourceType(descriptor_type)),
+            0x0B..=0x0D => Err(AmlError::ReservedResourceType),
             0x0E => unimplemented!("Vendor Defined Descriptor"),
             0x0F => return Ok((None, &[])),
             0x10..=0xFF => unreachable!()
@@ -220,7 +220,7 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
      * Byte 11    Range length, _LEN bits [31:24]         This field contains bits [31:24] of the memory range length. The range length provides the length of the memory range in 1-byte blocks.
      */
     if bytes.len() < 12 {
-        return Err(AmlError::ResourceDescriptorLengthIncorrect);
+        return Err(AmlError::ResourceDescriptorTooShort);
     }
 
     let information = bytes[3];
@@ -247,14 +247,14 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 
 fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
     if bytes.len() < 14 {
-        return Err(AmlError::ResourceDescriptorLengthIncorrect);
+        return Err(AmlError::ResourceDescriptorTooShort);
     }
 
     let resource_type = match bytes[3] {
         0 => AddressSpaceResourceType::MemoryRange,
         1 => AddressSpaceResourceType::IORange,
         2 => AddressSpaceResourceType::BusNumberRange,
-        3..=191 => return Err(AmlError::ReservedResourceType(bytes[3])),
+        3..=191 => return Err(AmlError::ReservedResourceType),
         192..=255 => unimplemented!()
     };
 
@@ -302,44 +302,48 @@ pub struct IrqDescriptor {
 }
 
 fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
-    if bytes.len()-1 == 2 {
-        let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
-        Ok(Resource::Irq(IrqDescriptor {
-            irq: irq as u32,
-            is_wake_capable: false,
-            is_shared: false,
-            polarity: InterruptPolarity::ActiveHigh,
-            trigger: InterruptTrigger::Edge,
+    match bytes.len() - 1 { // TODO check this
+        0..=1 => Err(AmlError::ResourceDescriptorTooShort),
+        2 => {
+            let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
-            is_consumer: false // Is this correct?
-        }))
-    } else if bytes.len()-1 == 3 {
-        let irq = LittleEndian::read_u16(&bytes[1..=2]);
+            Ok(Resource::Irq(IrqDescriptor {
+                irq: irq as u32,
+                is_wake_capable: false,
+                is_shared: false,
+                polarity: InterruptPolarity::ActiveHigh,
+                trigger: InterruptTrigger::Edge,
 
-        let information = bytes[3];
-        let is_wake_capable = information.get_bit(5);
-        let is_shared = information.get_bit(4);
-        let polarity = match information.get_bit(3) {
-            false => InterruptPolarity::ActiveHigh,
-            true => InterruptPolarity::ActiveLow
-        };
-        let trigger = match information.get_bit(0) {
-            false => InterruptTrigger::Level,
-            true => InterruptTrigger::Edge
-        };
+                is_consumer: false // Is this correct?
+            }))
+        },
+        3 => {
+            let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
-        Ok(Resource::Irq(IrqDescriptor {
-            irq: irq as u32,
-            is_wake_capable,
-            is_shared,
-            polarity,
-            trigger,
+            let information = bytes[3];
+            let is_wake_capable = information.get_bit(5);
+            let is_shared = information.get_bit(4);
+            let polarity = match information.get_bit(3) {
+                false => InterruptPolarity::ActiveHigh,
+                true => InterruptPolarity::ActiveLow
+            };
+            let trigger = match information.get_bit(0) {
+                false => InterruptTrigger::Level,
+                true => InterruptTrigger::Edge
+            };
 
-            is_consumer: false // Is this correct?
-        }))
-    } else {
-        return Err(AmlError::ResourceDescriptorLengthIncorrect);
+            Ok(Resource::Irq(IrqDescriptor {
+                irq: irq as u32,
+                is_wake_capable,
+                is_shared,
+                polarity,
+                trigger,
+
+                is_consumer: false // Is this correct?
+            }))
+        },
+        _ => Err(AmlError::ResourceDescriptorTooLong)
     }
 }
 
@@ -367,8 +371,12 @@ pub struct DMADescriptor {
 }
 
 pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
-    if bytes.len() != 3 {
-        return Err(AmlError::ResourceDescriptorLengthIncorrect);
+    if bytes.len() < 3 {
+        return Err(AmlError::ResourceDescriptorTooShort);
+    }
+
+    if bytes.len() > 3 {
+        return Err(AmlError::ResourceDescriptorTooLong);
     }
 
     let channel_mask = bytes[1];
@@ -406,8 +414,12 @@ pub struct IOPortDescriptor {
 }
 
 fn io_port_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
-    if bytes.len() != 8 {
-        return Err(AmlError::ResourceDescriptorLengthIncorrect);
+    if bytes.len() < 8 {
+        return Err(AmlError::ResourceDescriptorTooShort);
+    }
+
+    if bytes.len() > 8 {
+        return Err(AmlError::ResourceDescriptorTooLong);
     }
 
     let information = bytes[1];
@@ -446,7 +458,7 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
      * NOTE: We only support the case where there is a single interrupt number.
      */
     if bytes.len() < 9 {
-        return Err(AmlError::ResourceDescriptorLengthIncorrect);
+        return Err(AmlError::ResourceDescriptorTooShort);
     }
 
     let number_of_interrupts = bytes[4] as usize;

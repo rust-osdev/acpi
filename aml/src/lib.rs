@@ -673,8 +673,9 @@ pub enum AmlError {
     /*
      * Errors produced parsing Resource Descriptors.
      */
-    ReservedResourceType(u8),
-    ResourceDescriptorLengthIncorrect,
+    ReservedResourceType,
+    ResourceDescriptorTooShort,
+    ResourceDescriptorTooLong,
 
     /*
      * Errors produced working with AML values.
