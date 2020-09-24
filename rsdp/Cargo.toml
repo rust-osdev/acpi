@@ -1,6 +1,6 @@
 [package]
 name = "rsdp"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Isaac Woods", "Restioson"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "Zero-allocation library for locating and parsing the RSDP, the first ACPI table"
