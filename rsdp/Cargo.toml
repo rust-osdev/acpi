@@ -1,9 +1,9 @@
 [package]
-name = "acpi"
-version = "1.1.0"
-authors = ["Isaac Woods"]
+name = "rsdp"
+version = "0.1.0"
+authors = ["Isaac Woods", "Restioson"]
 repository = "https://github.com/rust-osdev/acpi"
-description = "Library for parsing ACPI tables"
+description = "Zero-allocation library for locating and parsing the RSDP, the first ACPI table"
 categories = ["hardware-support", "no-std"]
 readme = "../README.md"
 license = "MIT/Apache-2.0"
@@ -11,5 +11,3 @@ edition = "2018"
 
 [dependencies]
 log = "0.4"
-bit_field = "0.10"
-rsdp = { path = "../rsdp" }

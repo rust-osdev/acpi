@@ -56,7 +56,7 @@ pub use crate::{
     mcfg::PciConfigRegions,
     platform::{InterruptModel, PlatformInfo},
 };
-pub use rsdp_search::{
+pub use rsdp::{
     handler::{AcpiHandler, PhysicalMapping},
     RsdpError,
 };
@@ -65,7 +65,7 @@ use crate::sdt::{SdtHeader, Signature};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::mem;
 use log::trace;
-use rsdp_search::Rsdp;
+use rsdp::Rsdp;
 
 #[derive(Debug)]
 pub enum AcpiError {

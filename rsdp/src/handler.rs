@@ -39,7 +39,7 @@ where
 /// however you please, as long as they conform to the documentation of each function. The handler is stored in
 /// every `PhysicalMapping` so it's able to unmap itself when dropped, so this type needs to be something you can
 /// clone/move about freely (e.g. a reference, wrapper over `Rc`, marker struct, etc.).
-pub trait AcpiHandler: Sized {
+pub trait AcpiHandler: Clone + Sized {
     /// Given a physical address and a size, map a region of physical memory that contains `T` (note: the passed
     /// size may be larger than `size_of::<T>()`). The address is not neccessarily page-aligned, so the
     /// implementation may need to map more than `size` bytes. The virtual address the region is mapped to does not

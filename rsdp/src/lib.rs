@@ -71,7 +71,7 @@ impl Rsdp {
     where
         H: AcpiHandler,
     {
-        let areas = find_search_areas(&handler);
+        let areas = find_search_areas(handler.clone());
 
         /*
          * We map a page at a time, as mapping the entire areas puts a lot of burden on a naive paging
@@ -175,7 +175,7 @@ impl Rsdp {
 }
 
 /// Find the areas we should search for the RSDP in.
-pub fn find_search_areas<H>(handler: &H) -> [RangeInclusive<usize>; 2]
+pub fn find_search_areas<H>(handler: H) -> [RangeInclusive<usize>; 2]
 where
     H: AcpiHandler,
 {
