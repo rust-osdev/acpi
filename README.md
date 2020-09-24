@@ -2,15 +2,17 @@
 [![Build Status](https://travis-ci.org/rust-osdev/acpi.svg?branch=master)](https://travis-ci.org/rust-osdev/acpi)
 [![Version](https://img.shields.io/crates/v/acpi.svg?style=rounded-square)](https://crates.io/crates/acpi/)
 
+### [Documentation (`rsdp`)](https://docs.rs/rsdp)
 ### [Documentation (`acpi`)](https://docs.rs/acpi)
 ### [Documentation (`aml`)](https://docs.rs/aml)
 
-A library to parse ACPI tables and AML, written in pure Rust. Designed to be easy to use from Rust bootloaders and kernels. The library is split into two crates:
+A library to parse ACPI tables and AML, written in pure Rust. Designed to be easy to use from Rust bootloaders and kernels. The library is split into three crates:
+- `rsdp` parses the RSDP and can locate it on BIOS platforms. It does not depend on `alloc`, so is suitable to use from bootloaders without heap alloctors. All of its
+  functionality is reexported by `acpi`.
 - `acpi` parses the static tables (useful but not feature-complete)
 - `aml` parses the AML tables (can be useful, far from feature-complete)
 
-There is also the `acpi-dumper` utility to easily dump a platform's ACPI tables (this currently only works on
-Linux).
+There is also the `acpi-dumper` utility to easily dump a platform's ACPI tables (this currently only works on Linux).
 
 ## Contributing
 Contributions are more than welcome! You can:
