@@ -105,6 +105,15 @@ where
         Self::from_validated_rsdp(handler, rsdp_mapping)
     }
 
+    /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
+    /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
+    /// details.
+    pub unsafe fn search_for_rsdp_bios(handler: H) -> Result<AcpiTables<H>, AcpiError> {
+        let rsdp_mapping =
+            unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(|err| AcpiError::Rsdp(err))?;
+        Self::from_validated_rsdp(handler, rsdp_mapping)
+    }
+
     /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
     /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
