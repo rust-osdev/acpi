@@ -299,11 +299,9 @@ pub struct IrqDescriptor {
 
 fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 
-    // We do `- 1` here so the arms below match specification. It doesn't 
-    // count byte 0 for some reason.
-    match bytes.len() - 1 { 
-        0..=1 => Err(AmlError::ResourceDescriptorTooShort),
-        2 => {
+    match bytes.len() { 
+        0..=2 => Err(AmlError::ResourceDescriptorTooShort),
+        3 => { // 2 in spec
             let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
             Ok(Resource::Irq(IrqDescriptor {
@@ -316,7 +314,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
                 is_consumer: false // Is this correct?
             }))
         },
-        3 => {
+        4 => { // 3 in spec
             let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
             let information = bytes[3];
