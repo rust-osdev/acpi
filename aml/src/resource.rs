@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Resource {
     Irq(IrqDescriptor),
     WordAddressSpace(AddressSpaceDescriptor),
@@ -154,33 +154,33 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InterruptTrigger {
     Edge,
     Level,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum InterruptPolarity {
     ActiveHigh,
     ActiveLow,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AddressSpaceResourceType {
     MemoryRange,
     IORange,
     BusNumberRange
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AddressSpaceDecodeType {
     Additive,
     Subtractive
 }
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct AddressSpaceDescriptor {
     resource_type: AddressSpaceResourceType,
     is_maximum_address_fixed: bool,
@@ -193,7 +193,7 @@ pub struct AddressSpaceDescriptor {
     length: u64
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MemoryRangeDescriptor {
     FixedLocation { 
         is_writable: bool,
@@ -293,7 +293,7 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
     }))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IrqDescriptor {
     pub is_consumer: bool,
     pub trigger: InterruptTrigger,
@@ -355,7 +355,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DMASupportedSpeed {
     CompatibilityMode,
     TypeA, // as described by the EISA
@@ -363,14 +363,14 @@ pub enum DMASupportedSpeed {
     TypeF
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DMATransferTypePreference {
     _8BitOnly,
     _8And16Bit,
     _16Bit
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DMADescriptor {
     channel_mask: u8,
     supported_speeds: DMASupportedSpeed,
@@ -413,7 +413,7 @@ pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     }))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct IOPortDescriptor {
     decodes_full_address: bool,
     memory_range: (u16, u16),
