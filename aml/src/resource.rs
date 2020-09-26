@@ -179,7 +179,6 @@ pub enum AddressSpaceDecodeType {
     Subtractive
 }
 
-
 #[derive(Debug, PartialEq, Eq)]
 pub struct AddressSpaceDescriptor {
     resource_type: AddressSpaceResourceType,
