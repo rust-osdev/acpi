@@ -483,207 +483,213 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     }))
 }
 
-#[test]
-fn test_parses_keyboard_crs() {
-    let bytes: Vec<u8> = [
-        // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
-        //
-        //         315:                   IO (Decode16,
-        //         316:                       0x0060,             // Range Minimum
-        //         317:                       0x0060,             // Range Maximum
-        //         318:                       0x01,               // Alignment
-        //         319:                       0x01,               // Length
-        //         320:                       )
-        
-        //    0000040A:  47 01 60 00 60 00 01 01     "G.`.`..."
-        0x47, 0x01, 0x60, 0x00, 0x60, 0x00, 0x01, 0x01,
 
-        //         321:                   IO (Decode16,
-        //         322:                       0x0064,             // Range Minimum
-        //         323:                       0x0064,             // Range Maximum
-        //         324:                       0x01,               // Alignment
-        //         325:                       0x01,               // Length
-        //         326:                       )
-        
-        //    00000412:  47 01 64 00 64 00 01 01     "G.d.d..."
-        0x47, 0x01, 0x64, 0x00, 0x64, 0x00, 0x01, 0x01,
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        //         327:                   IRQNoFlags ()
-        //         328:                       {1}
-        
-        //    0000041A:  22 02 00 ...............    "".."
-        0x22, 0x02, 0x00, 
-        
-        //    0000041D:  79 00 ..................    "y."
-        0x79, 0x00,
-    ].to_vec();
+    #[test]
+    fn test_parses_keyboard_crs() {
+        let bytes: Vec<u8> = [
+            // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
+            //
+            //         315:                   IO (Decode16,
+            //         316:                       0x0060,             // Range Minimum
+            //         317:                       0x0060,             // Range Maximum
+            //         318:                       0x01,               // Alignment
+            //         319:                       0x01,               // Length
+            //         320:                       )
+            
+            //    0000040A:  47 01 60 00 60 00 01 01     "G.`.`..."
+            0x47, 0x01, 0x60, 0x00, 0x60, 0x00, 0x01, 0x01,
 
-    let size: u64 = bytes.len() as u64;
-    let value: AmlValue = AmlValue::Buffer { bytes, size };
+            //         321:                   IO (Decode16,
+            //         322:                       0x0064,             // Range Minimum
+            //         323:                       0x0064,             // Range Maximum
+            //         324:                       0x01,               // Alignment
+            //         325:                       0x01,               // Length
+            //         326:                       )
+            
+            //    00000412:  47 01 64 00 64 00 01 01     "G.d.d..."
+            0x47, 0x01, 0x64, 0x00, 0x64, 0x00, 0x01, 0x01,
 
-    let resources = resource_descriptor_list(&value).unwrap();
+            //         327:                   IRQNoFlags ()
+            //         328:                       {1}
+            
+            //    0000041A:  22 02 00 ...............    "".."
+            0x22, 0x02, 0x00, 
+            
+            //    0000041D:  79 00 ..................    "y."
+            0x79, 0x00,
+        ].to_vec();
 
-    assert_eq!(resources, Vec::from([
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x60, 0x60), base_alignment: 1, range_length: 1 }), 
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x64, 0x64), base_alignment: 1, range_length: 1 }), 
-        Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: (1<<1) })
-    ]));
-}
+        let size: u64 = bytes.len() as u64;
+        let value: AmlValue = AmlValue::Buffer { bytes, size };
 
-#[test]
-fn test_pci_crs() {
-    let bytes: Vec<u8> = [
-        // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
-        //
-        //      98:               WordBusNumber (ResourceProducer, MinFixed, MaxFixed, PosDecode,
-        //      99:                   0x0000,             // Granularity
-        //     100:                   0x0000,             // Range Minimum
-        //     101:                   0x00FF,             // Range Maximum
-        //     102:                   0x0000,             // Translation Offset
-        //     103:                   0x0100,             // Length
-        //     104:                   ,, )
-        
-        // 000000F3:  88 0D 00 02 0C 00 00 00     "........"
-        // 000000FB:  00 00 FF 00 00 00 00 01     "........"
-        0x88, 0x0D, 0x00, 0x02, 0x0C, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01,
+        let resources = resource_descriptor_list(&value).unwrap();
 
-        //     105:               IO (Decode16,
-        //     106:                   0x0CF8,             // Range Minimum
-        //     107:                   0x0CF8,             // Range Maximum
-        //     108:                   0x01,               // Alignment
-        //     109:                   0x08,               // Length
-        //     110:                   )
-        
-        // 00000103:  47 01 F8 0C F8 0C 01 08     "G......."
-        0x47, 0x01, 0xF8, 0x0C, 0xF8, 0x0C, 0x01, 0x08,
+        assert_eq!(resources, Vec::from([
+            Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x60, 0x60), base_alignment: 1, range_length: 1 }), 
+            Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x64, 0x64), base_alignment: 1, range_length: 1 }), 
+            Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: (1<<1) })
+        ]));
+    }
 
-        //     111:               WordIO (ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange,
-        //     112:                   0x0000,             // Granularity
-        //     113:                   0x0000,             // Range Minimum
-        //     114:                   0x0CF7,             // Range Maximum
-        //     115:                   0x0000,             // Translation Offset
-        //     116:                   0x0CF8,             // Length
-        //     117:                   ,, , TypeStatic, DenseTranslation)
-        
-        // 0000010B:  88 0D 00 01 0C 03 00 00     "........"
-        // 00000113:  00 00 F7 0C 00 00 F8 0C     "........"
-        0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00,
-        0x00, 0x00, 0xF7, 0x0C, 0x00, 0x00, 0xF8, 0x0C,
+    #[test]
+    fn test_pci_crs() {
+        let bytes: Vec<u8> = [
+            // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
+            //
+            //      98:               WordBusNumber (ResourceProducer, MinFixed, MaxFixed, PosDecode,
+            //      99:                   0x0000,             // Granularity
+            //     100:                   0x0000,             // Range Minimum
+            //     101:                   0x00FF,             // Range Maximum
+            //     102:                   0x0000,             // Translation Offset
+            //     103:                   0x0100,             // Length
+            //     104:                   ,, )
+            
+            // 000000F3:  88 0D 00 02 0C 00 00 00     "........"
+            // 000000FB:  00 00 FF 00 00 00 00 01     "........"
+            0x88, 0x0D, 0x00, 0x02, 0x0C, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01,
 
-        //     118:               WordIO (ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange,
-        //     119:                   0x0000,             // Granularity
-        //     120:                   0x0D00,             // Range Minimum
-        //     121:                   0xFFFF,             // Range Maximum
-        //     122:                   0x0000,             // Translation Offset
-        //     123:                   0xF300,             // Length
-        //     124:                   ,, , TypeStatic, DenseTranslation)
-        
-        // 0000011B:  88 0D 00 01 0C 03 00 00     "........"
-        // 00000123:  00 0D FF FF 00 00 00 F3     "........"
-        0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00,
-        0x00, 0x0D, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xF3,
+            //     105:               IO (Decode16,
+            //     106:                   0x0CF8,             // Range Minimum
+            //     107:                   0x0CF8,             // Range Maximum
+            //     108:                   0x01,               // Alignment
+            //     109:                   0x08,               // Length
+            //     110:                   )
+            
+            // 00000103:  47 01 F8 0C F8 0C 01 08     "G......."
+            0x47, 0x01, 0xF8, 0x0C, 0xF8, 0x0C, 0x01, 0x08,
 
-        //     125:               DWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, Cacheable, ReadWrite,
-        //     126:                   0x00000000,         // Granularity
-        //     127:                   0x000A0000,         // Range Minimum
-        //     128:                   0x000BFFFF,         // Range Maximum
-        //     129:                   0x00000000,         // Translation Offset
-        //     130:                   0x00020000,         // Length
-        //     131:                   ,, , AddressRangeMemory, TypeStatic)
-        
-        // 0000012B:  87 17 00 00 0C 03 00 00     "........"
-        // 00000133:  00 00 00 00 0A 00 FF FF     "........"
-        // 0000013B:  0B 00 00 00 00 00 00 00     "........"
-        // 00000143:  02 00 ..................    ".."
-        0x87, 0x17, 0x00, 0x00, 0x0C, 0x03, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0xFF, 0xFF,
-        0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x02, 0x00,
+            //     111:               WordIO (ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange,
+            //     112:                   0x0000,             // Granularity
+            //     113:                   0x0000,             // Range Minimum
+            //     114:                   0x0CF7,             // Range Maximum
+            //     115:                   0x0000,             // Translation Offset
+            //     116:                   0x0CF8,             // Length
+            //     117:                   ,, , TypeStatic, DenseTranslation)
+            
+            // 0000010B:  88 0D 00 01 0C 03 00 00     "........"
+            // 00000113:  00 00 F7 0C 00 00 F8 0C     "........"
+            0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00,
+            0x00, 0x00, 0xF7, 0x0C, 0x00, 0x00, 0xF8, 0x0C,
 
-        //     132:               DWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, NonCacheable, ReadWrite,
-        //     133:                   0x00000000,         // Granularity
-        //     134:                   0xE0000000,         // Range Minimum
-        //     135:                   0xFEBFFFFF,         // Range Maximum
-        //     136:                   0x00000000,         // Translation Offset
-        //     137:                   0x1EC00000,         // Length
-        //     138:                   ,, _Y00, AddressRangeMemory, TypeStatic)
-        
-        // 00000145:  87 17 00 00 0C 01 00 00     "........"
-        // 0000014D:  00 00 00 00 00 E0 FF FF     "........"
-        // 00000155:  BF FE 00 00 00 00 00 00     "........"
-        // 0000015D:  C0 1E ..................    ".."
-        0x87, 0x17, 0x00, 0x00, 0x0C, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0xFF, 0xFF,
-        0xBF, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xC0, 0x1E,
+            //     118:               WordIO (ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange,
+            //     119:                   0x0000,             // Granularity
+            //     120:                   0x0D00,             // Range Minimum
+            //     121:                   0xFFFF,             // Range Maximum
+            //     122:                   0x0000,             // Translation Offset
+            //     123:                   0xF300,             // Length
+            //     124:                   ,, , TypeStatic, DenseTranslation)
+            
+            // 0000011B:  88 0D 00 01 0C 03 00 00     "........"
+            // 00000123:  00 0D FF FF 00 00 00 F3     "........"
+            0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00,
+            0x00, 0x0D, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xF3,
 
-        // 0000015F:  79 00 ..................    "y."
-        0x79, 0x00,
-    ].to_vec();
+            //     125:               DWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, Cacheable, ReadWrite,
+            //     126:                   0x00000000,         // Granularity
+            //     127:                   0x000A0000,         // Range Minimum
+            //     128:                   0x000BFFFF,         // Range Maximum
+            //     129:                   0x00000000,         // Translation Offset
+            //     130:                   0x00020000,         // Length
+            //     131:                   ,, , AddressRangeMemory, TypeStatic)
+            
+            // 0000012B:  87 17 00 00 0C 03 00 00     "........"
+            // 00000133:  00 00 00 00 0A 00 FF FF     "........"
+            // 0000013B:  0B 00 00 00 00 00 00 00     "........"
+            // 00000143:  02 00 ..................    ".."
+            0x87, 0x17, 0x00, 0x00, 0x0C, 0x03, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0xFF, 0xFF,
+            0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x02, 0x00,
 
-    let size: u64 = bytes.len() as u64;
-    let value: AmlValue = AmlValue::Buffer { bytes, size };
+            //     132:               DWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, NonCacheable, ReadWrite,
+            //     133:                   0x00000000,         // Granularity
+            //     134:                   0xE0000000,         // Range Minimum
+            //     135:                   0xFEBFFFFF,         // Range Maximum
+            //     136:                   0x00000000,         // Translation Offset
+            //     137:                   0x1EC00000,         // Length
+            //     138:                   ,, _Y00, AddressRangeMemory, TypeStatic)
+            
+            // 00000145:  87 17 00 00 0C 01 00 00     "........"
+            // 0000014D:  00 00 00 00 00 E0 FF FF     "........"
+            // 00000155:  BF FE 00 00 00 00 00 00     "........"
+            // 0000015D:  C0 1E ..................    ".."
+            0x87, 0x17, 0x00, 0x00, 0x0C, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0xFF, 0xFF,
+            0xBF, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC0, 0x1E,
 
-    let resources = resource_descriptor_list(&value).unwrap();
+            // 0000015F:  79 00 ..................    "y."
+            0x79, 0x00,
+        ].to_vec();
 
-    assert_eq!(resources, Vec::from([
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::BusNumberRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x00, 0xFF), translation_offset: 0, length: 0x100 }), 
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0xCF8, 0xCF8), base_alignment: 1, range_length: 8 }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0000, 0x0CF7), translation_offset: 0, length: 0xCF8 }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0D00, 0xFFFF), translation_offset: 0, length: 0xF300 }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xA0000, 0xBFFFF), translation_offset: 0, length: 0x20000 }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xE0000000, 0xFEBFFFFF), translation_offset: 0, length: 0x1EC00000 }), 
-    ]));
-}
+        let size: u64 = bytes.len() as u64;
+        let value: AmlValue = AmlValue::Buffer { bytes, size };
 
-#[test]
-fn test_fdc_crs() {
-    let bytes: Vec<u8> = [
-        //         365:                   IO (Decode16,
-        //         366:                       0x03F2,             // Range Minimum
-        //         367:                       0x03F2,             // Range Maximum
-        //         368:                       0x00,               // Alignment
-        //         369:                       0x04,               // Length
-        //         370:                       )
-        
-        //    0000047C:  47 01 F2 03 F2 03 00 04     "G......."
-        0x47, 0x01, 0xF2, 0x03, 0xF2, 0x03, 0x00, 0x04,
+        let resources = resource_descriptor_list(&value).unwrap();
 
-        //         371:                   IO (Decode16,
-        //         372:                       0x03F7,             // Range Minimum
-        //         373:                       0x03F7,             // Range Maximum
-        //         374:                       0x00,               // Alignment
-        //         375:                       0x01,               // Length
-        //         376:                       )
-        
-        //    00000484:  47 01 F7 03 F7 03 00 01     "G......."
-        0x47, 0x01, 0xF7, 0x03, 0xF7, 0x03, 0x00, 0x01,
+        assert_eq!(resources, Vec::from([
+            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::BusNumberRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x00, 0xFF), translation_offset: 0, length: 0x100 }), 
+            Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0xCF8, 0xCF8), base_alignment: 1, range_length: 8 }), 
+            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0000, 0x0CF7), translation_offset: 0, length: 0xCF8 }), 
+            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0D00, 0xFFFF), translation_offset: 0, length: 0xF300 }), 
+            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xA0000, 0xBFFFF), translation_offset: 0, length: 0x20000 }), 
+            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xE0000000, 0xFEBFFFFF), translation_offset: 0, length: 0x1EC00000 }), 
+        ]));
+    }
 
-        //         377:                   IRQNoFlags ()
-        //         378:                       {6}
-        
-        //    0000048C:  22 40 00 ...............    ""@."
-        0x22, 0x40, 0x00,
+    #[test]
+    fn test_fdc_crs() {
+        let bytes: Vec<u8> = [
+            //         365:                   IO (Decode16,
+            //         366:                       0x03F2,             // Range Minimum
+            //         367:                       0x03F2,             // Range Maximum
+            //         368:                       0x00,               // Alignment
+            //         369:                       0x04,               // Length
+            //         370:                       )
+            
+            //    0000047C:  47 01 F2 03 F2 03 00 04     "G......."
+            0x47, 0x01, 0xF2, 0x03, 0xF2, 0x03, 0x00, 0x04,
 
-        //         379:                   DMA (Compatibility, NotBusMaster, Transfer8, )
-        //         380:                       {2}
-        
-        //    0000048F:  2A 04 00 ...............    "*.."
-        0x2A, 0x04, 0x00,
+            //         371:                   IO (Decode16,
+            //         372:                       0x03F7,             // Range Minimum
+            //         373:                       0x03F7,             // Range Maximum
+            //         374:                       0x00,               // Alignment
+            //         375:                       0x01,               // Length
+            //         376:                       )
+            
+            //    00000484:  47 01 F7 03 F7 03 00 01     "G......."
+            0x47, 0x01, 0xF7, 0x03, 0xF7, 0x03, 0x00, 0x01,
 
-        //    00000492:  79 00 ..................    "y."
-        0x79, 0x00,
-    ].to_vec();
-    let size: u64 = bytes.len() as u64;
-    let value: AmlValue = AmlValue::Buffer { bytes, size };
+            //         377:                   IRQNoFlags ()
+            //         378:                       {6}
+            
+            //    0000048C:  22 40 00 ...............    ""@."
+            0x22, 0x40, 0x00,
 
-    let resources = resource_descriptor_list(&value).unwrap();
+            //         379:                   DMA (Compatibility, NotBusMaster, Transfer8, )
+            //         380:                       {2}
+            
+            //    0000048F:  2A 04 00 ...............    "*.."
+            0x2A, 0x04, 0x00,
 
-    assert_eq!(resources, Vec::from([
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x03F2, 0x03F2), base_alignment: 0, range_length: 4 }), 
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x03F7, 0x03F7), base_alignment: 0, range_length: 1 }), 
-        Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: (1<<6) }), 
-        Resource::Dma(DMADescriptor { channel_mask: 1<<2, supported_speeds: DMASupportedSpeed::CompatibilityMode, is_bus_master: false, transfer_type_preference: DMATransferTypePreference::_8BitOnly })
-    ]));
+            //    00000492:  79 00 ..................    "y."
+            0x79, 0x00,
+        ].to_vec();
+        let size: u64 = bytes.len() as u64;
+        let value: AmlValue = AmlValue::Buffer { bytes, size };
+
+        let resources = resource_descriptor_list(&value).unwrap();
+
+        assert_eq!(resources, Vec::from([
+            Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x03F2, 0x03F2), base_alignment: 0, range_length: 4 }), 
+            Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x03F7, 0x03F7), base_alignment: 0, range_length: 1 }), 
+            Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: (1<<6) }), 
+            Resource::Dma(DMADescriptor { channel_mask: 1<<2, supported_speeds: DMASupportedSpeed::CompatibilityMode, is_bus_master: false, transfer_type_preference: DMATransferTypePreference::_8BitOnly })
+        ]));
+    }
 }
