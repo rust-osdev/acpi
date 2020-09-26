@@ -23,7 +23,7 @@ pub fn resource_descriptor_list(descriptor: &AmlValue) -> Result<Vec<Resource>, 
         let mut bytes = bytes.as_slice();
 
         while bytes.len() > 0 {
-            let (descriptor, remaining_bytes) = resource_descriptor_inner(bytes)?;
+            let (descriptor, remaining_bytes) = resource_descriptor(bytes)?;
 
             if let Some(descriptor) = descriptor {
                 descriptors.push(descriptor);
@@ -41,17 +41,7 @@ pub fn resource_descriptor_list(descriptor: &AmlValue) -> Result<Vec<Resource>, 
 
 /// Parse a `ResourceDescriptor`. Returns `AmlError::IncompatibleValueConversion` if the passed value is not a
 /// `Buffer`.
-pub fn resource_descriptor(descriptor: &AmlValue) -> Result<Resource, AmlError> {
-    if let AmlValue::Buffer { bytes, size: _ } = descriptor {
-        let (descriptor, _) = resource_descriptor_inner(bytes)?;
-        let descriptor = descriptor.expect("found unexpected End Tag Descriptor");
-        Ok(descriptor)
-    } else {
-        Err(AmlError::IncompatibleValueConversion)
-    }
-}
-
-fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlError> {
+fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlError> {
     /*
     * If bit 7 of Byte 0 is set, it's a large descriptor. If not, it's a small descriptor.
     */
@@ -154,26 +144,26 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum InterruptTrigger {
     Edge,
     Level,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum InterruptPolarity {
     ActiveHigh,
     ActiveLow,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum AddressSpaceResourceType {
     MemoryRange,
     IORange,
     BusNumberRange
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum AddressSpaceDecodeType {
     Additive,
     Subtractive
@@ -283,7 +273,7 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
     }))
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IrqDescriptor {
     pub is_consumer: bool,
     pub trigger: InterruptTrigger,
