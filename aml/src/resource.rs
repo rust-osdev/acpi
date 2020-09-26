@@ -229,17 +229,8 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     let information = bytes[3];
     let is_writable = information.get_bit(0);
 
-    let base_address = 
-        ((bytes[4] as u32) << 0) | 
-        ((bytes[5] as u32) << 8) | 
-        ((bytes[6] as u32) << 16) | 
-        ((bytes[7] as u32) << 24);
-
-    let range_length = 
-        ((bytes[8] as u32) << 0) | 
-        ((bytes[9] as u32) << 8) | 
-        ((bytes[10] as u32) << 16) | 
-        ((bytes[11] as u32) << 24);
+    let base_address = LittleEndian::read_u32(&bytes[4..]);
+    let range_length = LittleEndian::read_u32(&bytes[8..]);
 
     Ok(Resource::MemoryRange(MemoryRangeDescriptor::FixedLocation {
         is_writable,
