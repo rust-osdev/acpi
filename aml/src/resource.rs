@@ -639,16 +639,51 @@ fn test_pci_crs() {
 
 #[test]
 fn test_fdc_crs() {
-    let bytes: Vec<u8> = [71, 1, 242, 3, 242, 3, 0, 4, 71, 1, 247, 3, 247, 3, 0, 1, 34, 64, 0, 42, 4, 0, 121, 0].to_vec();
+    let bytes: Vec<u8> = [
+        //         365:                   IO (Decode16,
+        //         366:                       0x03F2,             // Range Minimum
+        //         367:                       0x03F2,             // Range Maximum
+        //         368:                       0x00,               // Alignment
+        //         369:                       0x04,               // Length
+        //         370:                       )
+        
+        //    0000047C:  47 01 F2 03 F2 03 00 04     "G......."
+        0x47, 0x01, 0xF2, 0x03, 0xF2, 0x03, 0x00, 0x04,
+
+        //         371:                   IO (Decode16,
+        //         372:                       0x03F7,             // Range Minimum
+        //         373:                       0x03F7,             // Range Maximum
+        //         374:                       0x00,               // Alignment
+        //         375:                       0x01,               // Length
+        //         376:                       )
+        
+        //    00000484:  47 01 F7 03 F7 03 00 01     "G......."
+        0x47, 0x01, 0xF7, 0x03, 0xF7, 0x03, 0x00, 0x01,
+
+        //         377:                   IRQNoFlags ()
+        //         378:                       {6}
+        
+        //    0000048C:  22 40 00 ...............    ""@."
+        0x22, 0x40, 0x00,
+
+        //         379:                   DMA (Compatibility, NotBusMaster, Transfer8, )
+        //         380:                       {2}
+        
+        //    0000048F:  2A 04 00 ...............    "*.."
+        0x2A, 0x04, 0x00,
+
+        //    00000492:  79 00 ..................    "y."
+        0x79, 0x00,
+    ].to_vec();
     let size: u64 = bytes.len() as u64;
     let value: AmlValue = AmlValue::Buffer { bytes, size };
 
     let resources = resource_descriptor_list(&value).unwrap();
 
     assert_eq!(resources, Vec::from([
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (1010, 1010), base_alignment: 0, range_length: 4 }), 
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (1015, 1015), base_alignment: 0, range_length: 1 }), 
-        Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: 64 }), 
-        Resource::Dma(DMADescriptor { channel_mask: 4, supported_speeds: DMASupportedSpeed::CompatibilityMode, is_bus_master: false, transfer_type_preference: DMATransferTypePreference::_8BitOnly })
+        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x03F2, 0x03F2), base_alignment: 0, range_length: 4 }), 
+        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x03F7, 0x03F7), base_alignment: 0, range_length: 1 }), 
+        Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: (1<<6) }), 
+        Resource::Dma(DMADescriptor { channel_mask: 1<<2, supported_speeds: DMASupportedSpeed::CompatibilityMode, is_bus_master: false, transfer_type_preference: DMATransferTypePreference::_8BitOnly })
     ]));
 }
