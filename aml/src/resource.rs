@@ -479,16 +479,46 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 
 #[test]
 fn test_parses_keyboard_crs() {
-    let bytes: Vec<u8> = [71, 1, 96, 0, 96, 0, 1, 1, 71, 1, 100, 0, 100, 0, 1, 1, 34, 2, 0, 121, 0].to_vec();
+    let bytes: Vec<u8> = [
+    // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
+    //
+    //         315:                   IO (Decode16,
+    //         316:                       0x0060,             // Range Minimum
+    //         317:                       0x0060,             // Range Maximum
+    //         318:                       0x01,               // Alignment
+    //         319:                       0x01,               // Length
+    //         320:                       )
+       
+    //    0000040A:  47 01 60 00 60 00 01 01     "G.`.`..."
+        0x47, 0x01, 0x60, 0x00, 0x60, 0x00, 0x01, 0x01,
+
+    //     321:                   IO (Decode16,
+    //         322:                       0x0064,             // Range Minimum
+    //         323:                       0x0064,             // Range Maximum
+    //         324:                       0x01,               // Alignment
+    //         325:                       0x01,               // Length
+    //         326:                       )
+       
+    //    00000412:  47 01 64 00 64 00 01 01     "G.d.d..."
+        0x47, 0x01, 0x64, 0x00, 0x64, 0x00, 0x01, 0x01,
+
+    //         327:                   IRQNoFlags ()
+    //         328:                       {1}
+    
+    //    0000041A:  22 02 00 ...............    "".."
+    //    0000041D:  79 00 ..................    "y."
+        0x22, 0x02, 0x00, 0x79, 0x00,
+    ].to_vec();
+
     let size: u64 = bytes.len() as u64;
     let value: AmlValue = AmlValue::Buffer { bytes, size };
 
     let resources = resource_descriptor_list(&value).unwrap();
 
     assert_eq!(resources, Vec::from([
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (96, 96), base_alignment: 1, range_length: 1 }), 
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (100, 100), base_alignment: 1, range_length: 1 }), 
-        Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: 2 })
+        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x60, 0x60), base_alignment: 1, range_length: 1 }), 
+        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0x64, 0x64), base_alignment: 1, range_length: 1 }), 
+        Resource::Irq(IrqDescriptor { is_consumer: false, trigger: InterruptTrigger::Edge, polarity: InterruptPolarity::ActiveHigh, is_shared: false, is_wake_capable: false, irq: (1<<1) })
     ]));
 }
 
