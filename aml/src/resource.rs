@@ -1,3 +1,5 @@
+use core::mem;
+
 use crate::{value::AmlValue, AmlError};
 use alloc::vec::Vec;
 use bit_field::BitField;
@@ -81,7 +83,7 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
         * bytes contain the actual data items.
         */
         let descriptor_type = bytes[0].get_bits(0..7);
-        let length = LittleEndian::read_u16(&bytes[1..=2]) as usize;
+        let length = LittleEndian::read_u16(&bytes[1..=2]) as usize + 2;
 
         let descriptor = match descriptor_type {
             0x01 => unimplemented!("24-bit Memory Range Descriptor"),
@@ -89,11 +91,11 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
             0x03 => unimplemented!("0x03 Reserved"),
             0x04 => unimplemented!("Vendor-defined Descriptor"),
             0x05 => unimplemented!("32-bit Memory Range Descriptor"),
-            0x06 => fixed_memory_descriptor(&bytes[0..=length]),
-            0x07 => address_space_descriptor::<u32>(&bytes[0..=length]),
-            0x08 => address_space_descriptor::<u16>(&bytes[0..=length]),
-            0x09 => extended_interrupt_descriptor(&bytes[0..=length]),
-            0x0a => address_space_descriptor::<u64>(&bytes[0..=length]),
+            0x06 => fixed_memory_descriptor(&bytes[0..length+2]),
+            0x07 => address_space_descriptor::<u32>(&bytes[0..length+2]),
+            0x08 => address_space_descriptor::<u16>(&bytes[0..length+2]),
+            0x09 => extended_interrupt_descriptor(&bytes[0..length+2]),
+            0x0a => address_space_descriptor::<u64>(&bytes[0..length+2]),
             0x0b => unimplemented!("Extended Address Space Descriptor"),
             0x0c => unimplemented!("GPIO Connection Descriptor"),
             0x0d => unimplemented!("Pin Function Descriptor"),
@@ -107,7 +109,7 @@ fn resource_descriptor_inner(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), 
             0x80..=0xff => unreachable!(),
         }?;
         
-        Ok((Some(descriptor), &bytes[length+3..]))
+        Ok((Some(descriptor), &bytes[length+1..]))
     } else {
         /*
         * We're parsing a small descriptor. Byte 0 has the format:
@@ -187,6 +189,8 @@ pub struct AddressSpaceDescriptor {
 
     granularity: u64,
     address_range: (u64, u64),
+    translation_offset: u64,
+    length: u64
 }
 
 #[derive(Debug, PartialEq)]
@@ -246,7 +250,9 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 }
 
 fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
-    if bytes.len() < 14 {
+    let size = mem::size_of::<T>();
+
+    if bytes.len() < 6 + size*5 {
         return Err(AmlError::ResourceDescriptorTooShort);
     }
 
@@ -267,15 +273,13 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
         AddressSpaceDecodeType::Additive
     };
 
-    let size = core::mem::size_of::<T>();
-    let location = 6;
+    const START: usize = 6;
 
-    let granularity = LittleEndian::read_uint(&bytes[location..], size);
-    let location = location + size;
-
-    let address_range_min = LittleEndian::read_uint(&bytes[location..], size);
-    let address_range_max = LittleEndian::read_uint(&bytes[location+size..], size);
-    let address_range = (address_range_min, address_range_max);
+    let granularity        = LittleEndian::read_uint(&bytes[START+(0*size)..], size);
+    let address_range_min  = LittleEndian::read_uint(&bytes[START+(1*size)..], size);
+    let address_range_max  = LittleEndian::read_uint(&bytes[START+(2*size)..], size);
+    let translation_offset = LittleEndian::read_uint(&bytes[START+(3*size)..], size);
+    let length             = LittleEndian::read_uint(&bytes[START+(4*size)..], size);
 
     Ok(Resource::WordAddressSpace(AddressSpaceDescriptor {
         resource_type,
@@ -283,7 +287,9 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
         is_minimum_address_fixed,
         decode_type,
         granularity,
-        address_range
+        address_range: (address_range_min, address_range_max),
+        translation_offset,
+        length
     }))
 }
 
@@ -480,34 +486,36 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 #[test]
 fn test_parses_keyboard_crs() {
     let bytes: Vec<u8> = [
-    // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
-    //
-    //         315:                   IO (Decode16,
-    //         316:                       0x0060,             // Range Minimum
-    //         317:                       0x0060,             // Range Maximum
-    //         318:                       0x01,               // Alignment
-    //         319:                       0x01,               // Length
-    //         320:                       )
-       
-    //    0000040A:  47 01 60 00 60 00 01 01     "G.`.`..."
+        // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
+        //
+        //         315:                   IO (Decode16,
+        //         316:                       0x0060,             // Range Minimum
+        //         317:                       0x0060,             // Range Maximum
+        //         318:                       0x01,               // Alignment
+        //         319:                       0x01,               // Length
+        //         320:                       )
+        
+        //    0000040A:  47 01 60 00 60 00 01 01     "G.`.`..."
         0x47, 0x01, 0x60, 0x00, 0x60, 0x00, 0x01, 0x01,
 
-    //     321:                   IO (Decode16,
-    //         322:                       0x0064,             // Range Minimum
-    //         323:                       0x0064,             // Range Maximum
-    //         324:                       0x01,               // Alignment
-    //         325:                       0x01,               // Length
-    //         326:                       )
-       
-    //    00000412:  47 01 64 00 64 00 01 01     "G.d.d..."
+        //         321:                   IO (Decode16,
+        //         322:                       0x0064,             // Range Minimum
+        //         323:                       0x0064,             // Range Maximum
+        //         324:                       0x01,               // Alignment
+        //         325:                       0x01,               // Length
+        //         326:                       )
+        
+        //    00000412:  47 01 64 00 64 00 01 01     "G.d.d..."
         0x47, 0x01, 0x64, 0x00, 0x64, 0x00, 0x01, 0x01,
 
-    //         327:                   IRQNoFlags ()
-    //         328:                       {1}
-    
-    //    0000041A:  22 02 00 ...............    "".."
-    //    0000041D:  79 00 ..................    "y."
-        0x22, 0x02, 0x00, 0x79, 0x00,
+        //         327:                   IRQNoFlags ()
+        //         328:                       {1}
+        
+        //    0000041A:  22 02 00 ...............    "".."
+        0x22, 0x02, 0x00, 
+        
+        //    0000041D:  79 00 ..................    "y."
+        0x79, 0x00,
     ].to_vec();
 
     let size: u64 = bytes.len() as u64;
@@ -525,20 +533,107 @@ fn test_parses_keyboard_crs() {
 #[test]
 fn test_pci_crs() {
     let bytes: Vec<u8> = [
-        136, 13, 0, 2, 12, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 1, 71, 1, 248, 12, 248, 12, 1, 8, 136, 13, 0, 1, 12, 3, 0, 0, 0, 0, 247, 12, 0, 0, 248, 12, 136, 13, 0, 1, 12, 3, 0, 0, 0, 13, 255, 255, 0, 0, 0, 243, 135, 23, 0, 0, 12, 3, 0, 0, 0, 0, 0, 0, 10, 0, 255, 255, 11, 0, 0, 0, 0, 0, 0, 0, 2, 0, 135, 23, 0, 0, 12, 1, 0, 0, 0, 0, 0, 0, 0, 8, 255, 255, 191, 254, 0, 0, 0, 0, 0, 0, 192, 246, 138, 43, 0, 0, 12, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 255, 255, 255, 127, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 0, 121, 0].to_vec();
+        // Generated from `iasl -l pc-bios_acpi-dsdt.asl`
+        //
+        //      98:               WordBusNumber (ResourceProducer, MinFixed, MaxFixed, PosDecode,
+        //      99:                   0x0000,             // Granularity
+        //     100:                   0x0000,             // Range Minimum
+        //     101:                   0x00FF,             // Range Maximum
+        //     102:                   0x0000,             // Translation Offset
+        //     103:                   0x0100,             // Length
+        //     104:                   ,, )
+        
+        // 000000F3:  88 0D 00 02 0C 00 00 00     "........"
+        // 000000FB:  00 00 FF 00 00 00 00 01     "........"
+        0x88, 0x0D, 0x00, 0x02, 0x0C, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01,
+
+        //     105:               IO (Decode16,
+        //     106:                   0x0CF8,             // Range Minimum
+        //     107:                   0x0CF8,             // Range Maximum
+        //     108:                   0x01,               // Alignment
+        //     109:                   0x08,               // Length
+        //     110:                   )
+        
+        // 00000103:  47 01 F8 0C F8 0C 01 08     "G......."
+        0x47, 0x01, 0xF8, 0x0C, 0xF8, 0x0C, 0x01, 0x08,
+
+        //     111:               WordIO (ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange,
+        //     112:                   0x0000,             // Granularity
+        //     113:                   0x0000,             // Range Minimum
+        //     114:                   0x0CF7,             // Range Maximum
+        //     115:                   0x0000,             // Translation Offset
+        //     116:                   0x0CF8,             // Length
+        //     117:                   ,, , TypeStatic, DenseTranslation)
+        
+        // 0000010B:  88 0D 00 01 0C 03 00 00     "........"
+        // 00000113:  00 00 F7 0C 00 00 F8 0C     "........"
+        0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00,
+        0x00, 0x00, 0xF7, 0x0C, 0x00, 0x00, 0xF8, 0x0C,
+
+        //     118:               WordIO (ResourceProducer, MinFixed, MaxFixed, PosDecode, EntireRange,
+        //     119:                   0x0000,             // Granularity
+        //     120:                   0x0D00,             // Range Minimum
+        //     121:                   0xFFFF,             // Range Maximum
+        //     122:                   0x0000,             // Translation Offset
+        //     123:                   0xF300,             // Length
+        //     124:                   ,, , TypeStatic, DenseTranslation)
+        
+        // 0000011B:  88 0D 00 01 0C 03 00 00     "........"
+        // 00000123:  00 0D FF FF 00 00 00 F3     "........"
+        0x88, 0x0D, 0x00, 0x01, 0x0C, 0x03, 0x00, 0x00,
+        0x00, 0x0D, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xF3,
+
+        //     125:               DWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, Cacheable, ReadWrite,
+        //     126:                   0x00000000,         // Granularity
+        //     127:                   0x000A0000,         // Range Minimum
+        //     128:                   0x000BFFFF,         // Range Maximum
+        //     129:                   0x00000000,         // Translation Offset
+        //     130:                   0x00020000,         // Length
+        //     131:                   ,, , AddressRangeMemory, TypeStatic)
+        
+        // 0000012B:  87 17 00 00 0C 03 00 00     "........"
+        // 00000133:  00 00 00 00 0A 00 FF FF     "........"
+        // 0000013B:  0B 00 00 00 00 00 00 00     "........"
+        // 00000143:  02 00 ..................    ".."
+        0x87, 0x17, 0x00, 0x00, 0x0C, 0x03, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x0A, 0x00, 0xFF, 0xFF,
+        0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x02, 0x00,
+
+        //     132:               DWordMemory (ResourceProducer, PosDecode, MinFixed, MaxFixed, NonCacheable, ReadWrite,
+        //     133:                   0x00000000,         // Granularity
+        //     134:                   0xE0000000,         // Range Minimum
+        //     135:                   0xFEBFFFFF,         // Range Maximum
+        //     136:                   0x00000000,         // Translation Offset
+        //     137:                   0x1EC00000,         // Length
+        //     138:                   ,, _Y00, AddressRangeMemory, TypeStatic)
+        
+        // 00000145:  87 17 00 00 0C 01 00 00     "........"
+        // 0000014D:  00 00 00 00 00 E0 FF FF     "........"
+        // 00000155:  BF FE 00 00 00 00 00 00     "........"
+        // 0000015D:  C0 1E ..................    ".."
+        0x87, 0x17, 0x00, 0x00, 0x0C, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xE0, 0xFF, 0xFF,
+        0xBF, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xC0, 0x1E,
+
+        // 0000015F:  79 00 ..................    "y."
+        0x79, 0x00,
+    ].to_vec();
+
     let size: u64 = bytes.len() as u64;
     let value: AmlValue = AmlValue::Buffer { bytes, size };
 
     let resources = resource_descriptor_list(&value).unwrap();
 
     assert_eq!(resources, Vec::from([
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::BusNumberRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0, 255) }), 
-        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (3320, 3320), base_alignment: 1, range_length: 8 }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0, 3319) }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (3328, 65535) }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (655360, 786431) }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (134217728, 4273995775) }), 
-        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (4294967296, 6442450943) })
+        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::BusNumberRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x00, 0xFF), translation_offset: 0, length: 0x100 }), 
+        Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0xCF8, 0xCF8), base_alignment: 1, range_length: 8 }), 
+        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0000, 0x0CF7), translation_offset: 0, length: 0xCF8 }), 
+        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0D00, 0xFFFF), translation_offset: 0, length: 0xF300 }), 
+        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xA0000, 0xBFFFF), translation_offset: 0, length: 0x20000 }), 
+        Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xE0000000, 0xFEBFFFFF), translation_offset: 0, length: 0x1EC00000 }), 
     ]));
 }
 
