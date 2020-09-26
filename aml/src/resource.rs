@@ -383,7 +383,7 @@ pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 
     let channel_mask = bytes[1];
     let options = bytes[2];
-    let supported_speeds = match options.get_bits(5..6) {
+    let supported_speeds = match options.get_bits(5..=6) {
         0 => DMASupportedSpeed::CompatibilityMode,
         1 => DMASupportedSpeed::TypeA,
         2 => DMASupportedSpeed::TypeB,
@@ -391,7 +391,7 @@ pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
         _ => unreachable!()
     };
     let is_bus_master = options.get_bit(2);
-    let transfer_type_preference = match options.get_bits(0..1) {
+    let transfer_type_preference = match options.get_bits(0..=1) {
         0 => DMATransferTypePreference::_8BitOnly,
         1 => DMATransferTypePreference::_8And16Bit,
         2 => DMATransferTypePreference::_16Bit,
