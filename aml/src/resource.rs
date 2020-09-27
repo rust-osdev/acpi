@@ -435,6 +435,28 @@ pub struct DMADescriptor {
 }
 
 pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+    /*
+     * DMA Descriptor Definition
+     * Offset  Field Name
+     * Byte 0  Value = 0x2A (00101010B) – Type = 0, Small item name = 0x5, Length = 2
+     * Byte 1  DMA channel mask bits [7:0] (channels 0 – 7), _DMA
+     *         Bit [0] is channel 0, etc.
+     * Byte 2  Bit [7]           Reserved (must be 0)
+     *         Bits [6:5]        DMA channel speed supported, _TYP
+     *           00    Indicates compatibility mode
+     *           01    Indicates Type A DMA as described in the EISA
+     *           10    Indicates Type B DMA
+     *           11    Indicates Type F
+     *         Bits [4:3]        Ignored
+     *         Bit [2]           Logical device bus master status, _BM
+     *           0      Logical device is not a bus master
+     *           1      Logical device is a bus master
+     *         Bits [1:0]       DMA transfer type preference, _SIZ
+     *           00    8-bit only
+     *           01    8- and 16-bit
+     *           10    16-bit only
+     *           11    Reserved
+     */
     if bytes.len() < 3 {
         return Err(AmlError::ResourceDescriptorTooShort);
     }
