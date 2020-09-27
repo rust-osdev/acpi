@@ -337,10 +337,39 @@ pub struct IrqDescriptor {
 }
 
 fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+    /*
+     * IRQ Descriptor Definition
+     *
+     * Offset   Field Name
+     * Byte 0   Value = 0x22 or 0x23 (0010001nB)– Type = 0, Small item name = 0x4, Length = 2 or 3
+     * Byte 1   IRQ mask bits[7:0], _INT
+     *          Bit [0] represents IRQ0, bit[1] is IRQ1, and so on.
+     * Byte 2   IRQ mask bits[15:8], _INT
+     *          Bit [0] represents IRQ8, bit[1] is IRQ9, and so on.
+     * Byte 3   IRQ Information. Each bit, when set, indicates this device is capable of driving a certain type of interrupt. 
+     *          (Optional—if not included then assume edge sensitive, high true interrupts.) 
+     *          These bits can be used both for reporting and setting IRQ resources.
+     *          Note: This descriptor is meant for describing interrupts that are connected to PIC-compatible interrupt controllers, which can only be programmed for Active-High-Edge-Triggered or Active-Low-Level-Triggered interrupts. Any other combination is invalid. The Extended Interrupt Descriptor can be used to describe other combinations.
+     *            Bit [7:6]  Reserved (must be 0)
+     *            Bit [5]    Wake Capability, _WKC        
+     *              0x0 = Not Wake Capable: This interrupt is not capable of waking the system.        
+     *              0x1 = Wake Capable: This interrupt is capable of waking the system from a
+     *                    low-power idle state or a system sleep state.
+     *            Bit [4]    Interrupt Sharing, _SHR        
+     *              0x0 = Exclusive: This interrupt is not shared with other devices.
+     *              0x1 = Shared: This interrupt is shared with other devices.
+     *            Bit [3]    Interrupt Polarity, _LL        
+     *              0  Active-High – This interrupt is sampled when the signal is high, or true
+     *              1  Active-Low – This interrupt is sampled when the signal is low, or false.
+     *            Bit [2:1]  Ignored
+     *            Bit [0]    Interrupt Mode, _HE        
+     *              0  Level-Triggered – Interrupt is triggered in response to signal in a low state.
+     *              1  Edge-Triggered – Interrupt is triggered in response to a change in signal state from low to high.
+     */
 
     match bytes.len() { 
         0..=2 => Err(AmlError::ResourceDescriptorTooShort),
-        3 => { // 2 in spec
+        3 => { // no IRQ information ("length 2" in spec)
             let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
             Ok(Resource::Irq(IrqDescriptor {
@@ -350,10 +379,10 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
                 polarity: InterruptPolarity::ActiveHigh,
                 trigger: InterruptTrigger::Edge,
 
-                is_consumer: false // Is this correct?
+                is_consumer: false // assumed to be producer
             }))
         },
-        4 => { // 3 in spec
+        4 => { // with IRQ information ("length 3" in spec)
             let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
             let information = bytes[3];
@@ -375,7 +404,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
                 polarity,
                 trigger,
 
-                is_consumer: false // Is this correct?
+                is_consumer: false // assumed to be producer
             }))
         },
         _ => Err(AmlError::ResourceDescriptorTooLong)
