@@ -73,7 +73,8 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
         * bytes contain the actual data items.
         */
         let descriptor_type = bytes[0].get_bits(0..7);
-        let length = LittleEndian::read_u16(&bytes[1..=2]) as usize + 2;
+        let length = LittleEndian::read_u16(&bytes[1..=2]) as usize;
+        let (descriptor_bytes, remaining_bytes)= bytes.split_at(length+3);
 
         let descriptor = match descriptor_type {
             0x01 => unimplemented!("24-bit Memory Range Descriptor"),
@@ -81,11 +82,11 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
             0x03 => unimplemented!("0x03 Reserved"),
             0x04 => unimplemented!("Vendor-defined Descriptor"),
             0x05 => unimplemented!("32-bit Memory Range Descriptor"),
-            0x06 => fixed_memory_descriptor(&bytes[0..length+2]),
-            0x07 => address_space_descriptor::<u32>(&bytes[0..length+2]),
-            0x08 => address_space_descriptor::<u16>(&bytes[0..length+2]),
-            0x09 => extended_interrupt_descriptor(&bytes[0..length+2]),
-            0x0a => address_space_descriptor::<u64>(&bytes[0..length+2]),
+            0x06 => fixed_memory_descriptor(descriptor_bytes),
+            0x07 => address_space_descriptor::<u32>(descriptor_bytes),
+            0x08 => address_space_descriptor::<u16>(descriptor_bytes),
+            0x09 => extended_interrupt_descriptor(descriptor_bytes),
+            0x0a => address_space_descriptor::<u64>(descriptor_bytes),
             0x0b => unimplemented!("Extended Address Space Descriptor"),
             0x0c => unimplemented!("GPIO Connection Descriptor"),
             0x0d => unimplemented!("Pin Function Descriptor"),
@@ -99,7 +100,7 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
             0x80..=0xff => unreachable!(),
         }?;
         
-        Ok((Some(descriptor), &bytes[length+1..]))
+        Ok((Some(descriptor), remaining_bytes))
     } else {
         /*
         * We're parsing a small descriptor. Byte 0 has the format:
@@ -124,14 +125,15 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
         */
         let descriptor_type = bytes[0].get_bits(3..=6);
         let length: usize = bytes[0].get_bits(0..=2) as usize;
+        let (descriptor_bytes, remaining_bytes) = bytes.split_at(length+1);
 
         let descriptor = match descriptor_type {
             0x00..=0x03 => Err(AmlError::ReservedResourceType),
-            0x04 => irq_format_descriptor(&bytes[0..=length]),
-            0x05 => dma_format_descriptor(&bytes[0..=length]),
+            0x04 => irq_format_descriptor(descriptor_bytes),
+            0x05 => dma_format_descriptor(descriptor_bytes),
             0x06 => unimplemented!("Start Dependent Functions Descriptor"),
             0x07 => unimplemented!("End Dependent Functions Descriptor"),
-            0x08 => io_port_descriptor(&bytes[0..=length]),
+            0x08 => io_port_descriptor(descriptor_bytes),
             0x09 => unimplemented!("Fixed Location IO Port Descriptor"),
             0x0A => unimplemented!("Fixed DMA Descriptor"),
             0x0B..=0x0D => Err(AmlError::ReservedResourceType),
@@ -140,7 +142,7 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
             0x10..=0xFF => unreachable!()
         }?;
 
-        Ok((Some(descriptor), &bytes[length+1..]))
+        Ok((Some(descriptor), remaining_bytes))
     }
 }
 
