@@ -8,7 +8,7 @@ use byteorder::{ByteOrder, LittleEndian};
 #[derive(Debug, PartialEq, Eq)]
 pub enum Resource {
     Irq(IrqDescriptor),
-    WordAddressSpace(AddressSpaceDescriptor),
+    AddressSpace(AddressSpaceDescriptor),
     MemoryRange(MemoryRangeDescriptor),
     IOPort(IOPortDescriptor),
     Dma(DMADescriptor)
@@ -236,6 +236,48 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 }
 
 fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
+    /*
+     * WORD Address Space Descriptor Definition
+     * Note: The definitions for DWORD and QWORD are the same other than the width of the address fields.
+     *
+     * Offset  Field Name                                   Definition
+     * Byte 0  WORD Address Space Descriptor                Value = 0x88 (10001000B) – Type = 1, Large item name = 0x08
+     * Byte 1  Length, bits [7:0]                           Variable length, minimum value = 0x0D (13)
+     * Byte 2  Length, bits [15:8]                          Variable length, minimum value = 0x00 
+     * Byte 3  Resource Type                                Indicates which type of resource this descriptor describes. Defined values are:  
+     *                                                        0         Memory range
+     *                                                        1         I/O range
+     *                                                        2         Bus number range
+     *                                                        3–191     Reserved
+     *                                                        192-255   Hardware Vendor Defined
+     * Byte 4  General Flags                                Flags that are common to all resource types:
+     *                                                        Bits [7:4]   Reserved (must be 0)
+     *                                                        Bit [3]     Max Address Fixed, _MAF:      
+     *                                                          1  The specified maximum address is fixed      
+     *                                                          0  The specified maximum address is not fixed
+     *                                                             and can be changed
+     *                                                        Bit [2]      Min Address Fixed,_MIF:      
+     *                                                          1   The specified minimum address is fixed      
+     *                                                          0   The specified minimum address is not fixed
+     *                                                              and can be changed
+     *                                                        Bit [1]      Decode Type, _DEC:      
+     *                                                          1   This bridge subtractively decodes this address          (top level bridges only)      
+     *                                                          0   This bridge positively decodes this address
+     *                                                        Bit [0]      Ignored
+     * Byte 5  Type Specific Flags                           Flags that are specific to each resource type. The meaning of the flags in this field depends on the value of the Resource Type field (see above).
+     * Byte 6  Address space granularity, _GRA bits[7:0]     A set bit in this mask means that this bit is decoded. All bits less significant than the most significant set bit must be set. (In other words, the value of the full Address Space Granularity field (all 16 bits) must be a number (2n-1).
+     * Byte 7  Address space granularity, _GRA bits[15:8]
+     * Byte 8  Address range minimum, _MIN, bits [7:0]       For bridges that translate addresses, this is the address space on the secondary side of the bridge.
+     * Byte 9  Address range minimum, _MIN, bits [15:8]
+     * Byte 10 Address range maximum, _MAX, bits [7:0]       For bridges that translate addresses, this is the address space on the secondary side of the bridge.
+     * Byte 11 Address range maximum, _MAX, bits [15:8]
+     * Byte 12 Address Translation offset, _TRA, bits [7:0]  For bridges that translate addresses across the bridge, this is the offset that must be added to the address on the secondary side to obtain the address on the primary side. Non-bridge devices must list 0 for all Address Translation offset bits.
+     * Byte 13 Address Translation offset, _TRA, bits [15:8]  
+     * Byte 14 Address Length, _LEN, bits [7:0] 
+     * Byte 15 Address Length, _LEN, bits [15:8]
+     * Byte 16 Resource Source Index (Optional)              Only present if Resource Source (below) is present. This field gives an index to the specific resource descriptor that this device consumes from in the current resource template for the device object pointed to in Resource Source.
+     * String  Resource Source (Optional)                    If present, the device that uses this descriptor consumes its resources from the resources produced by the named device object. If not present, the device consumes its resources out of a global pool. If not present, the device consumes this resource from its hierarchical parent.                                          
+     */
     let size = mem::size_of::<T>();
 
     if bytes.len() < 6 + size*5 {
@@ -259,15 +301,16 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
         AddressSpaceDecodeType::Additive
     };
 
-    const START: usize = 6;
+    let mut address_fields = bytes[6..].chunks_exact(size);
 
-    let granularity        = LittleEndian::read_uint(&bytes[START+(0*size)..], size);
-    let address_range_min  = LittleEndian::read_uint(&bytes[START+(1*size)..], size);
-    let address_range_max  = LittleEndian::read_uint(&bytes[START+(2*size)..], size);
-    let translation_offset = LittleEndian::read_uint(&bytes[START+(3*size)..], size);
-    let length             = LittleEndian::read_uint(&bytes[START+(4*size)..], size);
+    // it's safe to unwrap because we check the length at the top
+    let granularity        = LittleEndian::read_uint(address_fields.next().unwrap(), size);
+    let address_range_min  = LittleEndian::read_uint(address_fields.next().unwrap(), size);
+    let address_range_max  = LittleEndian::read_uint(address_fields.next().unwrap(), size);
+    let translation_offset = LittleEndian::read_uint(address_fields.next().unwrap(), size);
+    let length             = LittleEndian::read_uint(address_fields.next().unwrap(), size);
 
-    Ok(Resource::WordAddressSpace(AddressSpaceDescriptor {
+    Ok(Resource::AddressSpace(AddressSpaceDescriptor {
         resource_type,
         is_maximum_address_fixed,
         is_minimum_address_fixed,
@@ -617,12 +660,12 @@ mod tests {
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(resources, Vec::from([
-            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::BusNumberRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x00, 0xFF), translation_offset: 0, length: 0x100 }), 
+            Resource::AddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::BusNumberRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x00, 0xFF), translation_offset: 0, length: 0x100 }), 
             Resource::IOPort(IOPortDescriptor { decodes_full_address: true, memory_range: (0xCF8, 0xCF8), base_alignment: 1, range_length: 8 }), 
-            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0000, 0x0CF7), translation_offset: 0, length: 0xCF8 }), 
-            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0D00, 0xFFFF), translation_offset: 0, length: 0xF300 }), 
-            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xA0000, 0xBFFFF), translation_offset: 0, length: 0x20000 }), 
-            Resource::WordAddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xE0000000, 0xFEBFFFFF), translation_offset: 0, length: 0x1EC00000 }), 
+            Resource::AddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0000, 0x0CF7), translation_offset: 0, length: 0xCF8 }), 
+            Resource::AddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::IORange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0x0D00, 0xFFFF), translation_offset: 0, length: 0xF300 }), 
+            Resource::AddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xA0000, 0xBFFFF), translation_offset: 0, length: 0x20000 }), 
+            Resource::AddressSpace(AddressSpaceDescriptor { resource_type: AddressSpaceResourceType::MemoryRange, is_maximum_address_fixed: true, is_minimum_address_fixed: true, decode_type: AddressSpaceDecodeType::Additive, granularity: 0, address_range: (0xE0000000, 0xFEBFFFFF), translation_offset: 0, length: 0x1EC00000 }), 
         ]));
     }
 
