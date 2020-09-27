@@ -1,4 +1,6 @@
 /target
 **/*.rs.bk
 Cargo.lock
-*.aml
+tests/*.aml
+tests/*.lst
+tests/*.txt

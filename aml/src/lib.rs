@@ -675,6 +675,7 @@ pub enum AmlError {
      */
     ReservedResourceType,
     ResourceDescriptorTooShort,
+    ResourceDescriptorTooLong,
 
     /*
      * Errors produced working with AML values.
