@@ -500,6 +500,22 @@ pub struct IOPortDescriptor {
 }
 
 fn io_port_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+    /*
+     * I/O Port Descriptor Definition
+     * Offset   Field Name                                  Definition
+     * Byte 0   I/O Port Descriptor                         Value = 0x47 (01000111B) – 
+     *                                                      Type = 0, Small item name = 0x8, Length = 7
+     * Byte 1   Information                                 Bits [7:1]     Reserved and must be 0
+     *                                                      Bit [0]          (_DEC)            
+     *                                                        1    The logical device decodes 16-bit addresses
+     *                                                        0    The logical device only decodes address bits[9:0]
+     * Byte 2   Range minimum base address, _MIN bits[7:0]  Address bits [7:0] of the minimum base I/O address that the card may be configured for. 
+     * Byte 3   Range minimum base address, _MIN bits[15:8] Address bits [15:8] of the minimum base I/O address that the card may be configured for.
+     * Byte 4   Range maximum base address, _MAX bits[7:0]  Address bits [7:0] of the maximum base I/O address that the card may be configured for.
+     * Byte 5   Range maximum base address, _MAX bits[15:8] Address bits [15:8] of the maximum base I/O address that the card may be configured for.
+     * Byte 6   Base alignment, _ALN                        Alignment for minimum base address, increment in 1-byte blocks.
+     * Byte 7   Range length, _LEN                          The number of contiguous I/O ports requested.
+     */
     if bytes.len() < 8 {
         return Err(AmlError::ResourceDescriptorTooShort);
     }
