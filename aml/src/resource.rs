@@ -204,13 +204,13 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
      *                                                    Bit [7:1]   Ignored
      *                                                    Bit [0]     Write status, _RW
      *                                                        1  writeable (read/write)
-     *                                                        0  non-writeable (read-only))
+     *                                                        0  non-writeable (read-only)
      * Byte 4     Range base address, _BAS bits [7:0]     Address bits [7:0] of the base memory address for which the card may be configured. 
-     * Byte 5     Range base address, _BASbits [15:8]     Address bits [15:8] of the base memory address for which the card may be configured.
-     * Byte 6     Range base address, _BASbits [23:16]    Address bits [23:16] of the base memory address for which the card may be configured. 
-     * Byte 7     Range base address, _BASbits [31:24]    Address bits [31:24] of the base memory address for which the card may be configured.
+     * Byte 5     Range base address, _BAS bits [15:8]    Address bits [15:8] of the base memory address for which the card may be configured.
+     * Byte 6     Range base address, _BAS bits [23:16]   Address bits [23:16] of the base memory address for which the card may be configured. 
+     * Byte 7     Range base address, _BAS bits [31:24]   Address bits [31:24] of the base memory address for which the card may be configured.
      * Byte 8     Range length, _LEN bits [7:0]           This field contains bits [7:0] of the memory range length. The range length provides the length of the memory range in 1-byte blocks.
-     * Byte 9     Range length, _LEN bits[15:8]           This field contains bits [15:8] of the memory range length. The range length provides the length of the memory range in 1-byte blocks.
+     * Byte 9     Range length, _LEN bits [15:8]          This field contains bits [15:8] of the memory range length. The range length provides the length of the memory range in 1-byte blocks.
      * Byte 10    Range length, _LEN bits [23:16]         This field contains bits [23:16] of the memory range length. The range length provides the length of the memory range in 1-byte blocks.
      * Byte 11    Range length, _LEN bits [31:24]         This field contains bits [31:24] of the memory range length. The range length provides the length of the memory range in 1-byte blocks.
      */
@@ -218,11 +218,15 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
         return Err(AmlError::ResourceDescriptorTooShort);
     }
 
+    if bytes.len() > 12 {
+        return Err(AmlError::ResourceDescriptorTooLong);
+    }
+
     let information = bytes[3];
     let is_writable = information.get_bit(0);
 
-    let base_address = LittleEndian::read_u32(&bytes[4..8]);
-    let range_length = LittleEndian::read_u32(&bytes[8..12]);
+    let base_address = LittleEndian::read_u32(&bytes[4..=7]);
+    let range_length = LittleEndian::read_u32(&bytes[8..=11]);
 
     Ok(Resource::MemoryRange(MemoryRangeDescriptor::FixedLocation {
         is_writable,
