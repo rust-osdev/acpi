@@ -1,11 +1,15 @@
-//! A library for parsing ACPI tables. This crate can be used by bootloaders and kernels for
-//! architectures that support ACPI. This crate is not feature-complete, but can parse lots of the more common
-//! tables. Parsing the ACPI tables is required for correctly setting up the APICs, HPET, and provides useful
-//! information about power management and many other platform capabilities.
+//! A library for parsing ACPI tables. This crate can be used by bootloaders and kernels for architectures that
+//! support ACPI. This crate is not feature-complete, but can parse lots of the more common tables. Parsing the
+//! ACPI tables is required for correctly setting up the APICs, HPET, and provides useful information about power
+//! management and many other platform capabilities.
 //!
 //! This crate is designed to find and parse the static tables ACPI provides. It should be used in conjunction with
 //! the `aml` crate, which is the (much less complete) AML parser used to parse the DSDT and SSDTs. These crates
 //! are separate because some kernels may want to detect the static tables, but delay AML parsing to a later stage.
+//!
+//! This crate requires `alloc` to make heap allocations. If you are trying to find the RSDP in an environment that
+//! does not have a heap (e.g. a bootloader), you can use the `rsdp` crate. The types from that crate are
+//! compatible with `acpi`.
 //!
 //! ### Usage
 //! To use the library, you will need to provide an implementation of the `AcpiHandler` trait, which allows the
