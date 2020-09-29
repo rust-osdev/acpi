@@ -1,4 +1,4 @@
-use crate::{handler::PhysicalMapping, sdt::SdtHeader, Acpi, AcpiError};
+use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
 use alloc::vec::Vec;
 use core::{mem, slice};
 
@@ -13,6 +13,18 @@ pub struct PciConfigRegions {
 }
 
 impl PciConfigRegions {
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
+    where
+        H: AcpiHandler,
+    {
+        let mcfg = unsafe {
+            tables
+                .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
+                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
+        };
+        Ok(PciConfigRegions { regions: mcfg.entries().iter().map(|&entry| entry).collect() })
+    }
+
     /// Get the physical address of the start of the configuration space for a given PCIe device
     /// function. Returns `None` if there isn't an entry in the MCFG that manages that device.
     pub fn physical_address(&self, segment_group_no: u16, bus: u8, device: u8, function: u8) -> Option<u64> {
@@ -40,6 +52,12 @@ pub(crate) struct Mcfg {
     // Followed by `n` entries with format `McfgEntry`
 }
 
+impl AcpiTable for Mcfg {
+    fn header(&self) -> &SdtHeader {
+        &self.header
+    }
+}
+
 impl Mcfg {
     fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
@@ -63,12 +81,4 @@ struct McfgEntry {
     bus_number_start: u8,
     bus_number_end: u8,
     _reserved: u32,
-}
-
-pub(crate) fn parse_mcfg(acpi: &mut Acpi, mapping: &PhysicalMapping<Mcfg>) -> Result<(), AcpiError> {
-    (*mapping).header.validate(crate::sdt::Signature::MCFG)?;
-
-    acpi.pci_config_regions =
-        Some(PciConfigRegions { regions: mapping.entries().iter().map(|&entry| entry).collect() });
-    Ok(())
 }

@@ -1,11 +1,8 @@
 use crate::{
     sdt::{ExtendedField, SdtHeader, ACPI_VERSION_2_0},
-    Acpi,
     AcpiError,
-    AcpiHandler,
-    AmlTable,
+    AcpiTable,
     GenericAddress,
-    PhysicalMapping,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -93,43 +90,41 @@ pub struct Fadt {
     hypervisor_vendor_id: ExtendedField<u64, ACPI_VERSION_2_0>,
 }
 
-pub(crate) fn parse_fadt<H>(
-    acpi: &mut Acpi,
-    handler: &mut H,
-    mapping: &PhysicalMapping<Fadt>,
-) -> Result<(), AcpiError>
-where
-    H: AcpiHandler,
-{
-    let fadt = &*mapping;
-    fadt.header.validate(crate::sdt::Signature::FADT)?;
+impl AcpiTable for Fadt {
+    fn header(&self) -> &SdtHeader {
+        &self.header
+    }
+}
 
-    acpi.power_profile = match fadt.preferred_pm_profile {
-        0 => PowerProfile::Unspecified,
-        1 => PowerProfile::Desktop,
-        2 => PowerProfile::Mobile,
-        3 => PowerProfile::Workstation,
-        4 => PowerProfile::EnterpriseServer,
-        5 => PowerProfile::SohoServer,
-        6 => PowerProfile::AppliancePc,
-        7 => PowerProfile::PerformanceServer,
-        8 => PowerProfile::Tablet,
-        other => PowerProfile::Reserved(other),
-    };
+impl Fadt {
+    pub fn validate(&self) -> Result<(), AcpiError> {
+        self.header.validate(crate::sdt::Signature::FADT)
+    }
 
-    let dsdt_address = unsafe {
-        fadt.x_dsdt_address
-            .access(fadt.header.revision)
-            .filter(|&p| p != 0)
-            .or(Some(fadt.dsdt_address as u64))
-            .filter(|p| *p != 0)
-            .map(|p| p as usize)
-    };
+    pub fn dsdt_address(&self) -> Result<usize, AcpiError> {
+        unsafe {
+            self.x_dsdt_address
+                .access(self.header.revision)
+                .filter(|&p| p != 0)
+                .or(Some(self.dsdt_address as u64))
+                .filter(|p| *p != 0)
+                .map(|p| p as usize)
+                .ok_or(AcpiError::InvalidDsdtAddress)
+        }
+    }
 
-    acpi.dsdt = dsdt_address.map(|address| {
-        let dsdt_header = crate::sdt::peek_at_sdt_header(handler, address);
-        AmlTable::new(address, dsdt_header.length)
-    });
-
-    Ok(())
+    pub fn power_profile(&self) -> PowerProfile {
+        match self.preferred_pm_profile {
+            0 => PowerProfile::Unspecified,
+            1 => PowerProfile::Desktop,
+            2 => PowerProfile::Mobile,
+            3 => PowerProfile::Workstation,
+            4 => PowerProfile::EnterpriseServer,
+            5 => PowerProfile::SohoServer,
+            6 => PowerProfile::AppliancePc,
+            7 => PowerProfile::PerformanceServer,
+            8 => PowerProfile::Tablet,
+            other => PowerProfile::Reserved(other),
+        }
+    }
 }

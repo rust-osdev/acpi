@@ -1,6 +1,5 @@
-use crate::{fadt::Fadt, hpet::HpetTable, madt::Madt, mcfg::Mcfg, Acpi, AcpiError, AcpiHandler, AmlTable};
+use crate::{AcpiError, AcpiHandler};
 use core::{fmt, mem, mem::MaybeUninit, str};
-use log::{trace, warn};
 
 pub const ACPI_VERSION_2_0: u8 = 20;
 
@@ -17,7 +16,7 @@ impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
     /// If a bogus ACPI version is passed, this function may access uninitialised data, which is unsafe.
     pub unsafe fn access(&self, version: u8) -> Option<T> {
         if version >= MIN_VERSION {
-            Some(self.0.assume_init())
+            Some(unsafe { self.0.assume_init() })
         } else {
             None
         }
@@ -57,6 +56,9 @@ impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
 ///     "SRAT" - System Resource Affinity Table
 ///     "SSDT" - Secondary System Description Table
 ///     "XSDT" - eXtended System Descriptor Table
+///
+/// We've come across some more ACPI tables in the wild:
+///     "WAET" - Windows ACPI Emulated device Table
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
@@ -118,7 +120,7 @@ impl SdtHeader {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct Signature([u8; 4]);
 
@@ -150,70 +152,11 @@ impl fmt::Debug for Signature {
 
 /// Takes the physical address of an SDT, and maps, clones and unmaps its header. Useful for
 /// finding out how big it is to map it correctly later.
-pub(crate) fn peek_at_sdt_header<H>(handler: &mut H, physical_address: usize) -> SdtHeader
+pub(crate) fn peek_at_sdt_header<H>(handler: &H, physical_address: usize) -> SdtHeader
 where
     H: AcpiHandler,
 {
     let mapping =
         unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
-    let header = (*mapping).clone();
-    handler.unmap_physical_region(mapping);
-
-    header
-}
-
-/// This takes the physical address of an SDT, maps it correctly and dispatches it to whatever
-/// function parses that table.
-pub(crate) fn dispatch_sdt<H>(acpi: &mut Acpi, handler: &mut H, physical_address: usize) -> Result<(), AcpiError>
-where
-    H: AcpiHandler,
-{
-    let header = peek_at_sdt_header(handler, physical_address);
-    trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
-
-    /*
-     * For a recognised signature, a new physical mapping should be created with the correct type
-     * and length, and then the dispatched to the correct function to actually parse the table.
-     */
-    match header.signature {
-        Signature::FADT => {
-            let fadt_mapping =
-                unsafe { handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
-            crate::fadt::parse_fadt(acpi, handler, &fadt_mapping)?;
-            handler.unmap_physical_region(fadt_mapping);
-        }
-
-        Signature::HPET => {
-            let hpet_mapping =
-                unsafe { handler.map_physical_region::<HpetTable>(physical_address, mem::size_of::<HpetTable>()) };
-            crate::hpet::parse_hpet(acpi, &hpet_mapping)?;
-            handler.unmap_physical_region(hpet_mapping);
-        }
-
-        Signature::MADT => {
-            let madt_mapping =
-                unsafe { handler.map_physical_region::<Madt>(physical_address, header.length as usize) };
-            crate::madt::parse_madt(acpi, handler, &madt_mapping)?;
-            handler.unmap_physical_region(madt_mapping);
-        }
-
-        Signature::MCFG => {
-            let mcfg_mapping =
-                unsafe { handler.map_physical_region::<Mcfg>(physical_address, header.length as usize) };
-            crate::mcfg::parse_mcfg(acpi, &mcfg_mapping)?;
-            handler.unmap_physical_region(mcfg_mapping);
-        }
-
-        Signature::SSDT => acpi.ssdts.push(AmlTable::new(physical_address, header.length)),
-
-        signature => {
-            /*
-             * We don't recognise this signature. Early on, this probably just means we don't
-             * have support yet, but later on maybe this should become an actual error
-             */
-            warn!("Unsupported SDT signature: {}. Skipping.", signature);
-        }
-    }
-
-    Ok(())
+    (*mapping).clone()
 }
