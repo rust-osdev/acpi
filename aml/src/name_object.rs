@@ -99,7 +99,15 @@ where
         match first_char {
             ROOT_CHAR => root_name_string.parse(input, context),
             PREFIX_CHAR => prefix_path.parse(input, context),
-            _ => name_path().map(|path| Ok(AmlName(path))).parse(input, context),
+            _ => name_path()
+                .map(|path| {
+                    if path.len() == 0 {
+                        return Err(AmlError::EmptyNamesAreInvalid);
+                    }
+
+                    Ok(AmlName(path))
+                })
+                .parse(input, context),
         }
     })
 }
@@ -125,8 +133,6 @@ where
 {
     /*
      * NullName := 0x00
-     *
-     * This doesn't actually allocate because the `Vec`'s capacity is zero.
      */
     opcode(NULL_NAME).map(|_| Ok(Vec::with_capacity(0)))
 }
