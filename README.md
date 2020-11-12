@@ -24,6 +24,9 @@ Useful resources for contributing are:
 - [The ACPI specification](https://uefi.org/specifications)
 - [OSDev Wiki](https://wiki.osdev.org/ACPI)
 
+You can run the AML test suite with `cargo run --bin aml_tester -- -p tests`.
+You can run fuzz the AML parser with `cd aml && cargo fuzz run fuzz_target_1` (you may need to `cargo install cargo-fuzz`).
+
 ## Licence
 Acpi is dual-licenced under:
 - Apache Licence, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
