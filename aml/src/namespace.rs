@@ -259,6 +259,8 @@ impl Namespace {
     }
 
     fn get_level_for_path(&self, path: &AmlName) -> Result<(&NamespaceLevel, NameSeg), AmlError> {
+        assert_ne!(*path, AmlName::root());
+
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
         let last_seg = last_seg.as_segment().unwrap();
 
@@ -280,6 +282,8 @@ impl Namespace {
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
     /// last segment to index into that level. This must not be called on `\\`.
     fn get_level_for_path_mut(&mut self, path: &AmlName) -> Result<(&mut NamespaceLevel, NameSeg), AmlError> {
+        assert_ne!(*path, AmlName::root());
+
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
         let last_seg = last_seg.as_segment().unwrap();
 
@@ -696,6 +700,28 @@ mod tests {
                 .search(&AmlName::from_str("A").unwrap(), &AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap())
                 .unwrap();
             assert_eq!(name, AmlName::from_str("\\FOO.BAR.A").unwrap());
+        }
+    }
+
+    #[test]
+    fn test_get_level_for_path() {
+        let mut namespace = Namespace::new();
+
+        // Add some scopes
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap(), LevelType::Scope), Ok(()));
+
+        {
+            let (_, last_seg) =
+                namespace.get_level_for_path(&AmlName::from_str("\\FOO.BAR.BAZ").unwrap()).unwrap();
+            assert_eq!(last_seg, NameSeg::from_str("BAZ").unwrap());
+        }
+        {
+            let (_, last_seg) = namespace.get_level_for_path(&AmlName::from_str("\\FOO").unwrap()).unwrap();
+            assert_eq!(last_seg, NameSeg::from_str("FOO").unwrap());
         }
     }
 }
