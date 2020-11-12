@@ -111,6 +111,9 @@ fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
         let output = Command::new("iasl").arg(file.path()).output()?;
 
         if !output.status.success() {
+            // TODO: this doesn't print the whole output of `iasl` for some reason (no actual error messages), but
+            // it doesn't seem to be on stdout either. No idea how it ends up at the shell tbh; would be good to
+            // find it and print it here.
             println!(
                 "Failed to compile ASL file: {}. Output from iasl: {}",
                 file.path().to_str().unwrap(),
