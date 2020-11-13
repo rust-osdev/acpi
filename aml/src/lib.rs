@@ -183,7 +183,7 @@ impl AmlContext {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
-        let table_length = PkgLength::from_raw_length(stream, stream.len() as u32) as PkgLength;
+        let table_length = PkgLength::from_raw_length(stream, stream.len() as u32).unwrap();
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
             Err((_, _, err)) => {
@@ -209,16 +209,17 @@ impl AmlContext {
                  */
                 self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
 
-                let return_value =
-                    match term_list(PkgLength::from_raw_length(&code, code.len() as u32)).parse(&code, self) {
-                        // If the method doesn't return a value, we implicitly return `0`
-                        Ok(_) => Ok(AmlValue::Integer(0)),
-                        Err((_, _, AmlError::Return(result))) => Ok(result),
-                        Err((_, _, err)) => {
-                            error!("Failed to execute control method: {:?}", err);
-                            Err(err)
-                        }
-                    };
+                let return_value = match term_list(PkgLength::from_raw_length(&code, code.len() as u32).unwrap())
+                    .parse(&code, self)
+                {
+                    // If the method doesn't return a value, we implicitly return `0`
+                    Ok(_) => Ok(AmlValue::Integer(0)),
+                    Err((_, _, AmlError::Return(result))) => Ok(result),
+                    Err((_, _, err)) => {
+                        error!("Failed to execute control method: {:?}", err);
+                        Err(err)
+                    }
+                };
 
                 /*
                  * Locally-created objects should be destroyed on method exit (see §5.5.2.3 of the ACPI spec). We do

@@ -14,8 +14,12 @@ pub struct PkgLength {
 }
 
 impl PkgLength {
-    pub fn from_raw_length(stream: &[u8], raw_length: u32) -> PkgLength {
-        PkgLength { raw_length, end_offset: stream.len() as u32 - raw_length }
+    pub fn from_raw_length(stream: &[u8], raw_length: u32) -> Result<PkgLength, AmlError> {
+        // TODO: might want a more descriptive error
+        Ok(PkgLength {
+            raw_length,
+            end_offset: (stream.len() as u32).checked_sub(raw_length).ok_or(AmlError::UnexpectedEndOfStream)?,
+        })
     }
 
     /// Returns `true` if the given stream is still within the structure this `PkgLength` refers
@@ -29,14 +33,18 @@ pub fn pkg_length<'a, 'c>() -> impl Parser<'a, 'c, PkgLength>
 where
     'c: 'a,
 {
-    move |input: &'a [u8], context: &'c mut AmlContext| {
+    move |input: &'a [u8], context: &'c mut AmlContext| -> crate::parser::ParseResult<'a, 'c, PkgLength> {
         let (new_input, context, raw_length) = raw_pkg_length().parse(input, context)?;
 
         /*
          * NOTE: we use the original input here, because `raw_length` includes the length of the
          * `PkgLength`.
          */
-        Ok((new_input, context, PkgLength::from_raw_length(input, raw_length)))
+        match PkgLength::from_raw_length(input, raw_length) {
+            Ok(pkg_length) => Ok((new_input, context, pkg_length)),
+            Err(err) => Err((input, context, err)),
+        }
+        // Ok((new_input, context, try_with_context!(context, PkgLength::from_raw_length(input, raw_length))))
     }
 }
 
@@ -97,7 +105,7 @@ mod tests {
         let mut context = make_test_context();
         check_ok!(
             pkg_length().parse(stream, &mut context),
-            PkgLength::from_raw_length(stream, expected_raw_length),
+            PkgLength::from_raw_length(stream, expected_raw_length).unwrap(),
             &expected_leftover
         );
     }
@@ -124,11 +132,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn not_enough_stream() {
-        /*
-         * TODO: Ideally, this shouldn't panic the parser, but return a `UnexpectedEndOfStream`.
-         */
-        test_correct_pkglength(&[0x05, 0xf5], 5, &[0xf5]);
+        let mut context = make_test_context();
+        check_err!(
+            pkg_length().parse(&[0x05, 0xf5], &mut context),
+            AmlError::UnexpectedEndOfStream,
+            &[0x05, 0xf5]
+        );
     }
 }
