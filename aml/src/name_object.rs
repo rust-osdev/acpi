@@ -79,14 +79,14 @@ where
     let root_name_string = opcode(ROOT_CHAR).then(name_path()).map(|((), ref name_path)| {
         let mut name = alloc::vec![NameComponent::Root];
         name.extend_from_slice(name_path);
-        Ok(AmlName(name))
+        Ok(AmlName::from_components(name))
     });
 
     let prefix_path =
         take_while(opcode(PREFIX_CHAR)).then(name_path()).map(|(num_prefix_chars, ref name_path)| {
             let mut name = alloc::vec![NameComponent::Prefix; num_prefix_chars];
             name.extend_from_slice(name_path);
-            Ok(AmlName(name))
+            Ok(AmlName::from_components(name))
         });
 
     // TODO: combinator to select a parser based on a peeked byte?
@@ -105,7 +105,7 @@ where
                         return Err(AmlError::EmptyNamesAreInvalid);
                     }
 
-                    Ok(AmlName(path))
+                    Ok(AmlName::from_components(path))
                 })
                 .parse(input, context),
         }

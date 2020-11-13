@@ -370,7 +370,7 @@ impl fmt::Debug for Namespace {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct AmlName(pub(crate) Vec<NameComponent>);
+pub struct AmlName(Vec<NameComponent>);
 
 impl AmlName {
     pub fn root() -> AmlName {
@@ -379,6 +379,11 @@ impl AmlName {
 
     pub fn from_name_seg(seg: NameSeg) -> AmlName {
         AmlName(alloc::vec![NameComponent::Segment(seg)])
+    }
+
+    pub fn from_components(components: Vec<NameComponent>) -> AmlName {
+        assert!(components.len() > 0);
+        AmlName(components)
     }
 
     /// Convert a string representation of an AML name into an `AmlName`.
