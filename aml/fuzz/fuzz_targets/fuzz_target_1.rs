@@ -3,7 +3,7 @@ use libfuzzer_sys::fuzz_target;
 extern crate aml;
 
 fuzz_target!(|data: &[u8]| {
-    simplelog::SimpleLogger::init(simplelog::LevelFilter::Trace, simplelog::Config::default());
+    simplelog::SimpleLogger::init(simplelog::LevelFilter::Trace, simplelog::Config::default()).unwrap();
     let mut context = aml::AmlContext::new(Box::new(Handler), false, aml::DebugVerbosity::None);
     let _ = context.parse_table(data);
 });
