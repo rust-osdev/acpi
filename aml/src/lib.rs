@@ -613,6 +613,7 @@ pub enum AmlError {
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
     InvalidNameSeg,
+    InvalidPkgLength,
     InvalidFieldFlags,
     IncompatibleValueConversion,
     UnterminatedStringConstant,

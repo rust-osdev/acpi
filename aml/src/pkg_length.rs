@@ -8,17 +8,17 @@ use bit_field::BitField;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PkgLength {
     pub raw_length: u32,
-    /// The distance from the end of the structure this `PkgLength` refers to, and the end of the
-    /// stream.
+    /// The offset in the structure's stream to stop parsing at - the "end" of the PkgLength. We need to track this
+    /// instead of the actual length encoded in the PkgLength as we often need to parse some stuff between the
+    /// PkgLength and the explicit-length structure.
     pub end_offset: u32,
 }
 
 impl PkgLength {
     pub fn from_raw_length(stream: &[u8], raw_length: u32) -> Result<PkgLength, AmlError> {
-        // TODO: might want a more descriptive error
         Ok(PkgLength {
             raw_length,
-            end_offset: (stream.len() as u32).checked_sub(raw_length).ok_or(AmlError::UnexpectedEndOfStream)?,
+            end_offset: (stream.len() as u32).checked_sub(raw_length).ok_or(AmlError::InvalidPkgLength)?,
         })
     }
 
@@ -44,7 +44,6 @@ where
             Ok(pkg_length) => Ok((new_input, context, pkg_length)),
             Err(err) => Err((input, context, err)),
         }
-        // Ok((new_input, context, try_with_context!(context, PkgLength::from_raw_length(input, raw_length))))
     }
 }
 
@@ -124,6 +123,19 @@ mod tests {
         check_err!(pkg_length().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
         test_correct_pkglength(&[0x00], 0, &[]);
         test_correct_pkglength(&[0x05, 0xf5, 0x7f, 0x3e, 0x54, 0x03], 5, &[0xf5, 0x7f, 0x3e, 0x54, 0x03]);
+
+        check_ok!(
+            pkg_length()
+                .feed(|length| crate::parser::take_to_end_of_pkglength(length))
+                .parse(&[0x05, 0x01, 0x02, 0x03, 0x04, 0xff, 0xff, 0xff], &mut context),
+            &[0x01, 0x02, 0x03, 0x04],
+            &[0xff, 0xff, 0xff]
+        );
+    }
+
+    #[test]
+    fn not_enough_pkglength() {
+        let mut context = make_test_context();
         check_err!(
             pkg_length().parse(&[0b11000000, 0xff, 0x4f], &mut context),
             AmlError::UnexpectedEndOfStream,
@@ -134,10 +146,6 @@ mod tests {
     #[test]
     fn not_enough_stream() {
         let mut context = make_test_context();
-        check_err!(
-            pkg_length().parse(&[0x05, 0xf5], &mut context),
-            AmlError::UnexpectedEndOfStream,
-            &[0x05, 0xf5]
-        );
+        check_err!(pkg_length().parse(&[0x05, 0xf5], &mut context), AmlError::InvalidPkgLength, &[0x05, 0xf5]);
     }
 }

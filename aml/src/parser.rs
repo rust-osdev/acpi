@@ -178,7 +178,14 @@ where
     'c: 'a,
 {
     move |input: &'a [u8], context| {
-        let bytes_to_take = (input.len() as u32) - length.end_offset;
+        /*
+         * TODO: fuzzing manages to find PkgLengths that correctly parse during construction, but later crash here.
+         * I would've thought we would pick up all invalid lengths there, so have a look at why this is needed.
+         */
+        let bytes_to_take = match (input.len() as u32).checked_sub(length.end_offset) {
+            Some(bytes_to_take) => bytes_to_take,
+            None => return Err((input, context, AmlError::InvalidPkgLength)),
+        };
         take_n(bytes_to_take).parse(input, context)
     }
 }
