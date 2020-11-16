@@ -237,6 +237,24 @@ impl AmlValue {
         }
     }
 
+    pub fn as_buffer(&self, context: &AmlContext) -> Result<Vec<u8>, AmlError> {
+        match self {
+            AmlValue::Buffer { ref bytes, .. } => Ok(bytes.clone()),
+            // TODO: implement conversion of String and Integer to Buffer
+            AmlValue::Field { .. } => self.read_field(context)?.as_buffer(context),
+            _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
+    pub fn as_string(&self, context: &AmlContext) -> Result<String, AmlError> {
+        match self {
+            AmlValue::String(ref string) => Ok(string.clone()),
+            // TODO: implement conversion of Buffer to String
+            AmlValue::Field { .. } => self.read_field(context)?.as_string(context),
+            _ => Err(AmlError::IncompatibleValueConversion),
+        }
+    }
+
     /// Turns an `AmlValue` returned from a `_STA` method into a `StatusObject`. Should only be called for values
     /// returned from `_STA`. If you need a `StatusObject`, but the device does not have a `_STA` method, use
     /// `StatusObject::default()`.
@@ -391,15 +409,16 @@ impl AmlValue {
     ///    - `Integer`s are simply compared by numeric comparison
     ///    - `String`s and `Buffer`s are compared lexicographically - `other` is compared byte-wise until a byte
     ///      is discovered that is either less or greater than the corresponding byte of `self`. If the bytes are
-    ///      identical, the lengths are compared.
+    ///      identical, the lengths are compared. Luckily, the Rust standard library implements lexicographic
+    ///      comparison of strings and `[u8]` for us already.
     pub fn cmp(&self, other: AmlValue, context: &mut AmlContext) -> Result<cmp::Ordering, AmlError> {
         let self_inner =
             if self.type_of() == AmlType::FieldUnit { self.read_field(context)? } else { self.clone() };
 
         match self_inner.type_of() {
             AmlType::Integer => Ok(self.as_integer(context)?.cmp(&other.as_integer(context)?)),
-            AmlType::Buffer => unimplemented!(),
-            AmlType::String => unimplemented!(),
+            AmlType::Buffer => Ok(self.as_buffer(context)?.cmp(&other.as_buffer(context)?)),
+            AmlType::String => Ok(self.as_string(context)?.cmp(&other.as_string(context)?)),
             typ => Err(AmlError::TypeCannotBeCompared(typ)),
         }
     }
@@ -446,5 +465,28 @@ impl Args {
             6 => self.arg_6.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
             _ => Err(AmlError::InvalidArgAccess(num)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{test_utils::*, AmlError};
+    use core::cmp::Ordering;
+
+    #[test]
+    fn test_object_cmp() {
+        let mut context = make_test_context();
+
+        assert_eq!(AmlValue::Integer(76).cmp(AmlValue::Integer(89), &mut context), Ok(Ordering::Less));
+        assert_eq!(AmlValue::Integer(11).cmp(AmlValue::Integer(11), &mut context), Ok(Ordering::Equal));
+        assert_eq!(AmlValue::Integer(8362836690).cmp(AmlValue::Integer(1), &mut context), Ok(Ordering::Greater));
+
+        assert_eq!(
+            AmlValue::Integer(4).cmp(AmlValue::Boolean(true), &mut context),
+            Err(AmlError::IncompatibleValueConversion)
+        );
+
+        // TODO: test the other combinations too, as well as conversions to the correct types for the second operand
     }
 }
