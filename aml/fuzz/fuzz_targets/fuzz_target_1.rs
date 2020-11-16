@@ -2,8 +2,15 @@
 use libfuzzer_sys::fuzz_target;
 extern crate aml;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
 fuzz_target!(|data: &[u8]| {
-    simplelog::SimpleLogger::init(simplelog::LevelFilter::Trace, simplelog::Config::default()).unwrap();
+    if let Ok(false) = INITIALIZED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) {
+        simplelog::SimpleLogger::init(simplelog::LevelFilter::Trace, simplelog::Config::default()).unwrap();
+    }
+
     let mut context = aml::AmlContext::new(Box::new(Handler), false, aml::DebugVerbosity::None);
     let _ = context.parse_table(data);
 });
