@@ -17,7 +17,7 @@ use crate::{
     AmlError,
     DebugVerbosity,
 };
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use core::{cmp::Ordering, convert::TryInto};
 
 /// Type 2 opcodes return a value and so can be used in expressions.
@@ -96,6 +96,8 @@ where
      * XXX: The spec says that zero-length buffers (e.g. the PkgLength is 0) are illegal, but
      * we've encountered them in QEMU-generated tables, so we return an empty buffer in these
      * cases.
+     *
+     * Uninitialized elements are initialized to zero.
      */
     opcode(opcode::DEF_BUFFER_OP)
         .then(comment_scope(
@@ -103,12 +105,14 @@ where
             "DefBuffer",
             pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
                 take_to_end_of_pkglength(pkg_length).map_with_context(move |bytes, context| {
-                    let length = try_with_context!(context, buffer_size.as_integer(context));
-                    (Ok((bytes.to_vec(), length)), context)
+                    let buffer_size = try_with_context!(context, buffer_size.as_integer(context)) as usize;
+                    let mut buffer = vec![0; buffer_size];
+                    buffer.copy_from_slice(bytes);
+                    (Ok(buffer), context)
                 })
             }),
         ))
-        .map(|((), (bytes, buffer_size))| Ok(AmlValue::Buffer { bytes, size: buffer_size }))
+        .map(|((), buffer)| Ok(AmlValue::Buffer(buffer)))
 }
 
 fn def_l_or<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

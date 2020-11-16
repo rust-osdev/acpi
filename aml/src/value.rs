@@ -165,10 +165,7 @@ pub enum AmlValue {
         flags: MethodFlags,
         code: Vec<u8>,
     },
-    Buffer {
-        bytes: Vec<u8>,
-        size: u64,
-    },
+    Buffer(Vec<u8>),
     Processor {
         id: u8,
         pblk_address: u32,
@@ -190,7 +187,7 @@ impl AmlValue {
             AmlValue::OpRegion { .. } => AmlType::OpRegion,
             AmlValue::Field { .. } => AmlType::FieldUnit,
             AmlValue::Method { .. } => AmlType::Method,
-            AmlValue::Buffer { .. } => AmlType::Buffer,
+            AmlValue::Buffer(_) => AmlType::Buffer,
             AmlValue::Processor { .. } => AmlType::Processor,
             AmlValue::Mutex { .. } => AmlType::Mutex,
             AmlValue::Package(_) => AmlType::Package,
@@ -209,7 +206,7 @@ impl AmlValue {
         match self {
             AmlValue::Integer(value) => Ok(*value),
 
-            AmlValue::Buffer { ref bytes, .. } => {
+            AmlValue::Buffer(ref bytes) => {
                 /*
                  * "The first 8 bytes of the buffer are converted to an integer, taking the first
                  * byte as the least significant byte of the integer. A zero-length buffer is
@@ -239,7 +236,7 @@ impl AmlValue {
 
     pub fn as_buffer(&self, context: &AmlContext) -> Result<Vec<u8>, AmlError> {
         match self {
-            AmlValue::Buffer { ref bytes, .. } => Ok(bytes.clone()),
+            AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
             AmlValue::Field { .. } => self.read_field(context)?.as_buffer(context),
             _ => Err(AmlError::IncompatibleValueConversion),
