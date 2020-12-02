@@ -1,6 +1,6 @@
 use crate::{pkg_length::PkgLength, AmlContext, AmlError, DebugVerbosity};
 use alloc::vec::Vec;
-use core::marker::PhantomData;
+use core::{convert::TryInto, marker::PhantomData};
 use log::trace;
 
 /// This is the number of spaces added to indent a scope when printing parser debug messages.
@@ -114,7 +114,7 @@ where
             return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
-        Ok((&input[2..], context, input[0] as u16 + ((input[1] as u16) << 8)))
+        Ok((&input[2..], context, u16::from_le_bytes(input[0..2].try_into().unwrap())))
     }
 }
 
@@ -127,11 +127,7 @@ where
             return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
-        Ok((
-            &input[4..],
-            context,
-            input[0] as u32 + ((input[1] as u32) << 8) + ((input[2] as u32) << 16) + ((input[3] as u32) << 24),
-        ))
+        Ok((&input[4..], context, u32::from_le_bytes(input[0..4].try_into().unwrap())))
     }
 }
 
@@ -144,18 +140,7 @@ where
             return Err((input, context, AmlError::UnexpectedEndOfStream));
         }
 
-        Ok((
-            &input[8..],
-            context,
-            input[0] as u64
-                + ((input[1] as u64) << 8)
-                + ((input[2] as u64) << 16)
-                + ((input[3] as u64) << 24)
-                + ((input[4] as u64) << 32)
-                + ((input[5] as u64) << 40)
-                + ((input[6] as u64) << 48)
-                + ((input[7] as u64) << 56),
-        ))
+        Ok((&input[8..], context, u64::from_le_bytes(input[0..8].try_into().unwrap())))
     }
 }
 
@@ -437,7 +422,7 @@ pub(crate) macro choice {
     },
 
     /*
-     * The nice way of writing this would generate something like:
+     * The nice way of writing this would be something like:
      * ```
      * $first_parser
      * $(
