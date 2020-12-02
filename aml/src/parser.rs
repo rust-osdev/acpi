@@ -436,17 +436,33 @@ pub(crate) macro choice {
         id().map(|()| Err(AmlError::WrongParser))
     },
 
-    ($first_parser: expr) => {
-        $first_parser
-        .or(id().map(|()| Err(AmlError::WrongParser)))
-    },
-
-    ($first_parser: expr, $($other_parser: expr),*) => {
-        $first_parser
-        $(
-            .or($other_parser)
-         )*
-        .or(id().map(|()| Err(AmlError::WrongParser)))
+    /*
+     * The nice way of writing this would generate something like:
+     * ```
+     * $first_parser
+     * $(
+     *     .or($other_parser)
+     *  )*
+     * .or(id().map(|()| Err(AmlError::WrongParser)))
+     * ```
+     * This problem with this is that it generates enormous types that very easily break `rustc`'s type
+     * limit, so writing large parsers with choice required some gymnastics, which sucks for everyone involved.
+     *
+     * Instead, we manually call each parser sequentially, checking its result to see if we should return, or try
+     * the next parser. This generates worse code at the macro callsite, but is much easier for the compiler to
+     * type-check (and so reduces the cost of pulling us in as a dependency as well as improving ergonomics).
+     */
+    ($($parser: expr),+) => {
+        move |input, mut context| {
+            $(
+                match ($parser).parse(input, context) {
+                    Ok(parse_result) => return Ok(parse_result),
+                    Err((_, new_context, AmlError::WrongParser)) => { context = new_context; },
+                    Err((_, context, err)) => return Err((input, context, err)),
+                }
+             )+
+            Err((input, context, AmlError::WrongParser))
+        }
     }
 }
 
