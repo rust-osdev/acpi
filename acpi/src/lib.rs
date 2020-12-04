@@ -51,7 +51,7 @@ mod hpet;
 mod madt;
 mod mcfg;
 pub mod platform;
-mod sdt;
+pub mod sdt;
 
 pub use crate::{
     fadt::PowerProfile,
