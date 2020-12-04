@@ -1,21 +1,18 @@
 use crate::{AcpiError, AcpiHandler};
 use core::{fmt, mem, mem::MaybeUninit, str};
 
-pub const ACPI_VERSION_2_0: u8 = 20;
-
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
 /// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
 #[repr(C, packed)]
-pub struct ExtendedField<T: Copy, const MIN_VERSION: u8>(MaybeUninit<T>);
+pub struct ExtendedField<T: Copy, const MIN_REVISION: u8>(MaybeUninit<T>);
 
-impl<T: Copy, const MIN_VERSION: u8> ExtendedField<T, MIN_VERSION> {
-    /// Access the field if it's present for the given ACPI version. You should get this version from another ACPI
-    /// structure, such as the RSDT/XSDT.
+impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
+    /// Access the field if it's present for the given revision of the table.
     ///
     /// ### Safety
-    /// If a bogus ACPI version is passed, this function may access uninitialised data, which is unsafe.
-    pub unsafe fn access(&self, version: u8) -> Option<T> {
-        if version >= MIN_VERSION {
+    /// If a bogus ACPI version is passed, this function may access uninitialised data.
+    pub unsafe fn access(&self, revision: u8) -> Option<T> {
+        if revision >= MIN_REVISION {
             Some(unsafe { self.0.assume_init() })
         } else {
             None
