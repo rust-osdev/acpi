@@ -134,7 +134,7 @@ impl Fadt {
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
 pub struct PmTimer {
-    /// An I/O space address to the register of ACPI PM Timer.
+    /// An I/O space address to the register block of ACPI PM Timer.
     pub io_base: u32,
     /// This field is true if the hardware supports 32-bit timer, and false if the hardware
     /// supports 24-bit timer.
