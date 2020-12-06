@@ -130,10 +130,6 @@ impl Fadt {
             other => PowerProfile::Reserved(other),
         }
     }
-
-    pub fn pm_timer(&self) -> PmTimer {
-        PmTimer { io_base: self.pm_timer_block, supports_32bit: self.flags.get_bit(8) }
-    }
 }
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
