@@ -2,8 +2,11 @@ use crate::{
     sdt::{ExtendedField, SdtHeader},
     AcpiError,
     AcpiTable,
+    AcpiTables,
     GenericAddress,
 };
+use bit_field::BitField;
+use rsdp::handler::AcpiHandler;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PowerProfile {
@@ -126,5 +129,33 @@ impl Fadt {
             8 => PowerProfile::Tablet,
             other => PowerProfile::Reserved(other),
         }
+    }
+
+    pub fn pm_timer(&self) -> PmTimer {
+        PmTimer { io_base: self.pm_timer_block, supports_32bit: self.flags.get_bit(8) }
+    }
+}
+
+/// Information about the ACPI Power Management Timer (ACPI PM Timer).
+pub struct PmTimer {
+    /// An I/O space address to the register of ACPI PM Timer.
+    pub io_base: u32,
+    /// This field is true if the hardware supports 32-bit timer, and false if the hardware
+    /// supports 24-bit timer.
+    pub supports_32bit: bool,
+}
+impl PmTimer {
+    /// Creates a new instance of `PmTimer`.
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PmTimer, AcpiError>
+    where
+        H: AcpiHandler,
+    {
+        let fadt = unsafe {
+            tables
+                .get_sdt::<Fadt>(crate::sdt::Signature::FADT)?
+                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
+        };
+
+        Ok(PmTimer { io_base: fadt.pm_timer_block, supports_32bit: fadt.flags.get_bit(8) })
     }
 }
