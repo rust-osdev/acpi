@@ -7,10 +7,12 @@
 //! used in the `acpi` crate.
 
 #![no_std]
+#![feature(unsafe_block_in_unsafe_fn)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod handler;
 
-use core::{mem, ops::RangeInclusive, slice, str};
+use core::{mem, ops::Range, slice, str};
 use handler::{AcpiHandler, PhysicalMapping};
 use log::warn;
 
@@ -36,6 +38,7 @@ pub enum RsdpError {
 /// some new fields. For ACPI Version 1.0, these fields are not valid and should not be accessed.
 /// For ACPI Version 2.0+, `xsdt_address` should be used (truncated to `u32` on x86) instead of
 /// `rsdt_address`.
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct Rsdp {
     signature: [u8; 8],
@@ -71,51 +74,40 @@ impl Rsdp {
     where
         H: AcpiHandler,
     {
-        let areas = find_search_areas(handler.clone());
+        let rsdp_address = {
+            let mut rsdp_address = None;
+            let areas = find_search_areas(handler.clone());
 
-        /*
-         * We map a page at a time, as mapping the entire areas puts a lot of burden on a naive paging
-         * implementation.
-         */
-        let mut area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
-            areas[0].clone().next().unwrap() & !0xfff, // Get frame addr
-            0x1000,
-        );
+            'areas: for area in areas.iter() {
+                let mapping = unsafe { handler.map_physical_region::<u8>(area.start, area.end - area.start) };
 
-        // Signature is always on a 16 byte boundary so only search there
-        for address in areas.iter().flat_map(|i| i.clone()).step_by(16) {
-            let mut mapping_start = area_mapping.physical_start as usize;
-            if !(mapping_start..mapping_start + 0x1000).contains(&address) {
-                /*
-                 * This replaces the current mapping, unmapping the last one.
-                 */
-                area_mapping = handler.map_physical_region::<[[u8; 8]; 0x1000 / 8]>(
-                    address & !0xfff, // Get frame addr
-                    0x1000,
-                );
+                for address in area.clone().step_by(16) {
+                    let ptr_in_mapping =
+                        unsafe { mapping.virtual_start.as_ptr().offset((address - area.start) as isize) };
+                    let signature = unsafe { *(ptr_in_mapping as *const [u8; 8]) };
 
-                // Update if mapping remapped
-                mapping_start = area_mapping.physical_start as usize;
+                    if signature == *RSDP_SIGNATURE {
+                        match unsafe { *(ptr_in_mapping as *const Rsdp) }.validate() {
+                            Ok(()) => {
+                                rsdp_address = Some(address);
+                                break 'areas;
+                            }
+                            Err(err) => warn!("Invalid RSDP found at {:#x}: {:?}", address, err),
+                        }
+                    }
+                }
             }
 
-            let index = (address - mapping_start) / 8;
-            let signature = (*area_mapping)[index];
+            rsdp_address
+        };
 
-            if signature != *RSDP_SIGNATURE {
-                continue;
+        match rsdp_address {
+            Some(address) => {
+                let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
+                Ok(rsdp_mapping)
             }
-
-            let rsdp_mapping = handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>());
-
-            if let Err(e) = (*rsdp_mapping).validate() {
-                warn!("Invalid RSDP found at 0x{:x}: {:?}", address, e);
-                continue;
-            }
-
-            return Ok(rsdp_mapping);
+            None => Err(RsdpError::NoValidRsdp),
         }
-
-        Err(RsdpError::NoValidRsdp)
     }
 
     /// Checks that:
@@ -126,7 +118,7 @@ impl Rsdp {
         const RSDP_V1_LENGTH: usize = 20;
 
         // Check the signature
-        if &self.signature != b"RSD PTR " {
+        if &self.signature != RSDP_SIGNATURE {
             return Err(RsdpError::IncorrectSignature);
         }
 
@@ -175,7 +167,7 @@ impl Rsdp {
 }
 
 /// Find the areas we should search for the RSDP in.
-pub fn find_search_areas<H>(handler: H) -> [RangeInclusive<usize>; 2]
+pub fn find_search_areas<H>(handler: H) -> [Range<usize>; 2]
 where
     H: AcpiHandler,
 {
@@ -189,18 +181,18 @@ where
 
     [
         /*
-         * The main BIOS area below 1mb. In practice, from my [Restioson's] testing, the RSDP is more often here
+         * The main BIOS area below 1MiB. In practice, from my [Restioson's] testing, the RSDP is more often here
          * than the EBDA. We also don't want to search the entire possibele EBDA range, if we've failed to find it
          * from the BDA.
          */
-        RSDP_BIOS_AREA_START..=RSDP_BIOS_AREA_END,
+        RSDP_BIOS_AREA_START..(RSDP_BIOS_AREA_END + 1),
         // Check if base segment ptr is in valid range for EBDA base
         if (EBDA_EARLIEST_START..EBDA_END).contains(&ebda_start) {
-            // First kb of EBDA
-            ebda_start..=ebda_start + 1024
+            // First KiB of EBDA
+            ebda_start..ebda_start + 1024
         } else {
             // We don't know where the EBDA starts, so just search the largest possible EBDA
-            EBDA_EARLIEST_START..=EBDA_END
+            EBDA_EARLIEST_START..(EBDA_END + 1)
         },
     ]
 }
