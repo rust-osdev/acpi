@@ -65,7 +65,7 @@ impl PmTimer {
     /// Creates a new instance of `PmTimer`.
     pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
         let base = fadt.pm_timer_block()?;
-        let flags = fadt.flags();
+        let flags = fadt.flags;
 
         match base {
             Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),

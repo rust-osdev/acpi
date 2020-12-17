@@ -70,7 +70,7 @@ pub struct Fadt {
     century: u8,
     iapc_boot_arch: u16,
     _reserved2: u8, // must be 0
-    flags: u32,
+    pub flags: u32,
     reset_reg: RawGenericAddress,
     reset_value: u8,
     arm_boot_arch: u16,
@@ -149,9 +149,5 @@ impl Fadt {
             Some(raw) => Ok(Some(GenericAddress::from_raw(raw)?)),
             None => Ok(None),
         }
-    }
-
-    pub fn flags(&self) -> u32 {
-        self.flags
     }
 }
