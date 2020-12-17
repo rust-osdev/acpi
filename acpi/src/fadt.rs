@@ -130,6 +130,29 @@ impl Fadt {
             other => PowerProfile::Reserved(other),
         }
     }
+
+    pub fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+        let raw = unsafe {
+            self.x_pm_timer_block.access(self.header().revision).or_else(|| {
+                if self.pm_timer_block != 0 {
+                    Some(RawGenericAddress {
+                        address_space: 0,
+                        bit_width: 0,
+                        bit_offset: 0,
+                        access_size: self.pm_timer_length,
+                        address: self.pm_timer_block.into(),
+                    })
+                } else {
+                    None
+                }
+            })
+        };
+
+        match raw {
+            Some(raw) => Ok(Some(GenericAddress::from_raw(raw)?)),
+            None => Ok(None),
+        }
+    }
 }
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
@@ -152,34 +175,11 @@ impl PmTimer {
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
         };
 
-        let base = Self::fetch_base(&fadt)?;
+        let base = fadt.pm_timer_block()?;
         let flags = fadt.flags;
 
         match base {
             Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),
-            None => Ok(None),
-        }
-    }
-
-    fn fetch_base(fadt: &Fadt) -> Result<Option<GenericAddress>, AcpiError> {
-        let raw = unsafe {
-            fadt.x_pm_timer_block.access(fadt.header().revision).or_else(|| {
-                if fadt.pm_timer_block != 0 {
-                    Some(RawGenericAddress {
-                        address_space: 0,
-                        bit_width: 0,
-                        bit_offset: 0,
-                        access_size: fadt.pm_timer_length,
-                        address: fadt.pm_timer_block.into(),
-                    })
-                } else {
-                    None
-                }
-            })
-        };
-
-        match raw {
-            Some(raw) => Ok(Some(GenericAddress::from_raw(raw)?)),
             None => Ok(None),
         }
     }
