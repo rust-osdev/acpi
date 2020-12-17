@@ -1,5 +1,5 @@
 use crate::{
-    platform::address::RawGenericAddress,
+    platform::address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
     sdt::{ExtendedField, SdtHeader},
     AcpiError,
     AcpiTable,
@@ -134,15 +134,15 @@ impl Fadt {
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
 pub struct PmTimer {
-    /// An I/O space address to the register block of ACPI PM Timer.
-    pub io_base: u32,
+    /// A generic address to the register block of ACPI PM Timer.
+    pub base: GenericAddress,
     /// This field is true if the hardware supports 32-bit timer, and false if the hardware
     /// supports 24-bit timer.
     pub supports_32bit: bool,
 }
 impl PmTimer {
     /// Creates a new instance of `PmTimer`.
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PmTimer, AcpiError>
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<Option<PmTimer>, AcpiError>
     where
         H: AcpiHandler,
     {
@@ -152,8 +152,28 @@ impl PmTimer {
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
         };
 
+        let raw = unsafe {
+            fadt.x_pm_timer_block.access(fadt.header().revision).or_else(|| {
+                if fadt.pm_timer_block != 0 {
+                    Some(RawGenericAddress {
+                        address_space: 0,
+                        bit_width: 0,
+                        bit_offset: 0,
+                        access_size: fadt.pm_timer_length,
+                        address: fadt.pm_timer_block.into(),
+                    })
+                } else {
+                    None
+                }
+            })
+        };
         let flags = fadt.flags;
 
-        Ok(PmTimer { io_base: fadt.pm_timer_block, supports_32bit: flags.get_bit(8) })
+        match raw {
+            Some(raw) => {
+                Ok(Some(PmTimer { base: GenericAddress::from_raw(raw)?, supports_32bit: flags.get_bit(8) }))
+            }
+            None => Ok(None),
+        }
     }
 }
