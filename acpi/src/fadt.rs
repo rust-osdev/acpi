@@ -131,7 +131,7 @@ impl Fadt {
         }
     }
 
-    pub fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+    fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         let raw = unsafe {
             self.x_pm_timer_block.access(self.header().revision).or_else(|| {
                 if self.pm_timer_block != 0 {
