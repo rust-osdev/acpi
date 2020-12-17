@@ -1,4 +1,4 @@
-use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables, GenericAddress};
+use crate::{platform::address::RawGenericAddress, sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl HpetInfo {
 pub(crate) struct HpetTable {
     header: SdtHeader,
     event_timer_block_id: u32,
-    base_address: GenericAddress,
+    base_address: RawGenericAddress,
     hpet_number: u8,
     clock_tick_unit: u16,
     page_protection_oem: u8,

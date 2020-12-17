@@ -1,9 +1,9 @@
 use crate::{
+    platform::address::RawGenericAddress,
     sdt::{ExtendedField, SdtHeader},
     AcpiError,
     AcpiTable,
     AcpiTables,
-    GenericAddress,
 };
 use bit_field::BitField;
 use rsdp::handler::AcpiHandler;
@@ -74,22 +74,22 @@ pub struct Fadt {
     iapc_boot_arch: u16,
     _reserved2: u8, // must be 0
     flags: u32,
-    reset_reg: GenericAddress,
+    reset_reg: RawGenericAddress,
     reset_value: u8,
     arm_boot_arch: u16,
     fadt_minor_version: u8,
     x_firmware_ctrl: ExtendedField<u64, 2>,
     x_dsdt_address: ExtendedField<u64, 2>,
-    x_pm1a_event_block: ExtendedField<GenericAddress, 2>,
-    x_pm1b_event_block: ExtendedField<GenericAddress, 2>,
-    x_pm1a_control_block: ExtendedField<GenericAddress, 2>,
-    x_pm1b_control_block: ExtendedField<GenericAddress, 2>,
-    x_pm2_control_block: ExtendedField<GenericAddress, 2>,
-    x_pm_timer_block: ExtendedField<GenericAddress, 2>,
-    x_gpe0_block: ExtendedField<GenericAddress, 2>,
-    x_gpe1_block: ExtendedField<GenericAddress, 2>,
-    sleep_control_reg: ExtendedField<GenericAddress, 2>,
-    sleep_status_reg: ExtendedField<GenericAddress, 2>,
+    x_pm1a_event_block: ExtendedField<RawGenericAddress, 2>,
+    x_pm1b_event_block: ExtendedField<RawGenericAddress, 2>,
+    x_pm1a_control_block: ExtendedField<RawGenericAddress, 2>,
+    x_pm1b_control_block: ExtendedField<RawGenericAddress, 2>,
+    x_pm2_control_block: ExtendedField<RawGenericAddress, 2>,
+    x_pm_timer_block: ExtendedField<RawGenericAddress, 2>,
+    x_gpe0_block: ExtendedField<RawGenericAddress, 2>,
+    x_gpe1_block: ExtendedField<RawGenericAddress, 2>,
+    sleep_control_reg: ExtendedField<RawGenericAddress, 2>,
+    sleep_status_reg: ExtendedField<RawGenericAddress, 2>,
     hypervisor_vendor_id: ExtendedField<u64, 2>,
 }
 

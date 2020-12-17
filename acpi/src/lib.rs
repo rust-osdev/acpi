@@ -83,6 +83,7 @@ pub enum AcpiError {
     TableMissing(Signature),
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
+    InvalidGenericAddress,
 }
 
 pub struct AcpiTables<H>
@@ -300,14 +301,4 @@ impl AmlTable {
             length: length - mem::size_of::<SdtHeader>() as u32,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-#[repr(C, packed)]
-pub(crate) struct GenericAddress {
-    address_space: u8,
-    bit_width: u8,
-    bit_offset: u8,
-    access_size: u8,
-    address: u64,
 }
