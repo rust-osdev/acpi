@@ -1,6 +1,8 @@
 pub mod address;
 pub mod interrupt;
 
+use address::GenericAddress;
+use bit_field::BitField;
 pub use interrupt::{
     Apic,
     InterruptModel,
@@ -51,6 +53,27 @@ pub struct ProcessorInfo {
     pub application_processors: Vec<Processor>,
 }
 
+/// Information about the ACPI Power Management Timer (ACPI PM Timer).
+pub struct PmTimer {
+    /// A generic address to the register block of ACPI PM Timer.
+    pub base: GenericAddress,
+    /// This field is true if the hardware supports 32-bit timer, and false if the hardware
+    /// supports 24-bit timer.
+    pub supports_32bit: bool,
+}
+impl PmTimer {
+    /// Creates a new instance of `PmTimer`.
+    pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
+        let base = fadt.pm_timer_block()?;
+        let flags = fadt.flags;
+
+        match base {
+            Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),
+            None => Ok(None),
+        }
+    }
+}
+
 /// `PlatformInfo` allows the collection of some basic information about the platform from some of the fixed-size
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
@@ -60,6 +83,7 @@ pub struct PlatformInfo {
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo>,
+    pub pm_timer: Option<PmTimer>,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
      */
@@ -82,7 +106,8 @@ impl PlatformInfo {
             Some(madt) => madt.parse_interrupt_model()?,
             None => (InterruptModel::Unknown, None),
         };
+        let pm_timer = PmTimer::new(&fadt)?;
 
-        Ok(PlatformInfo { power_profile, interrupt_model, processor_info })
+        Ok(PlatformInfo { power_profile, interrupt_model, processor_info, pm_timer })
     }
 }

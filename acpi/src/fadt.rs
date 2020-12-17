@@ -1,5 +1,5 @@
 use crate::{
-    platform::address::RawGenericAddress,
+    platform::address::{GenericAddress, RawGenericAddress},
     sdt::{ExtendedField, SdtHeader},
     AcpiError,
     AcpiTable,
@@ -70,7 +70,7 @@ pub struct Fadt {
     century: u8,
     iapc_boot_arch: u16,
     _reserved2: u8, // must be 0
-    flags: u32,
+    pub flags: u32,
     reset_reg: RawGenericAddress,
     reset_value: u8,
     arm_boot_arch: u16,
@@ -125,6 +125,29 @@ impl Fadt {
             7 => PowerProfile::PerformanceServer,
             8 => PowerProfile::Tablet,
             other => PowerProfile::Reserved(other),
+        }
+    }
+
+    pub fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+        let raw = unsafe {
+            self.x_pm_timer_block.access(self.header().revision).or_else(|| {
+                if self.pm_timer_block != 0 {
+                    Some(RawGenericAddress {
+                        address_space: 1,
+                        bit_width: 0,
+                        bit_offset: 0,
+                        access_size: self.pm_timer_length,
+                        address: self.pm_timer_block.into(),
+                    })
+                } else {
+                    None
+                }
+            })
+        };
+
+        match raw {
+            Some(raw) => Ok(Some(GenericAddress::from_raw(raw)?)),
+            None => Ok(None),
         }
     }
 }
