@@ -4,7 +4,6 @@ use crate::{
     AcpiError,
     AcpiTable,
 };
-use bit_field::BitField;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PowerProfile {
@@ -129,11 +128,7 @@ impl Fadt {
         }
     }
 
-    pub fn pm_timer(&self) -> Result<Option<PmTimer>, AcpiError> {
-        PmTimer::new(self)
-    }
-
-    fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+    pub fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         let raw = unsafe {
             self.x_pm_timer_block.access(self.header().revision).or_else(|| {
                 if self.pm_timer_block != 0 {
@@ -155,25 +150,8 @@ impl Fadt {
             None => Ok(None),
         }
     }
-}
 
-/// Information about the ACPI Power Management Timer (ACPI PM Timer).
-pub struct PmTimer {
-    /// A generic address to the register block of ACPI PM Timer.
-    pub base: GenericAddress,
-    /// This field is true if the hardware supports 32-bit timer, and false if the hardware
-    /// supports 24-bit timer.
-    pub supports_32bit: bool,
-}
-impl PmTimer {
-    /// Creates a new instance of `PmTimer`.
-    pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
-        let base = fadt.pm_timer_block()?;
-        let flags = fadt.flags;
-
-        match base {
-            Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),
-            None => Ok(None),
-        }
+    pub fn flags(&self) -> u32 {
+        self.flags
     }
 }

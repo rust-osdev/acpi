@@ -54,7 +54,7 @@ pub mod platform;
 pub mod sdt;
 
 pub use crate::{
-    fadt::{PmTimer, PowerProfile},
+    fadt::PowerProfile,
     hpet::HpetInfo,
     madt::MadtError,
     mcfg::PciConfigRegions,
