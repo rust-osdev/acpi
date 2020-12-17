@@ -133,7 +133,7 @@ impl Fadt {
             self.x_pm_timer_block.access(self.header().revision).or_else(|| {
                 if self.pm_timer_block != 0 {
                     Some(RawGenericAddress {
-                        address_space: 0,
+                        address_space: 1,
                         bit_width: 0,
                         bit_offset: 0,
                         access_size: self.pm_timer_length,
