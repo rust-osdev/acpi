@@ -1,12 +1,10 @@
 use crate::{
-    platform::address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
+    platform::address::{GenericAddress, RawGenericAddress},
     sdt::{ExtendedField, SdtHeader},
     AcpiError,
     AcpiTable,
-    AcpiTables,
 };
 use bit_field::BitField;
-use rsdp::handler::AcpiHandler;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PowerProfile {
@@ -131,6 +129,10 @@ impl Fadt {
         }
     }
 
+    pub fn pm_timer(&self) -> Result<Option<PmTimer>, AcpiError> {
+        PmTimer::new(self)
+    }
+
     fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         let raw = unsafe {
             self.x_pm_timer_block.access(self.header().revision).or_else(|| {
@@ -165,16 +167,7 @@ pub struct PmTimer {
 }
 impl PmTimer {
     /// Creates a new instance of `PmTimer`.
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<Option<PmTimer>, AcpiError>
-    where
-        H: AcpiHandler,
-    {
-        let fadt = unsafe {
-            tables
-                .get_sdt::<Fadt>(crate::sdt::Signature::FADT)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
-        };
-
+    pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
         let base = fadt.pm_timer_block()?;
         let flags = fadt.flags;
 

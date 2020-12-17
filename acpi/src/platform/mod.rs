@@ -14,7 +14,7 @@ pub use interrupt::{
     TriggerMode,
 };
 
-use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
+use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PmTimer, PowerProfile};
 use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,6 +60,7 @@ pub struct PlatformInfo {
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo>,
+    pub pm_timer: Option<PmTimer>,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
      */
@@ -82,7 +83,8 @@ impl PlatformInfo {
             Some(madt) => madt.parse_interrupt_model()?,
             None => (InterruptModel::Unknown, None),
         };
+        let pm_timer = fadt.pm_timer()?;
 
-        Ok(PlatformInfo { power_profile, interrupt_model, processor_info })
+        Ok(PlatformInfo { power_profile, interrupt_model, processor_info, pm_timer })
     }
 }
