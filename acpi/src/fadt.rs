@@ -152,6 +152,8 @@ impl PmTimer {
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
         };
 
-        Ok(PmTimer { io_base: fadt.pm_timer_block, supports_32bit: fadt.flags.get_bit(8) })
+        let flags = fadt.flags;
+
+        Ok(PmTimer { io_base: fadt.pm_timer_block, supports_32bit: flags.get_bit(8) })
     }
 }
