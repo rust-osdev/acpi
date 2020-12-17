@@ -152,6 +152,16 @@ impl PmTimer {
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
         };
 
+        let base = Self::fetch_base(&fadt)?;
+        let flags = fadt.flags;
+
+        match base {
+            Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),
+            None => Ok(None),
+        }
+    }
+
+    fn fetch_base(fadt: &Fadt) -> Result<Option<GenericAddress>, AcpiError> {
         let raw = unsafe {
             fadt.x_pm_timer_block.access(fadt.header().revision).or_else(|| {
                 if fadt.pm_timer_block != 0 {
@@ -167,12 +177,9 @@ impl PmTimer {
                 }
             })
         };
-        let flags = fadt.flags;
 
         match raw {
-            Some(raw) => {
-                Ok(Some(PmTimer { base: GenericAddress::from_raw(raw)?, supports_32bit: flags.get_bit(8) }))
-            }
+            Some(raw) => Ok(Some(GenericAddress::from_raw(raw)?)),
             None => Ok(None),
         }
     }
