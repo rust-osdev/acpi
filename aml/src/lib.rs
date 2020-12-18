@@ -619,6 +619,8 @@ pub enum AmlError {
     UnterminatedStringConstant,
     InvalidStringConstant,
     InvalidRegionSpace(u8),
+    /// Produced when a `DefPackage` contains a different number of elements to the package's length.
+    InvalidPackage,
     /// Emitted by a parser when it's clear that the stream doesn't encode the object parsed by
     /// that parser (e.g. the wrong opcode starts the stream). This is handled specially by some
     /// parsers such as `or` and `choice!`.

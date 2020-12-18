@@ -276,7 +276,10 @@ where
                         package_contents.push(value);
                     }
 
-                    assert_eq!(package_contents.len(), num_elements as usize);
+                    if package_contents.len() != num_elements as usize {
+                        return Err((input, context, AmlError::InvalidPackage));
+                    }
+
                     Ok((input, context, AmlValue::Package(package_contents)))
                 }
             }),
