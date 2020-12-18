@@ -15,7 +15,7 @@ pub(crate) struct RawGenericAddress {
     pub address: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum AddressSpace {
     SystemMemory,
     SystemIo,
@@ -40,7 +40,7 @@ pub enum AddressSpace {
     OemDefined(u8),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum AccessSize {
     Undefined,
     ByteAccess,
@@ -49,7 +49,7 @@ pub enum AccessSize {
     QWordAccess,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct GenericAddress {
     pub address_space: AddressSpace,
     pub bit_width: u8,
