@@ -1,6 +1,6 @@
 [package]
 name = "acpi"
-version = "2.1.0"
+version = "2.2.0-pre0"
 authors = ["Isaac Woods"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "Library for parsing ACPI tables"
@@ -12,4 +12,4 @@ edition = "2018"
 [dependencies]
 log = "0.4"
 bit_field = "0.10"
-rsdp = "1"
+rsdp = "=1.1.0-pre0"
