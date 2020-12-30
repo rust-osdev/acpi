@@ -102,6 +102,11 @@ where
             pkg_length().then(term_arg()).feed(|(pkg_length, buffer_size)| {
                 take_to_end_of_pkglength(pkg_length).map_with_context(move |bytes, context| {
                     let buffer_size = try_with_context!(context, buffer_size.as_integer(context)) as usize;
+
+                    if buffer_size < bytes.len() {
+                        return (Err(AmlError::MalformedBuffer), context);
+                    }
+
                     let mut buffer = vec![0; buffer_size];
                     buffer.copy_from_slice(bytes);
                     (Ok(buffer), context)
