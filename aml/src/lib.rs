@@ -620,7 +620,7 @@ pub enum AmlError {
     InvalidStringConstant,
     InvalidRegionSpace(u8),
     /// Produced when a `DefPackage` contains a different number of elements to the package's length.
-    InvalidPackage,
+    MalformedPackage,
     /// Produced when a `DefBuffer` contains more bytes that its size.
     MalformedBuffer,
     /// Emitted by a parser when it's clear that the stream doesn't encode the object parsed by

@@ -282,7 +282,7 @@ where
                     }
 
                     if package_contents.len() != num_elements as usize {
-                        return Err((input, context, AmlError::InvalidPackage));
+                        return Err((input, context, AmlError::MalformedPackage));
                     }
 
                     Ok((input, context, AmlValue::Package(package_contents)))
