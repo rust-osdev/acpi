@@ -101,7 +101,10 @@ where
                 |((left_arg, right_arg), target), context| {
                     let left = try_with_context!(context, left_arg.as_integer(context));
                     let right = try_with_context!(context, right_arg.as_integer(context));
-                    (Ok(AmlValue::Integer(left & right)), context)
+                    let result = AmlValue::Integer(left & right);
+
+                    try_with_context!(context, context.store(target, result.clone()));
+                    (Ok(result), context)
                 },
             ),
         ))
