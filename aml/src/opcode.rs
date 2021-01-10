@@ -45,6 +45,7 @@ pub const DEF_BREAKPOINT_OP: u8 = 0xcc;
  * Type 2 opcodes
  */
 pub const DEF_STORE_OP: u8 = 0x70;
+pub const DEF_ADD_OP: u8 = 0x72;
 pub const DEF_SHIFT_LEFT: u8 = 0x79;
 pub const DEF_SHIFT_RIGHT: u8 = 0x7a;
 pub const DEF_AND_OP: u8 = 0x7b;

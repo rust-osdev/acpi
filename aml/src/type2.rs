@@ -40,6 +40,7 @@ where
         DebugVerbosity::AllScopes,
         "Type2Opcode",
         choice!(
+            def_add(),
             def_and(),
             def_buffer(),
             def_l_equal(),
@@ -56,6 +57,32 @@ where
             method_invocation() // XXX: this must always appear last. See how we have to parse it to see why.
         ),
     ))
+}
+
+pub fn def_add<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefAdd := 0x72 Operand Operand Target
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_ADD_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefAdd",
+            term_arg().then(term_arg()).then(target()).map_with_context(
+                |((left_arg, right_arg), target), context| {
+                    let left = try_with_context!(context, left_arg.as_integer(context));
+                    let right = try_with_context!(context, right_arg.as_integer(context));
+                    let result = AmlValue::Integer(left.wrapping_add(right));
+
+                    try_with_context!(context, context.store(target, result.clone()));
+                    (Ok(result), context)
+                },
+            ),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 pub fn def_and<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
