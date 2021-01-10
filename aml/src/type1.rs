@@ -1,6 +1,6 @@
 use crate::{
     opcode::{self, opcode},
-    parser::{choice, comment_scope, take_to_end_of_pkglength, ParseResult, Parser},
+    parser::{choice, comment_scope, id, take_to_end_of_pkglength, ParseResult, Parser},
     pkg_length::{pkg_length, PkgLength},
     term_object::{term_arg, term_list},
     AmlError,
@@ -17,7 +17,7 @@ where
      *                DefNotify | DefRelease | DefReset | DefReturn | DefSignal | DefSleep | DefStall |
      *                DefWhile
      */
-    comment_scope(DebugVerbosity::AllScopes, "Type1Opcode", choice!(def_if_else(), def_return()))
+    comment_scope(DebugVerbosity::AllScopes, "Type1Opcode", choice!(def_if_else(), def_noop(), def_return()))
 }
 
 fn def_if_else<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -68,6 +68,16 @@ where
                 }),
         ))
         .discard_result()
+}
+
+fn def_noop<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefNoop := 0xa3
+     */
+    opcode(opcode::DEF_NOOP_OP).then(comment_scope(DebugVerbosity::AllScopes, "DefNoop", id())).discard_result()
 }
 
 fn def_return<'a, 'c>() -> impl Parser<'a, 'c, ()>
