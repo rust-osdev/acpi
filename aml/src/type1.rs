@@ -17,7 +17,25 @@ where
      *                DefNotify | DefRelease | DefReset | DefReturn | DefSignal | DefSleep | DefStall |
      *                DefWhile
      */
-    comment_scope(DebugVerbosity::AllScopes, "Type1Opcode", choice!(def_if_else(), def_noop(), def_return()))
+    comment_scope(
+        DebugVerbosity::AllScopes,
+        "Type1Opcode",
+        choice!(def_breakpoint(), def_if_else(), def_noop(), def_return()),
+    )
+}
+
+fn def_breakpoint<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefBreakPoint := 0xcc
+     * TODO: there is no debugger, so this doesn't do anything. If there was, this should stop execution and enter
+     * the AML debugger.
+     */
+    opcode(opcode::DEF_BREAKPOINT_OP)
+        .then(comment_scope(DebugVerbosity::AllScopes, "DefBreakPoint", id()))
+        .discard_result()
 }
 
 fn def_if_else<'a, 'c>() -> impl Parser<'a, 'c, ()>

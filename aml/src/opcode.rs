@@ -39,6 +39,7 @@ pub const DEF_IF_ELSE_OP: u8 = 0xa0;
 pub const DEF_ELSE_OP: u8 = 0xa1;
 pub const DEF_NOOP_OP: u8 = 0xa3;
 pub const DEF_RETURN_OP: u8 = 0xa4;
+pub const DEF_BREAKPOINT_OP: u8 = 0xcc;
 
 /*
  * Type 2 opcodes
