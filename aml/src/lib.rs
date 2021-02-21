@@ -149,10 +149,10 @@ impl AmlContext {
     /// If `true` is passed in `legacy_mode`, the library will try and remain compatible with a ACPI 1.0
     /// implementation. The following changes/assumptions are made:
     ///
-    ///     - Two extra root namespaces are predefined: `\_PR` and `\_TZ`
-    ///     - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
-    ///     - Processors are expected to be found in `\_PR`, instead of `\_SB`
-    ///     - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
+    /// - Two extra root namespaces are predefined: `\_PR` and `\_TZ`
+    /// - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
+    /// - Processors are expected to be found in `\_PR`, instead of `\_SB`
+    /// - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
     pub fn new(handler: Box<dyn Handler>, legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
         let mut context = AmlContext {
             handler,
