@@ -1,5 +1,5 @@
 # Acpi
-[![Build Status](https://travis-ci.org/rust-osdev/acpi.svg?branch=master)](https://travis-ci.org/rust-osdev/acpi)
+![Build Status](https://github.com/rust-osdev/acpi/actions/workflows/build.yml/badge.svg)
 [![Version](https://img.shields.io/crates/v/acpi.svg?style=rounded-square)](https://crates.io/crates/acpi/)
 
 ### [Documentation (`rsdp`)](https://docs.rs/rsdp)
