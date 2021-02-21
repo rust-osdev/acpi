@@ -223,6 +223,9 @@ impl Namespace {
         } else {
             // If search rules don't apply, simply resolve it against the starting scope
             let name = path.resolve(starting_scope)?;
+            // TODO: the fuzzer crashes when path is `\` and the scope is also `\`. This means that name is `\`,
+            // which then trips up get_level_for_path. I don't know where to best solve this: we could check for
+            // specific things that crash `search`, or look for a more general solution.
             let (level, last_seg) = self.get_level_for_path(&path.resolve(starting_scope)?)?;
 
             if let Some(&handle) = level.values.get(&last_seg) {
@@ -363,7 +366,7 @@ impl fmt::Debug for Namespace {
             }
 
             Ok(())
-        };
+        }
 
         print_level(self, f, "\\", &self.root, 0)
     }

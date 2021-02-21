@@ -15,6 +15,7 @@
 //! ```ignore
 //! let my_aml_value = aml_context.lookup(&AmlName::from_str("\\_SB.PCI0.S08._ADR").unwrap());
 //! ```
+// TODO: add example of invoking a method
 //!
 //! ### About the parser
 //! The parser is written using a set of custom parser combinators - the code can be confusing on
@@ -194,6 +195,7 @@ impl AmlContext {
         }
     }
 
+    // TODO: docs
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
         match self.namespace.get_by_path(path)?.clone() {
             AmlValue::Method { flags, code } => {
@@ -248,6 +250,7 @@ impl AmlContext {
         }
     }
 
+    // TODO: docs
     pub fn initialize_objects(&mut self) -> Result<(), AmlError> {
         use name_object::NameSeg;
         use namespace::NamespaceLevel;
@@ -578,6 +581,7 @@ impl AmlContext {
     }
 }
 
+// TODO: docs
 pub trait Handler {
     fn read_u8(&self, address: usize) -> u8;
     fn read_u16(&self, address: usize) -> u16;

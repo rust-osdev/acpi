@@ -37,6 +37,7 @@ where
     /*
      * TermList := Nothing | <TermObj TermList>
      */
+    // TODO: why does this use still_parsing, instead of just taking the whole thing and parsing it til it's empty?
     move |mut input: &'a [u8], mut context: &'c mut AmlContext| {
         while list_length.still_parsing(input) {
             // TODO: currently, we ignore the value of the expression. We may need to propagate
