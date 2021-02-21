@@ -1,0 +1,39 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+      
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        default: true
+        profile: minimal
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y acpica-tools
+        
+    - name: Build
+      run: cargo build --all
+      
+    - name: Run tests
+      run: cargo test --all
+
+    - name: Run AML test suite
+      run: cargo run --bin aml_tester -- -p tests
