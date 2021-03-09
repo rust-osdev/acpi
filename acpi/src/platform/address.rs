@@ -98,7 +98,7 @@ impl GenericAddress {
             address_space,
             bit_width: raw.bit_width,
             bit_offset: raw.bit_offset,
-            access_size: raw.access_size.into(),
+            access_size: AccessSize::try_from(raw.access_size)?,
             address: raw.address,
         })
     }
