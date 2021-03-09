@@ -2,6 +2,7 @@
 //! in a wide range of address spaces.
 
 use crate::AcpiError;
+use core::convert::TryFrom;
 
 /// This is the raw form of a Generic Address Structure, and follows the layout found in the ACPI tables. It does
 /// not form part of the public API, and should be turned into a `GenericAddress` for most use-cases.
@@ -49,6 +50,21 @@ pub enum AccessSize {
     QWordAccess,
 }
 
+impl TryFrom<u8> for AccessSize {
+    type Error = AcpiError;
+
+    fn try_from(size: u8) -> Result<Self, Self::Error> {
+        match size {
+            0 => Ok(AccessSize::Undefined),
+            1 => Ok(AccessSize::ByteAccess),
+            2 => Ok(AccessSize::WordAccess),
+            3 => Ok(AccessSize::DWordAccess),
+            4 => Ok(AccessSize::QWordAccess),
+            _ => Err(AcpiError::InvalidGenericAddress),
+        }
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct GenericAddress {
     pub address_space: AddressSpace,
@@ -77,20 +93,12 @@ impl GenericAddress {
             0x80..=0xbf => return Err(AcpiError::InvalidGenericAddress),
             0xc0..=0xff => AddressSpace::OemDefined(raw.address_space),
         };
-        let access_size = match raw.access_size {
-            0 => AccessSize::Undefined,
-            1 => AccessSize::ByteAccess,
-            2 => AccessSize::WordAccess,
-            3 => AccessSize::DWordAccess,
-            4 => AccessSize::QWordAccess,
-            _ => return Err(AcpiError::InvalidGenericAddress),
-        };
 
         Ok(GenericAddress {
             address_space,
             bit_width: raw.bit_width,
             bit_offset: raw.bit_offset,
-            access_size,
+            access_size: raw.access_size.into(),
             address: raw.address,
         })
     }
