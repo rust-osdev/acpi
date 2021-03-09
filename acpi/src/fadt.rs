@@ -4,6 +4,7 @@ use crate::{
     AcpiError,
     AcpiTable,
 };
+use bit_field::BitField;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PowerProfile {
@@ -93,7 +94,7 @@ pub struct Fadt {
     pub century: u8,
     iapc_boot_arch: u16,
     _reserved2: u8, // must be 0
-    pub flags: u32,
+    pub flags: Flags,
     reset_reg: RawGenericAddress,
     pub reset_value: u8,
     arm_boot_arch: u16,
@@ -184,5 +185,15 @@ impl Fadt {
             Some(raw) => Ok(Some(GenericAddress::from_raw(raw)?)),
             None => Ok(None),
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+// TODO: methods for other flags
+pub struct Flags(u32);
+
+impl Flags {
+    pub fn pm_timer_is_32_bit(&self) -> bool {
+        self.0.get_bit(8)
     }
 }
