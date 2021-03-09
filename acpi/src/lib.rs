@@ -46,7 +46,7 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-mod fadt;
+pub mod fadt;
 mod hpet;
 mod madt;
 mod mcfg;

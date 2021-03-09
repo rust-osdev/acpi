@@ -2,7 +2,6 @@ pub mod address;
 pub mod interrupt;
 
 use address::GenericAddress;
-use bit_field::BitField;
 pub use interrupt::{
     Apic,
     InterruptModel,
@@ -67,7 +66,7 @@ impl PmTimer {
         let flags = fadt.flags;
 
         match base {
-            Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),
+            Some(base) => Ok(Some(PmTimer { base, supports_32bit: fadt.flags.pm_timer_is_32_bit() })),
             None => Ok(None),
         }
     }
