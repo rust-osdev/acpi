@@ -37,7 +37,26 @@ pub struct Fadt {
     _reserved: u8,
 
     preferred_pm_profile: u8,
+    /// On systems with an i8259 PIC, this is the vector the System Control Interrupt (SCI) is wired to. On other systems, this is
+    /// the Global System Interrupt (GSI) number of the SCI.
+    ///
+    /// The SCI should be treated as a sharable, level, active-low interrupt.
     pub sci_interrupt: u16,
+    /// The system port address of the SMI Command Port. This port should only be accessed from the boot processor.
+    /// A value of `0` indicates that System Management Mode.
+    ///
+    ///    - Writing the value in `acpi_enable` to this port will transfer control of the ACPI hardware registers
+    ///      from the firmware to the OS. You must synchronously wait for the transfer to complete, indicated by the
+    ///      setting of `SCI_EN`.
+    ///    - Writing the value in `acpi_disable` will relinquish ownership of the hardware registers to the
+    ///      firmware. This should only be done if you've previously acquired ownership. Before writing this value,
+    ///      the OS should mask all SCI interrupts and clear the `SCI_EN` bit.
+    ///    - Writing the value in `s4bios_req` requests that the firmware enter the S4 state through the S4BIOS
+    ///      feature. This is only supported if the `S4BIOS_F` flag in the FACS is set.
+    ///    - Writing the value in `pstate_control` yields control of the processor performance state to the OS.
+    ///      If this field is `0`, this feature is not supported.
+    ///    - Writing the value in `c_state_control` tells the firmware that the OS supports `_CST` AML objects and
+    ///      notifications of C State changes.
     pub smi_cmd_port: u32,
     pub acpi_enable: u8,
     pub acpi_disable: u8,
@@ -59,7 +78,11 @@ pub struct Fadt {
     gpe1_block_length: u8,
     pub gpe1_base: u8,
     pub c_state_control: u8,
+    /// The worst-case latency to enter and exit the C2 state, in microseconds. A value `>100` indicates that the
+    /// system does not support the C2 state.
     pub worst_c2_latency: u16,
+    /// The worst-case latency to enter and exit the C3 state, in microseconds. A value `>1000` indicates that the
+    /// system does not support the C3 state.
     pub worst_c3_latency: u16,
     pub flush_size: u16,
     pub flush_stride: u16,
