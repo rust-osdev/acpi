@@ -81,6 +81,7 @@ pub enum AcpiError {
     SdtInvalidChecksum(Signature),
 
     TableMissing(Signature),
+    InvalidFacsAddress,
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
     InvalidGenericAddress,

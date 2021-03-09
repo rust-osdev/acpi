@@ -101,13 +101,25 @@ impl Fadt {
         self.header.validate(crate::sdt::Signature::FADT)
     }
 
+    pub fn facs_address(&self) -> Result<usize, AcpiError> {
+        unsafe {
+            self.x_firmware_ctrl
+                .access(self.header.revision)
+                .filter(|&p| p != 0)
+                .or(Some(self.firmware_ctrl as u64))
+                .filter(|&p| p != 0)
+                .map(|p| p as usize)
+                .ok_or(AcpiError::InvalidFacsAddress)
+        }
+    }
+
     pub fn dsdt_address(&self) -> Result<usize, AcpiError> {
         unsafe {
             self.x_dsdt_address
                 .access(self.header.revision)
                 .filter(|&p| p != 0)
                 .or(Some(self.dsdt_address as u64))
-                .filter(|p| *p != 0)
+                .filter(|&p| p != 0)
                 .map(|p| p as usize)
                 .ok_or(AcpiError::InvalidDsdtAddress)
         }
