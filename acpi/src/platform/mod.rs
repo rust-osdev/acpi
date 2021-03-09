@@ -57,12 +57,11 @@ pub struct ProcessorInfo {
 pub struct PmTimer {
     /// A generic address to the register block of ACPI PM Timer.
     pub base: GenericAddress,
-    /// This field is true if the hardware supports 32-bit timer, and false if the hardware
-    /// supports 24-bit timer.
+    /// This field is `true` if the hardware supports 32-bit timer, and `false` if the hardware supports 24-bit timer.
     pub supports_32bit: bool,
 }
+
 impl PmTimer {
-    /// Creates a new instance of `PmTimer`.
     pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
         let base = fadt.pm_timer_block()?;
         let flags = fadt.flags;
