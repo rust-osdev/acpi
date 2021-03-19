@@ -47,7 +47,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod fadt;
-mod hpet;
+pub mod hpet;
 mod madt;
 mod mcfg;
 pub mod platform;

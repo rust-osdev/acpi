@@ -74,7 +74,7 @@ impl HpetInfo {
 }
 
 #[repr(C, packed)]
-pub(crate) struct HpetTable {
+pub struct HpetTable {
     /// The contents of the HPET's 'General Capabilities and ID register'
     header: SdtHeader,
     event_timer_block_id: u32,
