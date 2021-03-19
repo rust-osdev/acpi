@@ -46,7 +46,7 @@ impl PciConfigRegions {
 }
 
 #[repr(C, packed)]
-pub(crate) struct Mcfg {
+pub struct Mcfg {
     header: SdtHeader,
     _reserved: u64,
     // Followed by `n` entries with format `McfgEntry`
@@ -62,7 +62,8 @@ impl Mcfg {
     fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
-        // intentionally round down in case length isn't an exact multiple of McfgEntry size
+        // Intentionally round down in case length isn't an exact multiple of McfgEntry size
+        // (see rust-osdev/acpi#58)
         let num_entries = length / mem::size_of::<McfgEntry>();
 
         unsafe {
@@ -75,7 +76,7 @@ impl Mcfg {
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
-struct McfgEntry {
+pub struct McfgEntry {
     base_address: u64,
     pci_segment_group: u16,
     bus_number_start: u8,
