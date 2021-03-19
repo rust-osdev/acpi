@@ -41,7 +41,7 @@ impl HpetInfo {
             base_address: hpet.base_address.address as usize,
             hpet_number: hpet.hpet_number,
             clock_tick_unit: hpet.clock_tick_unit,
-            page_protection: match hpet.page_protection_oem.get_bits(0..5) {
+            page_protection: match hpet.page_protection_and_oem.get_bits(0..4) {
                 0 => PageProtection::None,
                 1 => PageProtection::Protected4K,
                 2 => PageProtection::Protected64K,
@@ -59,7 +59,8 @@ pub(crate) struct HpetTable {
     base_address: RawGenericAddress,
     hpet_number: u8,
     clock_tick_unit: u16,
-    page_protection_oem: u8,
+    /// Bits `0..4` specify the page protection guarantee. Bits `4..8` are reserved for OEM attributes.
+    page_protection_and_oem: u8,
 }
 
 impl AcpiTable for HpetTable {
