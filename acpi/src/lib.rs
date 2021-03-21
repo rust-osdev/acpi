@@ -46,10 +46,10 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-mod fadt;
-mod hpet;
-mod madt;
-mod mcfg;
+pub mod fadt;
+pub mod hpet;
+pub mod madt;
+pub mod mcfg;
 pub mod platform;
 pub mod sdt;
 
@@ -81,6 +81,7 @@ pub enum AcpiError {
     SdtInvalidChecksum(Signature),
 
     TableMissing(Signature),
+    InvalidFacsAddress,
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
     InvalidGenericAddress,

@@ -2,7 +2,6 @@ pub mod address;
 pub mod interrupt;
 
 use address::GenericAddress;
-use bit_field::BitField;
 pub use interrupt::{
     Apic,
     InterruptModel,
@@ -57,18 +56,17 @@ pub struct ProcessorInfo {
 pub struct PmTimer {
     /// A generic address to the register block of ACPI PM Timer.
     pub base: GenericAddress,
-    /// This field is true if the hardware supports 32-bit timer, and false if the hardware
-    /// supports 24-bit timer.
+    /// This field is `true` if the hardware supports 32-bit timer, and `false` if the hardware supports 24-bit timer.
     pub supports_32bit: bool,
 }
+
 impl PmTimer {
-    /// Creates a new instance of `PmTimer`.
     pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
         let base = fadt.pm_timer_block()?;
         let flags = fadt.flags;
 
         match base {
-            Some(base) => Ok(Some(PmTimer { base, supports_32bit: flags.get_bit(8) })),
+            Some(base) => Ok(Some(PmTimer { base, supports_32bit: fadt.flags.pm_timer_is_32_bit() })),
             None => Ok(None),
         }
     }

@@ -37,8 +37,8 @@ pub enum MadtError {
 /// In modern versions of ACPI, the MADT can detail one of four interrupt models:
 ///     * The ancient dual-i8259 legacy PIC model
 ///     * The Advanced Programmable Interrupt Controller (APIC) model
-///     * The Streamlined Advanced Programmable Interrupt Controller (SAPIC) model
-///     * The Generic Interrupt Controller (GIC) model (ARM systems only)
+///     * The Streamlined Advanced Programmable Interrupt Controller (SAPIC) model (for Itanium systems)
+///     * The Generic Interrupt Controller (GIC) model (for ARM systems)
 #[repr(C, packed)]
 pub struct Madt {
     header: SdtHeader,
