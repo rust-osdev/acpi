@@ -178,7 +178,6 @@ pub enum AmlValue {
 }
 
 impl AmlValue {
-    /// Returns the AML type of this value. For `Name`, this returns the type of the inner value.
     pub fn type_of(&self) -> AmlType {
         match self {
             AmlValue::Boolean(_) => AmlType::Integer,
@@ -212,8 +211,7 @@ impl AmlValue {
                  * byte as the least significant byte of the integer. A zero-length buffer is
                  * illegal." - §19.6.140
                  *
-                 * XXX: We return `0` for zero-length buffers because they literally occur in
-                 * the reference implementation.
+                 * XXX: Buffers with length `0` appear in real tables, so we return `0` for them.
                  */
                 let bytes = if bytes.len() > 8 { &bytes[0..8] } else { bytes };
 
