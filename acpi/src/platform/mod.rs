@@ -62,10 +62,7 @@ pub struct PmTimer {
 
 impl PmTimer {
     pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
-        let base = fadt.pm_timer_block()?;
-        let flags = fadt.flags;
-
-        match base {
+        match fadt.pm_timer_block()? {
             Some(base) => Ok(Some(PmTimer { base, supports_32bit: fadt.flags.pm_timer_is_32_bit() })),
             None => Ok(None),
         }
