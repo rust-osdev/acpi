@@ -34,7 +34,7 @@ pub struct Fadt {
     firmware_ctrl: u32,
     dsdt_address: u32,
 
-    // used in acpi 1.0; compatibility only, should be zero
+    // Used in acpi 1.0; compatibility only, should be zero
     _reserved: u8,
 
     preferred_pm_profile: u8,
@@ -168,137 +168,153 @@ impl Fadt {
 
     pub fn pm1a_event_block(&self) -> Result<GenericAddress, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_event_block.access(self.header().revision) } {
-            Ok(GenericAddress::from_raw(raw)?)
-        } else {
-            Ok(GenericAddress {
-                address_space: AddressSpace::SystemIo,
-                bit_width: self.pm1_event_length * 8,
-                bit_offset: 0,
-                access_size: AccessSize::Undefined,
-                address: self.pm1a_event_block.into(),
-            })
+            if raw.address != 0x0 {
+                return Ok(GenericAddress::from_raw(raw)?);
+            }
         }
+
+        Ok(GenericAddress {
+            address_space: AddressSpace::SystemIo,
+            bit_width: self.pm1_event_length * 8,
+            bit_offset: 0,
+            access_size: AccessSize::Undefined,
+            address: self.pm1a_event_block.into(),
+        })
     }
 
     pub fn pm1b_event_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1b_event_block.access(self.header().revision) } {
-            Ok(Some(GenericAddress::from_raw(raw)?))
-        } else {
-            if self.pm1b_event_block != 0 {
-                Ok(Some(GenericAddress {
-                    address_space: AddressSpace::SystemIo,
-                    bit_width: self.pm1_event_length * 8,
-                    bit_offset: 0,
-                    access_size: AccessSize::Undefined,
-                    address: self.pm1b_event_block.into(),
-                }))
-            } else {
-                Ok(None)
+            if raw.address != 0x0 {
+                return Ok(Some(GenericAddress::from_raw(raw)?));
             }
+        }
+
+        if self.pm1b_event_block != 0 {
+            Ok(Some(GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: self.pm1_event_length * 8,
+                bit_offset: 0,
+                access_size: AccessSize::Undefined,
+                address: self.pm1b_event_block.into(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
     pub fn pm1a_control_block(&self) -> Result<GenericAddress, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_control_block.access(self.header().revision) } {
-            Ok(GenericAddress::from_raw(raw)?)
-        } else {
-            Ok(GenericAddress {
-                address_space: AddressSpace::SystemIo,
-                bit_width: self.pm1_control_length * 8,
-                bit_offset: 0,
-                access_size: AccessSize::Undefined,
-                address: self.pm1a_control_block.into(),
-            })
+            if raw.address != 0x0 {
+                return Ok(GenericAddress::from_raw(raw)?);
+            }
         }
+
+        Ok(GenericAddress {
+            address_space: AddressSpace::SystemIo,
+            bit_width: self.pm1_control_length * 8,
+            bit_offset: 0,
+            access_size: AccessSize::Undefined,
+            address: self.pm1a_control_block.into(),
+        })
     }
 
     pub fn pm1b_control_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1b_control_block.access(self.header().revision) } {
-            Ok(Some(GenericAddress::from_raw(raw)?))
-        } else {
-            if self.pm1b_control_block != 0 {
-                Ok(Some(GenericAddress {
-                    address_space: AddressSpace::SystemIo,
-                    bit_width: self.pm1_control_length * 8,
-                    bit_offset: 0,
-                    access_size: AccessSize::Undefined,
-                    address: self.pm1b_control_block.into(),
-                }))
-            } else {
-                Ok(None)
+            if raw.address != 0x0 {
+                return Ok(Some(GenericAddress::from_raw(raw)?));
             }
+        }
+
+        if self.pm1b_control_block != 0 {
+            Ok(Some(GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: self.pm1_control_length * 8,
+                bit_offset: 0,
+                access_size: AccessSize::Undefined,
+                address: self.pm1b_control_block.into(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
     pub fn pm2_control_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm2_control_block.access(self.header().revision) } {
-            Ok(Some(GenericAddress::from_raw(raw)?))
-        } else {
-            if self.pm2_control_block != 0 {
-                Ok(Some(GenericAddress {
-                    address_space: AddressSpace::SystemIo,
-                    bit_width: self.pm2_control_length * 8,
-                    bit_offset: 0,
-                    access_size: AccessSize::Undefined,
-                    address: self.pm2_control_block.into(),
-                }))
-            } else {
-                Ok(None)
+            if raw.address != 0x0 {
+                return Ok(Some(GenericAddress::from_raw(raw)?));
             }
+        }
+
+        if self.pm2_control_block != 0 {
+            Ok(Some(GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: self.pm2_control_length * 8,
+                bit_offset: 0,
+                access_size: AccessSize::Undefined,
+                address: self.pm2_control_block.into(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
     pub fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm_timer_block.access(self.header().revision) } {
-            Ok(Some(GenericAddress::from_raw(raw)?))
-        } else {
-            if self.pm_timer_block != 0 {
-                Ok(Some(GenericAddress {
-                    address_space: AddressSpace::SystemIo,
-                    bit_width: self.pm_timer_length * 8,
-                    bit_offset: 0,
-                    access_size: AccessSize::Undefined,
-                    address: self.pm_timer_block.into(),
-                }))
-            } else {
-                Ok(None)
+            if raw.address != 0x0 {
+                return Ok(Some(GenericAddress::from_raw(raw)?));
             }
+        }
+
+        if self.pm_timer_block != 0 {
+            Ok(Some(GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: self.pm_timer_length * 8,
+                bit_offset: 0,
+                access_size: AccessSize::Undefined,
+                address: self.pm_timer_block.into(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
     pub fn gpe0_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         if let Some(raw) = unsafe { self.x_gpe0_block.access(self.header().revision) } {
-            Ok(Some(GenericAddress::from_raw(raw)?))
-        } else {
-            if self.gpe0_block != 0 {
-                Ok(Some(GenericAddress {
-                    address_space: AddressSpace::SystemIo,
-                    bit_width: self.gpe0_block_length * 8,
-                    bit_offset: 0,
-                    access_size: AccessSize::Undefined,
-                    address: self.gpe0_block.into(),
-                }))
-            } else {
-                Ok(None)
+            if raw.address != 0x0 {
+                return Ok(Some(GenericAddress::from_raw(raw)?));
             }
+        }
+
+        if self.gpe0_block != 0 {
+            Ok(Some(GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: self.gpe0_block_length * 8,
+                bit_offset: 0,
+                access_size: AccessSize::Undefined,
+                address: self.gpe0_block.into(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
     pub fn gpe1_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
         if let Some(raw) = unsafe { self.x_gpe1_block.access(self.header().revision) } {
-            Ok(Some(GenericAddress::from_raw(raw)?))
-        } else {
-            if self.gpe1_block != 0 {
-                Ok(Some(GenericAddress {
-                    address_space: AddressSpace::SystemIo,
-                    bit_width: self.gpe1_block_length * 8,
-                    bit_offset: 0,
-                    access_size: AccessSize::Undefined,
-                    address: self.gpe1_block.into(),
-                }))
-            } else {
-                Ok(None)
+            if raw.address != 0x0 {
+                return Ok(Some(GenericAddress::from_raw(raw)?));
             }
+        }
+
+        if self.gpe1_block != 0 {
+            Ok(Some(GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: self.gpe1_block_length * 8,
+                bit_offset: 0,
+                access_size: AccessSize::Undefined,
+                address: self.gpe1_block.into(),
+            }))
+        } else {
+            Ok(None)
         }
     }
 
