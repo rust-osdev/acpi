@@ -129,7 +129,6 @@ pub struct AmlContext {
     /// The `Handler` passed from the library user. This is stored as a boxed trait object simply to avoid having
     /// to add a lifetime and type parameter to `AmlContext`, as they would massively complicate the parser types.
     handler: Box<dyn Handler>,
-    legacy_mode: bool,
 
     pub namespace: Namespace,
     method_context: Option<MethodContext>,
@@ -145,19 +144,9 @@ pub struct AmlContext {
 impl AmlContext {
     /// Creates a new `AmlContext` - the central type in managing the AML tables. Only one of these should be
     /// created, and it should be passed the DSDT and all SSDTs defined by the hardware.
-    ///
-    /// ### Legacy mode
-    /// If `true` is passed in `legacy_mode`, the library will try and remain compatible with a ACPI 1.0
-    /// implementation. The following changes/assumptions are made:
-    ///
-    /// - Two extra root namespaces are predefined: `\_PR` and `\_TZ`
-    /// - Processors are expected to be defined with `DefProcessor`, instead of `DefDevice`
-    /// - Processors are expected to be found in `\_PR`, instead of `\_SB`
-    /// - Thermal zones are expected to be found in `\_TZ`, instead of `\_SB`
-    pub fn new(handler: Box<dyn Handler>, legacy_mode: bool, debug_verbosity: DebugVerbosity) -> AmlContext {
+    pub fn new(handler: Box<dyn Handler>, debug_verbosity: DebugVerbosity) -> AmlContext {
         let mut context = AmlContext {
             handler,
-            legacy_mode,
             namespace: Namespace::new(),
             method_context: None,
 
@@ -166,16 +155,6 @@ impl AmlContext {
             debug_verbosity,
         };
 
-        /*
-         * Add the predefined root namespaces.
-         */
-        context.namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), LevelType::Scope).unwrap();
-        context.namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope).unwrap();
-        context.namespace.add_level(AmlName::from_str("\\_SI").unwrap(), LevelType::Scope).unwrap();
-        if legacy_mode {
-            context.namespace.add_level(AmlName::from_str("\\_PR").unwrap(), LevelType::Scope).unwrap();
-            context.namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), LevelType::Scope).unwrap();
-        }
 
         context
     }
