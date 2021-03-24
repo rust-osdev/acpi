@@ -61,7 +61,7 @@ pub use crate::{
     value::AmlValue,
 };
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, string::ToString};
 use core::mem;
 use log::error;
 use misc::{ArgNum, LocalNum};
@@ -155,7 +155,7 @@ impl AmlContext {
             debug_verbosity,
         };
 
-
+        context.add_predefined_objects();
         context
     }
 
@@ -557,6 +557,42 @@ impl AmlContext {
             // TODO
             _ => unimplemented!(),
         }
+    }
+
+    fn add_predefined_objects(&mut self) {
+        /*
+         * In the dark ages of ACPI 1.0, before `\_OSI`, `\_OS` was used to communicate to the firmware which OS
+         * was running. This was predictably not very good, and so was replaced in ACPI 3.0 with `_OSI`, which
+         * allows support for individual capabilities to be queried. `_OS` should not be used by modern firmwares,
+         * but to avoid problems we follow Linux in returning `"Microsoft Windows NT"`.
+         *
+         * See https://www.kernel.org/doc/html/latest/firmware-guide/acpi/osi.html for more information.
+         */
+        self.namespace
+            .add_value(AmlName::from_str("\\_OS").unwrap(), AmlValue::String("Microsoft Windows NT".to_string()))
+            .unwrap();
+
+        /*
+         * `\_OSI` was introduced by ACPI 3.0 to improve the situation created by `\_OS`. Unfortunately, exactly
+         * the same problem was immediately repeated by introducing capabilities reflecting that an ACPI
+         * implementation is exactly the same as a particular version of Windows' (e.g. firmwares will call
+         * `\_OSI("Windows 2001")`).
+         *
+         * We basically follow suit with whatever Linux does, as this will hopefully minimise breakage:
+         *    - We always claim `Windows *` compatability
+         *    - We answer 'yes' to `_OSI("Darwin")
+         *    - We answer 'no' to `_OSI("Linux")`, and report that the tables are doing the wrong thing
+         */
+        // TODO
+        // self.namespace.add_value(AmlName::from_str("\\_OSI").unwrap(), todo!()).unwrap();
+
+        /*
+         * `\_REV` evaluates to the version of the ACPI specification supported by this interpreter. Linux did this
+         * correctly until 2015, but firmwares misused this to detect Linux (as even modern versions of Windows
+         * return `2`), and so they switched to just returning `2` (as we'll also do). `_REV` should be considered
+         * useless and deprecated (this is mirrored in newer specs, which claim `2` means "ACPI 2 or greater").
+         */
+        self.namespace.add_value(AmlName::from_str("\\_REV").unwrap(), AmlValue::Integer(2)).unwrap();
     }
 }
 
