@@ -116,6 +116,8 @@ pub(crate) macro check_ok_value($parse: expr, $expected: expr, $remains: expr) {
 /// to apply the AML value conversion rules to compare them correctly. This is therefore only useful for artificial
 /// testing scenarios.
 pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
+    use crate::value::MethodCode;
+
     match a {
         AmlValue::Boolean(a) => match b {
             AmlValue::Boolean(b) => a == b,
@@ -147,7 +149,18 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             _ => false,
         },
         AmlValue::Method { flags, code } => match b {
-            AmlValue::Method { flags: b_flags, code: b_code } => flags == b_flags && code == b_code,
+            AmlValue::Method { flags: b_flags, code: b_code } => {
+                if flags != b_flags {
+                    return false;
+                }
+
+                match (code, b_code) {
+                    (MethodCode::Aml(a), MethodCode::Aml(b)) => a == b,
+                    (MethodCode::Aml(_), MethodCode::Native(_)) => false,
+                    (MethodCode::Native(_), MethodCode::Aml(_)) => false,
+                    (MethodCode::Native(_), MethodCode::Native(_)) => panic!("Can't compare two native methods"),
+                }
+            }
             _ => false,
         },
         AmlValue::Buffer(a) => match b {

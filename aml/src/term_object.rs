@@ -20,7 +20,7 @@ use crate::{
     pkg_length::{pkg_length, PkgLength},
     type1::type1_opcode,
     type2::{def_buffer, def_package, type2_opcode},
-    value::{AmlValue, FieldFlags, MethodFlags, RegionSpace},
+    value::{AmlValue, FieldFlags, MethodCode, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
     AmlHandle,
@@ -368,7 +368,10 @@ where
                         context.namespace.add_value_at_resolved_path(
                             name,
                             &context.current_scope,
-                            AmlValue::Method { flags: MethodFlags::new(flags), code: code.to_vec() },
+                            AmlValue::Method {
+                                flags: MethodFlags::new(flags),
+                                code: MethodCode::Aml(code.to_vec())
+                            },
                         )
                     );
                     (Ok(()), context)

@@ -1,7 +1,7 @@
 use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
-use alloc::{string::String, vec::Vec};
+use alloc::{rc::Rc, string::String, vec::Vec};
 use bit_field::BitField;
-use core::cmp;
+use core::{cmp, fmt, fmt::Debug};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -140,6 +140,21 @@ pub enum AmlType {
     ThermalZone,
 }
 
+#[derive(Clone)]
+pub enum MethodCode {
+    Aml(Vec<u8>),
+    Native(Rc<dyn Fn(&mut AmlContext) -> Result<AmlValue, AmlError>>),
+}
+
+impl fmt::Debug for MethodCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MethodCode::Aml(ref code) => f.debug_struct("AML method").field("code", code).finish(),
+            MethodCode::Native(_) => f.debug_struct("Native method").finish(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum AmlValue {
     Boolean(bool),
@@ -163,7 +178,7 @@ pub enum AmlValue {
     },
     Method {
         flags: MethodFlags,
-        code: Vec<u8>,
+        code: MethodCode,
     },
     Buffer(Vec<u8>),
     Processor {

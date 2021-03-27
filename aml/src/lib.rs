@@ -172,7 +172,7 @@ impl AmlContext {
                 Err(err)
             }
             Err((_, _, other)) => {
-                error!("AML table evaluated to weird result: {:?}", other);
+                error!("AML table evaluated to unexpected result: {:?}", other);
                 Err(AmlError::MalformedStream)
             }
         }
@@ -180,6 +180,8 @@ impl AmlContext {
 
     // TODO: docs
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
+        use value::MethodCode;
+
         match self.namespace.get_by_path(path)?.clone() {
             AmlValue::Method { flags, code } => {
                 /*
@@ -195,16 +197,28 @@ impl AmlContext {
                  */
                 self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
 
-                let return_value = match term_list(PkgLength::from_raw_length(&code, code.len() as u32).unwrap())
-                    .parse(&code, self)
-                {
-                    // If the method doesn't return a value, we implicitly return `0`
-                    Ok(_) => Ok(AmlValue::Integer(0)),
-                    Err((_, _, Propagate::Return(result))) => Ok(result),
-                    Err((_, _, Propagate::Err(err))) => {
-                        error!("Failed to execute control method: {:?}", err);
-                        Err(err)
+                let return_value = match code {
+                    MethodCode::Aml(ref code) => {
+                        match term_list(PkgLength::from_raw_length(code, code.len() as u32).unwrap())
+                            .parse(code, self)
+                        {
+                            // If the method doesn't return a value, we implicitly return `0`
+                            Ok(_) => Ok(AmlValue::Integer(0)),
+                            Err((_, _, Propagate::Return(result))) => Ok(result),
+                            Err((_, _, Propagate::Err(err))) => {
+                                error!("Failed to execute control method: {:?}", err);
+                                Err(err)
+                            }
+                        }
                     }
+
+                    MethodCode::Native(ref method) => match (method)(self) {
+                        Ok(result) => Ok(result),
+                        Err(err) => {
+                            error!("Failed to execute control method: {:?}", err);
+                            Err(err)
+                        }
+                    },
                 };
 
                 /*
