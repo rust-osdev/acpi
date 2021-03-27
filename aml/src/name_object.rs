@@ -2,7 +2,7 @@ use crate::{
     misc::{arg_obj, debug_obj, local_obj, ArgNum, LocalNum},
     namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
-    parser::{choice, comment_scope, consume, n_of, take, take_while, Parser},
+    parser::{choice, comment_scope, consume, n_of, take, take_while, Parser, Propagate},
     AmlContext,
     AmlError,
     DebugVerbosity,
@@ -93,7 +93,7 @@ where
     comment_scope(DebugVerbosity::AllScopes, "NameString", move |input: &'a [u8], context| {
         let first_char = match input.first() {
             Some(&c) => c,
-            None => return Err((input, context, AmlError::UnexpectedEndOfStream)),
+            None => return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
         };
 
         match first_char {
@@ -102,7 +102,7 @@ where
             _ => name_path()
                 .map(|path| {
                     if path.len() == 0 {
-                        return Err(AmlError::EmptyNamesAreInvalid);
+                        return Err(Propagate::Err(AmlError::EmptyNamesAreInvalid));
                     }
 
                     Ok(AmlName::from_components(path))

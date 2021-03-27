@@ -15,6 +15,7 @@ use crate::{
         try_with_context,
         ParseResult,
         Parser,
+        Propagate,
     },
     pkg_length::{pkg_length, PkgLength},
     type1::type1_opcode,
@@ -114,7 +115,7 @@ where
             name_string().then(data_ref_object()).map_with_context(|(name, data_ref_object), context| {
                 try_with_context!(
                     context,
-                    context.namespace.add_value_at_resolved_path(name, &context.current_scope, data_ref_object,)
+                    context.namespace.add_value_at_resolved_path(name, &context.current_scope, data_ref_object)
                 );
                 (Ok(()), context)
             }),
@@ -201,15 +202,15 @@ where
                         0x08 => RegionSpace::GeneralPurposeIo,
                         0x09 => RegionSpace::GenericSerialBus,
                         space @ 0x80..=0xff => RegionSpace::OemDefined(space),
-                        byte => return (Err(AmlError::InvalidRegionSpace(byte)), context),
+                        byte => return (Err(Propagate::Err(AmlError::InvalidRegionSpace(byte))), context),
                     };
                     let offset = match offset.as_integer(context) {
                         Ok(offset) => offset,
-                        Err(err) => return (Err(err), context),
+                        Err(err) => return (Err(Propagate::Err(err)), context),
                     };
                     let length = match length.as_integer(context) {
                         Ok(length) => length,
-                        Err(err) => return (Err(err), context),
+                        Err(err) => return (Err(Propagate::Err(err)), context),
                     };
                     let parent_device = match region {
                         RegionSpace::PciConfig | RegionSpace::IPMI | RegionSpace::GenericSerialBus => {
@@ -560,12 +561,12 @@ where
              */
             let nul_position = match input.iter().position(|&c| c == b'\0') {
                 Some(position) => position,
-                None => return Err((input, context, AmlError::UnterminatedStringConstant)),
+                None => return Err((input, context, Propagate::Err(AmlError::UnterminatedStringConstant))),
             };
 
             let string = String::from(match str::from_utf8(&input[0..nul_position]) {
                 Ok(string) => string,
-                Err(_) => return Err((input, context, AmlError::InvalidStringConstant)),
+                Err(_) => return Err((input, context, Propagate::Err(AmlError::InvalidStringConstant))),
             });
 
             Ok((&input[(nul_position + 1)..], context, AmlValue::String(string)))
@@ -588,7 +589,7 @@ where
             opcode::ONE_OP => Ok((new_input, context, AmlValue::Integer(1))),
             opcode::ONES_OP => Ok((new_input, context, AmlValue::Integer(u64::max_value()))),
 
-            _ => Err((input, context, AmlError::WrongParser)),
+            _ => Err((input, context, Propagate::Err(AmlError::WrongParser))),
         }
     };
 

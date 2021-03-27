@@ -10,6 +10,7 @@ use crate::{
         take_to_end_of_pkglength,
         try_with_context,
         Parser,
+        Propagate,
     },
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
@@ -134,7 +135,7 @@ where
                     let buffer_size = try_with_context!(context, buffer_size.as_integer(context)) as usize;
 
                     if buffer_size < bytes.len() {
-                        return (Err(AmlError::MalformedBuffer), context);
+                        return (Err(Propagate::Err(AmlError::MalformedBuffer)), context);
                     }
 
                     let mut buffer = vec![0; buffer_size];
@@ -312,7 +313,7 @@ where
                     }
 
                     if package_contents.len() != num_elements as usize {
-                        return Err((input, context, AmlError::MalformedPackage));
+                        return Err((input, context, Propagate::Err(AmlError::MalformedPackage)));
                     }
 
                     Ok((input, context, AmlValue::Package(package_contents)))
