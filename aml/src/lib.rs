@@ -561,6 +561,16 @@ impl AmlContext {
 
     fn add_predefined_objects(&mut self) {
         /*
+         * These are the scopes predefined by the spec. Some tables will try to access them without defining them
+         * themselves, and so we have to pre-create them.
+         */
+        self.namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_SI").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_PR").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), LevelType::Scope).unwrap();
+
+        /*
          * In the dark ages of ACPI 1.0, before `\_OSI`, `\_OS` was used to communicate to the firmware which OS
          * was running. This was predictably not very good, and so was replaced in ACPI 3.0 with `_OSI`, which
          * allows support for individual capabilities to be queried. `_OS` should not be used by modern firmwares,
