@@ -200,8 +200,8 @@ impl AmlContext {
                 {
                     // If the method doesn't return a value, we implicitly return `0`
                     Ok(_) => Ok(AmlValue::Integer(0)),
-                    Err((_, _, AmlError::Return(result))) => Ok(result),
-                    Err((_, _, err)) => {
+                    Err((_, _, Propagate::Return(result))) => Ok(result),
+                    Err((_, _, Propagate::Err(err))) => {
                         error!("Failed to execute control method: {:?}", err);
                         Err(err)
                     }
@@ -639,7 +639,7 @@ pub trait Handler {
     fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlError {
     /*
      * Errors produced parsing the AML stream.
@@ -696,11 +696,6 @@ pub enum AmlError {
     InvalidArgAccess(ArgNum),
     /// Produced when a method accesses a local that it has not stored into.
     InvalidLocalAccess(LocalNum),
-    /// This is not a real error, but is used to propagate return values from within the deep
-    /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
-    /// error system here because the way errors are propagated matches how we want to handle
-    /// return values.
-    Return(AmlValue),
 
     /*
      * Errors produced parsing the PCI routing tables (_PRT objects).

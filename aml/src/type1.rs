@@ -1,9 +1,8 @@
 use crate::{
     opcode::{self, opcode},
-    parser::{choice, comment_scope, id, take_to_end_of_pkglength, ParseResult, Parser},
+    parser::{choice, comment_scope, id, take_to_end_of_pkglength, ParseResult, Parser, Propagate},
     pkg_length::{pkg_length, PkgLength},
     term_object::{term_arg, term_list},
-    AmlError,
     DebugVerbosity,
 };
 
@@ -110,14 +109,14 @@ where
         .then(comment_scope(
             DebugVerbosity::Scopes,
             "DefReturn",
-            term_arg().map(|return_arg| -> Result<(), AmlError> {
+            term_arg().map(|return_arg| -> Result<(), Propagate> {
                 /*
                  * To return a value, we want to halt execution of the method and propagate the
                  * return value all the way up to the start of the method invocation. To do this,
                  * we emit a special error that is intercepted during method invocation and turned
                  * into a valid result.
                  */
-                Err(AmlError::Return(return_arg))
+                Err(Propagate::Return(return_arg))
             }),
         ))
         .discard_result()
