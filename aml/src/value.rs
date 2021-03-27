@@ -140,7 +140,7 @@ pub enum AmlType {
     ThermalZone,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, Debug)]
 pub enum AmlValue {
     Boolean(bool),
     Integer(u64),

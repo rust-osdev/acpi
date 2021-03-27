@@ -612,40 +612,48 @@ mod test {
     #[test]
     fn test_computational_data() {
         let mut context = make_test_context();
-        check_ok!(
+        check_ok_value!(
             computational_data().parse(&[0x00, 0x34, 0x12], &mut context),
             AmlValue::Integer(0),
             &[0x34, 0x12]
         );
-        check_ok!(
+        check_ok_value!(
             computational_data().parse(&[0x01, 0x18, 0xf3], &mut context),
             AmlValue::Integer(1),
             &[0x18, 0xf3]
         );
-        check_ok!(
+        check_ok_value!(
             computational_data().parse(&[0xff, 0x98, 0xc3], &mut context),
             AmlValue::Integer(u64::max_value()),
             &[0x98, 0xc3]
         );
-        check_ok!(
+        check_ok_value!(
             computational_data().parse(&[0x5b, 0x30], &mut context),
             AmlValue::Integer(crate::AML_INTERPRETER_REVISION),
             &[]
         );
-        check_ok!(computational_data().parse(&[0x0a, 0xf3, 0x35], &mut context), AmlValue::Integer(0xf3), &[0x35]);
-        check_ok!(computational_data().parse(&[0x0b, 0xf3, 0x35], &mut context), AmlValue::Integer(0x35f3), &[]);
-        check_ok!(
+        check_ok_value!(
+            computational_data().parse(&[0x0a, 0xf3, 0x35], &mut context),
+            AmlValue::Integer(0xf3),
+            &[0x35]
+        );
+        check_ok_value!(
+            computational_data().parse(&[0x0b, 0xf3, 0x35], &mut context),
+            AmlValue::Integer(0x35f3),
+            &[]
+        );
+        check_ok_value!(
             computational_data().parse(&[0x0c, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00], &mut context),
             AmlValue::Integer(0x651235f3),
             &[0xff, 0x00]
         );
-        check_ok!(
+        check_ok_value!(
             computational_data()
                 .parse(&[0x0e, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00, 0x67, 0xde, 0x28], &mut context),
             AmlValue::Integer(0xde6700ff651235f3),
             &[0x28]
         );
-        check_ok!(
+        check_ok_value!(
             computational_data().parse(&[0x0d, b'A', b'B', b'C', b'D', b'\0', 0xff, 0xf5], &mut context),
             AmlValue::String(String::from("ABCD")),
             &[0xff, 0xf5]
