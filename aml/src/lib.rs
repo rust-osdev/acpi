@@ -67,7 +67,7 @@ use log::error;
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
 use namespace::LevelType;
-use parser::Parser;
+use parser::{Parser, Propagate};
 use pkg_length::PkgLength;
 use term_object::term_list;
 use value::{AmlType, Args};
@@ -167,9 +167,13 @@ impl AmlContext {
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32).unwrap();
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
-            Err((_, _, err)) => {
+            Err((_, _, Propagate::Err(err))) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
                 Err(err)
+            }
+            Err((_, _, other)) => {
+                error!("AML table evaluated to weird result: {:?}", other);
+                Err(AmlError::MalformedStream)
             }
         }
     }
@@ -642,6 +646,8 @@ pub enum AmlError {
      */
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
+    /// Produced when the stream evaluates to something other than nothing or an error.
+    MalformedStream,
     InvalidNameSeg,
     InvalidPkgLength,
     InvalidFieldFlags,

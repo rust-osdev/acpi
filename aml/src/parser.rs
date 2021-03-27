@@ -1,4 +1,4 @@
-use crate::{pkg_length::PkgLength, AmlContext, AmlError, DebugVerbosity};
+use crate::{pkg_length::PkgLength, AmlContext, AmlError, AmlValue, DebugVerbosity};
 use alloc::vec::Vec;
 use core::{convert::TryInto, marker::PhantomData};
 use log::trace;
@@ -17,8 +17,20 @@ impl AmlContext {
     }
 }
 
+#[derive(Debug)]
+pub enum Propagate {
+    Err(AmlError),
+    Return(AmlValue),
+}
+
+impl From<AmlError> for Propagate {
+    fn from(error: AmlError) -> Self {
+        Self::Err(error)
+    }
+}
+
 pub type ParseResult<'a, 'c, R> =
-    Result<(&'a [u8], &'c mut AmlContext, R), (&'a [u8], &'c mut AmlContext, AmlError)>;
+    Result<(&'a [u8], &'c mut AmlContext, R), (&'a [u8], &'c mut AmlContext, Propagate)>;
 
 pub trait Parser<'a, 'c, R>: Sized
 where
@@ -28,14 +40,14 @@ where
 
     fn map<F, A>(self, map_fn: F) -> Map<'a, 'c, Self, F, R, A>
     where
-        F: Fn(R) -> Result<A, AmlError>,
+        F: Fn(R) -> Result<A, Propagate>,
     {
         Map { parser: self, map_fn, _phantom: PhantomData }
     }
 
     fn map_with_context<F, A>(self, map_fn: F) -> MapWithContext<'a, 'c, Self, F, R, A>
     where
-        F: Fn(R, &'c mut AmlContext) -> (Result<A, AmlError>, &'c mut AmlContext),
+        F: Fn(R, &'c mut AmlContext) -> (Result<A, Propagate>, &'c mut AmlContext),
     {
         MapWithContext { parser: self, map_fn, _phantom: PhantomData }
     }
@@ -101,7 +113,7 @@ where
 {
     move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
         Some(&byte) => Ok((&input[1..], context, byte)),
-        None => Err((input, context, AmlError::UnexpectedEndOfStream)),
+        None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
     }
 }
 
@@ -111,7 +123,7 @@ where
 {
     move |input: &'a [u8], context: &'c mut AmlContext| {
         if input.len() < 2 {
-            return Err((input, context, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
         Ok((&input[2..], context, u16::from_le_bytes(input[0..2].try_into().unwrap())))
@@ -124,7 +136,7 @@ where
 {
     move |input: &'a [u8], context: &'c mut AmlContext| {
         if input.len() < 4 {
-            return Err((input, context, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
         Ok((&input[4..], context, u32::from_le_bytes(input[0..4].try_into().unwrap())))
@@ -137,7 +149,7 @@ where
 {
     move |input: &'a [u8], context: &'c mut AmlContext| {
         if input.len() < 8 {
-            return Err((input, context, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
         Ok((&input[8..], context, u64::from_le_bytes(input[0..8].try_into().unwrap())))
@@ -150,7 +162,7 @@ where
 {
     move |input: &'a [u8], context| {
         if (input.len() as u32) < n {
-            return Err((input, context, AmlError::UnexpectedEndOfStream));
+            return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
         let (result, new_input) = input.split_at(n as usize);
@@ -169,7 +181,7 @@ where
          */
         let bytes_to_take = match (input.len() as u32).checked_sub(length.end_offset) {
             Some(bytes_to_take) => bytes_to_take,
-            None => return Err((input, context, AmlError::InvalidPkgLength)),
+            None => return Err((input, context, Propagate::Err(AmlError::InvalidPkgLength))),
         };
         take_n(bytes_to_take).parse(input, context)
     }
@@ -187,7 +199,7 @@ where
         for _ in 0..n {
             let (new_input, new_context, result) = match parser.parse(input, context) {
                 Ok((input, context, result)) => (input, context, result),
-                Err((_, context, err)) => return Err((input, context, err)),
+                Err((_, context, propagate)) => return Err((input, context, propagate)),
             };
             results.push(result);
             input = new_input;
@@ -212,7 +224,9 @@ where
                     context = new_context;
                     num_passed += 1;
                 }
-                Err((_, context, AmlError::WrongParser)) => return Ok((input, context, num_passed)),
+                Err((_, context, Propagate::Err(AmlError::WrongParser))) => {
+                    return Ok((input, context, num_passed))
+                }
                 Err((_, context, err)) => return Err((input, context, err)),
             }
         }
@@ -226,8 +240,8 @@ where
 {
     move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
         Some(&byte) if condition(byte) => Ok((&input[1..], context, byte)),
-        Some(&byte) => Err((input, context, AmlError::UnexpectedByte(byte))),
-        None => Err((input, context, AmlError::UnexpectedEndOfStream)),
+        Some(&byte) => Err((input, context, Propagate::Err(AmlError::UnexpectedByte(byte)))),
+        None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
     }
 }
 
@@ -279,7 +293,7 @@ where
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, R> {
         match self.p1.parse(input, context) {
             Ok(parse_result) => Ok(parse_result),
-            Err((_, context, AmlError::WrongParser)) => self.p2.parse(input, context),
+            Err((_, context, Propagate::Err(AmlError::WrongParser))) => self.p2.parse(input, context),
             Err((_, context, err)) => Err((input, context, err)),
         }
     }
@@ -289,7 +303,7 @@ pub struct Map<'a, 'c, P, F, R, A>
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R) -> Result<A, AmlError>,
+    F: Fn(R) -> Result<A, Propagate>,
 {
     parser: P,
     map_fn: F,
@@ -300,7 +314,7 @@ impl<'a, 'c, P, F, R, A> Parser<'a, 'c, A> for Map<'a, 'c, P, F, R, A>
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R) -> Result<A, AmlError>,
+    F: Fn(R) -> Result<A, Propagate>,
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
         match self.parser.parse(input, context) {
@@ -317,7 +331,7 @@ pub struct MapWithContext<'a, 'c, P, F, R, A>
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R, &'c mut AmlContext) -> (Result<A, AmlError>, &'c mut AmlContext),
+    F: Fn(R, &'c mut AmlContext) -> (Result<A, Propagate>, &'c mut AmlContext),
 {
     parser: P,
     map_fn: F,
@@ -328,7 +342,7 @@ impl<'a, 'c, P, F, R, A> Parser<'a, 'c, A> for MapWithContext<'a, 'c, P, F, R, A
 where
     'c: 'a,
     P: Parser<'a, 'c, R>,
-    F: Fn(R, &'c mut AmlContext) -> (Result<A, AmlError>, &'c mut AmlContext),
+    F: Fn(R, &'c mut AmlContext) -> (Result<A, Propagate>, &'c mut AmlContext),
 {
     fn parse(&self, input: &'a [u8], context: &'c mut AmlContext) -> ParseResult<'a, 'c, A> {
         match self.parser.parse(input, context) {
@@ -442,11 +456,11 @@ pub(crate) macro choice {
             $(
                 match ($parser).parse(input, context) {
                     Ok(parse_result) => return Ok(parse_result),
-                    Err((_, new_context, AmlError::WrongParser)) => { context = new_context; },
-                    Err((_, context, err)) => return Err((input, context, err)),
+                    Err((_, new_context, Propagate::Err(AmlError::WrongParser))) => { context = new_context; },
+                    Err((_, context, propagate)) => return Err((input, context, propagate)),
                 }
              )+
-            Err((input, context, AmlError::WrongParser))
+            Err((input, context, Propagate::Err(AmlError::WrongParser)))
         }
     }
 }
@@ -473,7 +487,7 @@ pub(crate) macro make_parser_concrete($parser: expr) {
 pub(crate) macro try_with_context($context: expr, $expr: expr) {
     match $expr {
         Ok(result) => result,
-        Err(err) => return (Err(err), $context),
+        Err(err) => return (Err(Propagate::Err(err)), $context),
     }
 }
 
