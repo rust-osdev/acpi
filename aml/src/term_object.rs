@@ -369,7 +369,7 @@ where
                             name,
                             &context.current_scope,
                             AmlValue::Method {
-                                flags: MethodFlags::new(flags),
+                                flags: MethodFlags::from(flags),
                                 code: MethodCode::Aml(code.to_vec())
                             },
                         )

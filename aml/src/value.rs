@@ -74,7 +74,18 @@ impl FieldFlags {
 pub struct MethodFlags(u8);
 
 impl MethodFlags {
-    pub fn new(value: u8) -> MethodFlags {
+    pub fn new(arg_count: u8, serialize: bool, sync_level: u8) -> MethodFlags {
+        assert!(arg_count <= 7);
+        assert!(sync_level <= 15);
+
+        let mut value = 0;
+        value.set_bits(0..3, arg_count);
+        value.set_bit(3, serialize);
+        value.set_bits(4..8, sync_level);
+        MethodFlags(value)
+    }
+
+    pub fn from(value: u8) -> MethodFlags {
         MethodFlags(value)
     }
 
@@ -203,6 +214,14 @@ impl AmlValue {
 
     pub fn ones() -> AmlValue {
         AmlValue::Integer(u64::max_value())
+    }
+
+    pub fn native_method<F>(arg_count: u8, serialize: bool, sync_level: u8, f: F) -> AmlValue
+    where
+        F: Fn(&mut AmlContext) -> Result<AmlValue, AmlError> + 'static,
+    {
+        let flags = MethodFlags::new(arg_count, serialize, sync_level);
+        AmlValue::Method { flags, code: MethodCode::Native(Rc::new(f)) }
     }
 
     pub fn type_of(&self) -> AmlType {
