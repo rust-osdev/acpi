@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
         file.read_to_end(&mut contents).unwrap();
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
-        let mut context = AmlContext::new(Box::new(Handler), false, DebugVerbosity::None);
+        let mut context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
 
         match context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
             Ok(()) => {

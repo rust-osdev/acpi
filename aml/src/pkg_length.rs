@@ -1,5 +1,5 @@
 use crate::{
-    parser::{take, take_n, Parser},
+    parser::{take, take_n, Parser, Propagate},
     AmlContext,
     AmlError,
 };
@@ -42,7 +42,7 @@ where
          */
         match PkgLength::from_raw_length(input, raw_length) {
             Ok(pkg_length) => Ok((new_input, context, pkg_length)),
-            Err(err) => Err((input, context, err)),
+            Err(err) => Err((input, context, Propagate::Err(err))),
         }
     }
 }
@@ -70,26 +70,27 @@ where
             return Ok((new_input, context, length));
         }
 
-        let (new_input, context, length): (&[u8], &mut AmlContext, u32) =
-            match take_n(byte_count as u32).parse(new_input, context) {
-                Ok((new_input, context, bytes)) => {
-                    let initial_length = u32::from(lead_byte.get_bits(0..4));
-                    (
-                        new_input,
-                        context,
-                        bytes
-                            .iter()
-                            .enumerate()
-                            .fold(initial_length, |length, (i, &byte)| length + (u32::from(byte) << (4 + i * 8))),
-                    )
-                }
+        let (new_input, context, length): (&[u8], &mut AmlContext, u32) = match take_n(byte_count as u32)
+            .parse(new_input, context)
+        {
+            Ok((new_input, context, bytes)) => {
+                let initial_length = u32::from(lead_byte.get_bits(0..4));
+                (
+                    new_input,
+                    context,
+                    bytes
+                        .iter()
+                        .enumerate()
+                        .fold(initial_length, |length, (i, &byte)| length + (u32::from(byte) << (4 + i * 8))),
+                )
+            }
 
-                /*
-                 * The stream was too short. We return an error, making sure to return the
-                 * *original* stream (that we haven't consumed any of).
-                 */
-                Err((_, context, _)) => return Err((input, context, AmlError::UnexpectedEndOfStream)),
-            };
+            /*
+             * The stream was too short. We return an error, making sure to return the
+             * *original* stream (that we haven't consumed any of).
+             */
+            Err((_, context, _)) => return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
+        };
 
         Ok((new_input, context, length))
     }

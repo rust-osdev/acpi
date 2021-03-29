@@ -67,7 +67,7 @@ use log::error;
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
 use namespace::LevelType;
-use parser::Parser;
+use parser::{Parser, Propagate};
 use pkg_length::PkgLength;
 use term_object::term_list;
 use value::{AmlType, Args};
@@ -167,15 +167,21 @@ impl AmlContext {
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32).unwrap();
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
-            Err((_, _, err)) => {
+            Err((_, _, Propagate::Err(err))) => {
                 error!("Failed to parse AML stream. Err = {:?}", err);
                 Err(err)
+            }
+            Err((_, _, other)) => {
+                error!("AML table evaluated to unexpected result: {:?}", other);
+                Err(AmlError::MalformedStream)
             }
         }
     }
 
     // TODO: docs
     pub fn invoke_method(&mut self, path: &AmlName, args: Args) -> Result<AmlValue, AmlError> {
+        use value::MethodCode;
+
         match self.namespace.get_by_path(path)?.clone() {
             AmlValue::Method { flags, code } => {
                 /*
@@ -191,16 +197,28 @@ impl AmlContext {
                  */
                 self.namespace.add_level(path.clone(), LevelType::MethodLocals)?;
 
-                let return_value = match term_list(PkgLength::from_raw_length(&code, code.len() as u32).unwrap())
-                    .parse(&code, self)
-                {
-                    // If the method doesn't return a value, we implicitly return `0`
-                    Ok(_) => Ok(AmlValue::Integer(0)),
-                    Err((_, _, AmlError::Return(result))) => Ok(result),
-                    Err((_, _, err)) => {
-                        error!("Failed to execute control method: {:?}", err);
-                        Err(err)
+                let return_value = match code {
+                    MethodCode::Aml(ref code) => {
+                        match term_list(PkgLength::from_raw_length(code, code.len() as u32).unwrap())
+                            .parse(code, self)
+                        {
+                            // If the method doesn't return a value, we implicitly return `0`
+                            Ok(_) => Ok(AmlValue::Integer(0)),
+                            Err((_, _, Propagate::Return(result))) => Ok(result),
+                            Err((_, _, Propagate::Err(err))) => {
+                                error!("Failed to execute control method: {:?}", err);
+                                Err(err)
+                            }
+                        }
                     }
+
+                    MethodCode::Native(ref method) => match (method)(self) {
+                        Ok(result) => Ok(result),
+                        Err(err) => {
+                            error!("Failed to execute control method: {:?}", err);
+                            Err(err)
+                        }
+                    },
                 };
 
                 /*
@@ -561,6 +579,16 @@ impl AmlContext {
 
     fn add_predefined_objects(&mut self) {
         /*
+         * These are the scopes predefined by the spec. Some tables will try to access them without defining them
+         * themselves, and so we have to pre-create them.
+         */
+        self.namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_SI").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_PR").unwrap(), LevelType::Scope).unwrap();
+        self.namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), LevelType::Scope).unwrap();
+
+        /*
          * In the dark ages of ACPI 1.0, before `\_OSI`, `\_OS` was used to communicate to the firmware which OS
          * was running. This was predictably not very good, and so was replaced in ACPI 3.0 with `_OSI`, which
          * allows support for individual capabilities to be queried. `_OS` should not be used by modern firmwares,
@@ -625,13 +653,15 @@ pub trait Handler {
     fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlError {
     /*
      * Errors produced parsing the AML stream.
      */
     UnexpectedEndOfStream,
     UnexpectedByte(u8),
+    /// Produced when the stream evaluates to something other than nothing or an error.
+    MalformedStream,
     InvalidNameSeg,
     InvalidPkgLength,
     InvalidFieldFlags,
@@ -680,11 +710,6 @@ pub enum AmlError {
     InvalidArgAccess(ArgNum),
     /// Produced when a method accesses a local that it has not stored into.
     InvalidLocalAccess(LocalNum),
-    /// This is not a real error, but is used to propagate return values from within the deep
-    /// parsing call-stack. It should only be emitted when parsing a `DefReturn`. We use the
-    /// error system here because the way errors are propagated matches how we want to handle
-    /// return values.
-    Return(AmlValue),
 
     /*
      * Errors produced parsing the PCI routing tables (_PRT objects).

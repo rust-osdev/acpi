@@ -543,6 +543,7 @@ impl NameComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::crudely_cmp_values;
 
     #[test]
     fn test_aml_name_from_str() {
@@ -677,16 +678,22 @@ mod tests {
         /*
          * Get objects using their absolute paths.
          */
-        assert_eq!(namespace.get_by_path(&AmlName::from_str("\\MOO").unwrap()), Ok(&AmlValue::Boolean(true)));
-        assert_eq!(
-            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.A").unwrap()),
-            Ok(&AmlValue::Integer(12345))
-        );
-        assert_eq!(namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.B").unwrap()), Ok(&AmlValue::Integer(6)));
-        assert_eq!(
-            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.C").unwrap()),
-            Ok(&AmlValue::String(String::from("hello, world!")))
-        );
+        assert!(crudely_cmp_values(
+            namespace.get_by_path(&AmlName::from_str("\\MOO").unwrap()).unwrap(),
+            &AmlValue::Boolean(true)
+        ));
+        assert!(crudely_cmp_values(
+            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.A").unwrap()).unwrap(),
+            &AmlValue::Integer(12345)
+        ));
+        assert!(crudely_cmp_values(
+            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.B").unwrap()).unwrap(),
+            &AmlValue::Integer(6)
+        ));
+        assert!(crudely_cmp_values(
+            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.C").unwrap()).unwrap(),
+            &AmlValue::String(String::from("hello, world!"))
+        ));
 
         /*
          * Search for some objects that should use search rules.

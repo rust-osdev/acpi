@@ -82,9 +82,9 @@ where
     'c: 'a,
 {
     move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
-        None => Err((input, context, AmlError::UnexpectedEndOfStream)),
+        None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
         Some(&byte) if byte == opcode => Ok((&input[1..], context, ())),
-        Some(_) => Err((input, context, AmlError::WrongParser)),
+        Some(_) => Err((input, context, Propagate::Err(AmlError::WrongParser))),
     }
 }
 
