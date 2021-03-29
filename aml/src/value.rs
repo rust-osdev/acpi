@@ -160,8 +160,8 @@ pub enum MethodCode {
 impl fmt::Debug for MethodCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MethodCode::Aml(ref code) => f.debug_struct("AML method").field("code", code).finish(),
-            MethodCode::Native(_) => f.debug_struct("Native method").finish(),
+            MethodCode::Aml(ref code) => write!(f, "AML({:x?})", code),
+            MethodCode::Native(_) => write!(f, "(native method)"),
         }
     }
 }
