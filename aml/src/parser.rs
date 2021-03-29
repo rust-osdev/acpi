@@ -452,13 +452,13 @@ pub(crate) macro choice {
      * type-check (and so reduces the cost of pulling us in as a dependency as well as improving ergonomics).
      */
     ($($parser: expr),+) => {
-        move |input, mut context| {
+        move |input, context| {
             $(
-                match ($parser).parse(input, context) {
+                let context = match ($parser).parse(input, context) {
                     Ok(parse_result) => return Ok(parse_result),
-                    Err((_, new_context, Propagate::Err(AmlError::WrongParser))) => { context = new_context; },
+                    Err((_, new_context, Propagate::Err(AmlError::WrongParser))) => new_context,
                     Err((_, context, propagate)) => return Err((input, context, propagate)),
-                }
+                };
              )+
             Err((input, context, Propagate::Err(AmlError::WrongParser)))
         }
