@@ -33,7 +33,7 @@
 //! combinator patterns to express the parse.
 
 #![no_std]
-#![feature(decl_macro, type_ascription, box_syntax)]
+#![feature(decl_macro, type_ascription, box_syntax, bool_to_option)]
 
 extern crate alloc;
 
@@ -63,7 +63,7 @@ pub use crate::{
 
 use alloc::{boxed::Box, string::ToString};
 use core::mem;
-use log::error;
+use log::{error, warn};
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
 use namespace::LevelType;
@@ -611,8 +611,56 @@ impl AmlContext {
          *    - We answer 'yes' to `_OSI("Darwin")
          *    - We answer 'no' to `_OSI("Linux")`, and report that the tables are doing the wrong thing
          */
-        // TODO
-        // self.namespace.add_value(AmlName::from_str("\\_OSI").unwrap(), todo!()).unwrap();
+        self.namespace
+            .add_value(
+                AmlName::from_str("\\_OSI").unwrap(),
+                AmlValue::native_method(1, false, 0, |context| {
+                    Ok(match context.current_arg(0)?.as_string(context)?.as_str() {
+                        "Windows 2000" => true,       // 2000
+                        "Windows 2001" => true,       // XP
+                        "Windows 2001 SP1" => true,   // XP SP1
+                        "Windows 2001 SP2" => true,   // XP SP2
+                        "Windows 2001.1" => true,     // Server 2003
+                        "Windows 2001.1 SP1" => true, // Server 2003 SP1
+                        "Windows 2006" => true,       // Vista
+                        "Windows 2006 SP1" => true,   // Vista SP1
+                        "Windows 2006 SP2" => true,   // Vista SP2
+                        "Windows 2006.1" => true,     // Server 2008
+                        "Windows 2009" => true,       // 7 and Server 2008 R2
+                        "Windows 2012" => true,       // 8 and Server 2012
+                        "Windows 2013" => true,       // 8.1 and Server 2012 R2
+                        "Windows 2015" => true,       // 10
+                        "Windows 2016" => true,       // 10 version 1607
+                        "Windows 2017" => true,       // 10 version 1703
+                        "Windows 2017.2" => true,     // 10 version 1709
+                        "Windows 2018" => true,       // 10 version 1803
+                        "Windows 2018.2" => true,     // 10 version 1809
+                        "Windows 2019" => true,       // 10 version 1903
+
+                        "Darwin" => true,
+
+                        "Linux" => {
+                            // TODO: should we allow users to specify that this should be true? Linux has a
+                            // command line option for this.
+                            warn!("ACPI evaluated `_OSI(\"Linux\")`. This is a bug. Reporting no support.");
+                            false
+                        }
+
+                        "Extended Address Space Descriptor" => true,
+                        // TODO: support module devices
+                        "Module Device" => false,
+                        "3.0 Thermal Model" => true,
+                        "3.0 _SCP Extensions" => true,
+                        // TODO: support processor aggregator devices
+                        "Processor Aggregator Device" => false,
+
+                        _ => false,
+                    }
+                    .then_some(AmlValue::ones())
+                    .unwrap_or(AmlValue::zero()))
+                }),
+            )
+            .unwrap();
 
         /*
          * `\_REV` evaluates to the version of the ACPI specification supported by this interpreter. Linux did this
