@@ -588,9 +588,9 @@ where
             }
             opcode::QWORD_CONST => take_u64().map(|value| Ok(AmlValue::Integer(value))).parse(new_input, context),
             opcode::STRING_PREFIX => string_parser.parse(new_input, context),
-            opcode::ZERO_OP => Ok((new_input, context, AmlValue::Integer(0))),
-            opcode::ONE_OP => Ok((new_input, context, AmlValue::Integer(1))),
-            opcode::ONES_OP => Ok((new_input, context, AmlValue::Integer(u64::max_value()))),
+            opcode::ZERO_OP => Ok((new_input, context, AmlValue::zero())),
+            opcode::ONE_OP => Ok((new_input, context, AmlValue::one())),
+            opcode::ONES_OP => Ok((new_input, context, AmlValue::ones())),
 
             _ => Err((input, context, Propagate::Err(AmlError::WrongParser))),
         }

@@ -193,6 +193,18 @@ pub enum AmlValue {
 }
 
 impl AmlValue {
+    pub fn zero() -> AmlValue {
+        AmlValue::Integer(0)
+    }
+
+    pub fn one() -> AmlValue {
+        AmlValue::Integer(1)
+    }
+
+    pub fn ones() -> AmlValue {
+        AmlValue::Integer(u64::max_value())
+    }
+
     pub fn type_of(&self) -> AmlType {
         match self {
             AmlValue::Boolean(_) => AmlType::Integer,
