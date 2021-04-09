@@ -29,8 +29,8 @@ You can run fuzz the AML parser with `cd aml && cargo fuzz run fuzz_target_1` (y
 
 ## Licence
 Acpi is dual-licenced under:
-- Apache Licence, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache Licence, Version 2.0 ([LICENCE-APACHE](LICENCE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENCE-MIT](LICENCE-MIT) or http://opensource.org/licenses/MIT)
 
 Unless you explicitly state otherwise, any contribution submitted for inclusion in this work by you,
 as defined in the Apache-2.0 licence, shall be dual licenced as above, without additional terms or
