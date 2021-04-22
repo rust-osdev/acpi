@@ -4,6 +4,7 @@ use crate::{
     value::Args,
     AmlContext,
     AmlError,
+    AmlType,
     AmlValue,
 };
 use alloc::vec::Vec;
@@ -129,13 +130,16 @@ impl PciRoutingTable {
                         _ => return Err(AmlError::PrtInvalidSource),
                     }
                 } else {
-                    return Err(AmlError::IncompatibleValueConversion);
+                    return Err(AmlError::IncompatibleValueConversion {
+                        current: value.type_of(),
+                        target: AmlType::Package,
+                    });
                 }
             }
 
             Ok(PciRoutingTable { entries })
         } else {
-            Err(AmlError::IncompatibleValueConversion)
+            Err(AmlError::IncompatibleValueConversion { current: prt.type_of(), target: AmlType::Package })
         }
     }
 
@@ -174,7 +178,7 @@ impl PciRoutingTable {
                 let resources = resource::resource_descriptor_list(link_crs)?;
                 match resources.as_slice() {
                     [Resource::Irq(descriptor)] => Ok(descriptor.clone()),
-                    _ => Err(AmlError::IncompatibleValueConversion),
+                    _ => Err(AmlError::IncompatibleValueConversion { current: todo!(), target: todo!() }),
                 }
             }
         }

@@ -713,7 +713,10 @@ pub enum AmlError {
     InvalidNameSeg,
     InvalidPkgLength,
     InvalidFieldFlags,
-    IncompatibleValueConversion,
+    IncompatibleValueConversion {
+        current: AmlType,
+        target: AmlType,
+    },
     UnterminatedStringConstant,
     InvalidStringConstant,
     InvalidRegionSpace(u8),
