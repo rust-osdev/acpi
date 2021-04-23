@@ -402,7 +402,10 @@ impl AmlValue {
         let field_update_rule = if let AmlValue::Field { region, flags, offset, length } = self {
             flags.field_update_rule()?
         } else {
-            return Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: todo!() });
+            return Err(AmlError::IncompatibleValueConversion {
+                current: self.type_of(),
+                target: AmlType::FieldUnit,
+            });
         };
         let mut field_value = match field_update_rule {
             FieldUpdateRule::Preserve => self.read_field(context)?.as_integer(context)?,

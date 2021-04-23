@@ -178,7 +178,7 @@ impl PciRoutingTable {
                 let resources = resource::resource_descriptor_list(link_crs)?;
                 match resources.as_slice() {
                     [Resource::Irq(descriptor)] => Ok(descriptor.clone()),
-                    _ => Err(AmlError::IncompatibleValueConversion { current: todo!(), target: todo!() }),
+                    _ => Err(AmlError::UnexpectedResourceType),
                 }
             }
         }
