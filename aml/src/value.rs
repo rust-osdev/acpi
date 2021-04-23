@@ -243,7 +243,7 @@ impl AmlValue {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
             AmlValue::Integer(value) => Ok(*value != 0),
-            _ => Err(AmlError::IncompatibleValueConversion),
+            _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
         }
     }
 
@@ -274,7 +274,7 @@ impl AmlValue {
              */
             AmlValue::Field { .. } => self.read_field(context)?.as_integer(context),
 
-            _ => Err(AmlError::IncompatibleValueConversion),
+            _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
         }
     }
 
@@ -283,7 +283,7 @@ impl AmlValue {
             AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
             AmlValue::Field { .. } => self.read_field(context)?.as_buffer(context),
-            _ => Err(AmlError::IncompatibleValueConversion),
+            _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Buffer }),
         }
     }
 
@@ -292,7 +292,7 @@ impl AmlValue {
             AmlValue::String(ref string) => Ok(string.clone()),
             // TODO: implement conversion of Buffer to String
             AmlValue::Field { .. } => self.read_field(context)?.as_string(context),
-            _ => Err(AmlError::IncompatibleValueConversion),
+            _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::String }),
         }
     }
 
@@ -345,7 +345,7 @@ impl AmlValue {
             AmlType::FieldUnit => panic!(
                 "Can't implicitly convert to FieldUnit. This must be special-cased by the caller for now :("
             ),
-            _ => Err(AmlError::IncompatibleValueConversion),
+            _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: desired_type }),
         }
     }
 
@@ -389,7 +389,7 @@ impl AmlValue {
                 context.read_region(*region, *offset, access_size)?.get_bits(0..(*length as usize)),
             ))
         } else {
-            Err(AmlError::IncompatibleValueConversion)
+            Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::FieldUnit })
         }
     }
 
@@ -402,7 +402,10 @@ impl AmlValue {
         let field_update_rule = if let AmlValue::Field { region, flags, offset, length } = self {
             flags.field_update_rule()?
         } else {
-            return Err(AmlError::IncompatibleValueConversion);
+            return Err(AmlError::IncompatibleValueConversion {
+                current: self.type_of(),
+                target: AmlType::FieldUnit,
+            });
         };
         let mut field_value = match field_update_rule {
             FieldUpdateRule::Preserve => self.read_field(context)?.as_integer(context)?,
@@ -440,7 +443,7 @@ impl AmlValue {
             field_value.set_bits(0..(*length as usize), value.as_integer(context)?);
             context.write_region(*region, *offset, access_size, field_value)
         } else {
-            Err(AmlError::IncompatibleValueConversion)
+            Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::FieldUnit })
         }
     }
 
@@ -525,7 +528,7 @@ mod tests {
 
         assert_eq!(
             AmlValue::Integer(4).cmp(AmlValue::Boolean(true), &mut context),
-            Err(AmlError::IncompatibleValueConversion)
+            Err(AmlError::IncompatibleValueConversion { current: AmlType::Integer, target: AmlType::Integer })
         );
 
         // TODO: test the other combinations too, as well as conversions to the correct types for the second operand

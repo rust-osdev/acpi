@@ -1,6 +1,9 @@
 use core::mem;
 
-use crate::{value::AmlValue, AmlError};
+use crate::{
+    value::{AmlType, AmlValue},
+    AmlError,
+};
 use alloc::vec::Vec;
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
@@ -34,7 +37,7 @@ pub fn resource_descriptor_list(descriptor: &AmlValue) -> Result<Vec<Resource>, 
 
         Ok(descriptors)
     } else {
-        Err(AmlError::IncompatibleValueConversion)
+        Err(AmlError::IncompatibleValueConversion { current: descriptor.type_of(), target: AmlType::Buffer })
     }
 }
 

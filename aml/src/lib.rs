@@ -713,7 +713,10 @@ pub enum AmlError {
     InvalidNameSeg,
     InvalidPkgLength,
     InvalidFieldFlags,
-    IncompatibleValueConversion,
+    IncompatibleValueConversion {
+        current: AmlType,
+        target: AmlType,
+    },
     UnterminatedStringConstant,
     InvalidStringConstant,
     InvalidRegionSpace(u8),
@@ -775,6 +778,7 @@ pub enum AmlError {
     ReservedResourceType,
     ResourceDescriptorTooShort,
     ResourceDescriptorTooLong,
+    UnexpectedResourceType,
 
     /*
      * Errors produced working with AML values.
