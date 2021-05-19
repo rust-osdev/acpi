@@ -1,5 +1,5 @@
 use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 use core::{cmp, fmt, fmt::Debug};
 
@@ -154,7 +154,7 @@ pub enum AmlType {
 #[derive(Clone)]
 pub enum MethodCode {
     Aml(Vec<u8>),
-    Native(Rc<dyn Fn(&mut AmlContext) -> Result<AmlValue, AmlError>>),
+    Native(Arc<dyn Fn(&mut AmlContext) -> Result<AmlValue, AmlError> + Send + Sync>),
 }
 
 impl fmt::Debug for MethodCode {
@@ -218,10 +218,10 @@ impl AmlValue {
 
     pub fn native_method<F>(arg_count: u8, serialize: bool, sync_level: u8, f: F) -> AmlValue
     where
-        F: Fn(&mut AmlContext) -> Result<AmlValue, AmlError> + 'static,
+        F: (Fn(&mut AmlContext) -> Result<AmlValue, AmlError>) + 'static + Send + Sync,
     {
         let flags = MethodFlags::new(arg_count, serialize, sync_level);
-        AmlValue::Method { flags, code: MethodCode::Native(Rc::new(f)) }
+        AmlValue::Method { flags, code: MethodCode::Native(Arc::new(f)) }
     }
 
     pub fn type_of(&self) -> AmlType {
