@@ -673,7 +673,7 @@ impl AmlContext {
 }
 
 // TODO: docs
-pub trait Handler {
+pub trait Handler: Send + Sync {
     fn read_u8(&self, address: usize) -> u8;
     fn read_u16(&self, address: usize) -> u16;
     fn read_u32(&self, address: usize) -> u32;
