@@ -86,6 +86,10 @@ impl Madt {
             MadtEntry::GicInterruptTranslationService(_) => {
                 unimplemented!();
             }
+
+            MadtEntry::MultiprocessorWakeup(_) => {
+                unimplemented!();
+            }
         }
         }
 
@@ -258,6 +262,7 @@ pub enum MadtEntry<'a> {
     GicMsiFrame(&'a GicMsiFrameEntry),
     GicRedistributor(&'a GicRedistributorEntry),
     GicInterruptTranslationService(&'a GicInterruptTranslationServiceEntry),
+    MultiprocessorWakeup(&'a MultiprocessorWakeupEntry),
 }
 
 impl<'a> Iterator for MadtEntryIter<'a> {
@@ -289,7 +294,7 @@ impl<'a> Iterator for MadtEntryIter<'a> {
                          * These entry types are reserved by the ACPI standard. We should skip them
                          * if they appear in a real MADT.
                          */
-                        0x10..=0x7f => {}
+                        0x11..=0x7f => {}
 
                         /*
                          * These entry types are reserved for OEM use. Atm, we just skip them too.
@@ -319,7 +324,8 @@ impl<'a> Iterator for MadtEntryIter<'a> {
                 (0xc => MadtEntry::Gicd as GicdEntry),
                 (0xd => MadtEntry::GicMsiFrame as GicMsiFrameEntry),
                 (0xe => MadtEntry::GicRedistributor as GicRedistributorEntry),
-                (0xf => MadtEntry::GicInterruptTranslationService as GicInterruptTranslationServiceEntry)
+                (0xf => MadtEntry::GicInterruptTranslationService as GicInterruptTranslationServiceEntry),
+                (0x10 => MadtEntry::MultiprocessorWakeup as MultiprocessorWakeupEntry)
             );
         }
 
@@ -507,6 +513,14 @@ pub struct GicInterruptTranslationServiceEntry {
     id: u32,
     physical_base_address: u64,
     _reserved2: u32,
+}
+
+#[repr(C, packed)]
+pub struct MultiprocessorWakeupEntry {
+    header: EntryHeader,
+    mailbox_version: u16,
+    _reserved: u32,
+    mailbox_address: u64,
 }
 
 fn parse_mps_inti_flags(flags: u16) -> Result<(Polarity, TriggerMode), AcpiError> {
