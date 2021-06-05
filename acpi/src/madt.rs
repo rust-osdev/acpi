@@ -87,9 +87,7 @@ impl Madt {
                 unimplemented!();
             }
 
-            MadtEntry::MultiprocessorWakeup(_) => {
-                unimplemented!();
-            }
+            MadtEntry::MultiprocessorWakeup(_) => ()
         }
         }
 
