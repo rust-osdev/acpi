@@ -791,3 +791,15 @@ pub enum AmlError {
     FieldInvalidAccessSize,
     TypeCannotBeCompared(AmlType),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_send_sync() {
+        // verify that AmlContext implements Send and Sync
+        fn test_send_sync<T: Send + Sync>() {}
+        test_send_sync::<AmlContext>();
+    }
+}
