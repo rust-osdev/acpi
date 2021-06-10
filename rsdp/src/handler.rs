@@ -14,6 +14,9 @@ where
     pub handler: H,
 }
 
+unsafe impl<H: AcpiHandler + Send, T: Send> Send for PhysicalMapping<H, T> {}
+unsafe impl<H: AcpiHandler + Sync, T: Sync> Sync for PhysicalMapping<H, T> {}
+
 impl<H, T> Deref for PhysicalMapping<H, T>
 where
     H: AcpiHandler,
@@ -48,4 +51,18 @@ pub trait AcpiHandler: Clone + Sized {
 
     /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped.
     fn unmap_physical_region<T>(&self, region: &PhysicalMapping<Self, T>);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_send_sync() {
+        // verify that PhysicalMapping implements Send and Sync
+        fn test_send_sync<T: Send + Sync>() {}
+        fn caller<H: AcpiHandler + Send + Sync, T: Send + Sync>() {
+            test_send_sync::<PhysicalMapping<H, T>>();
+        }
+    }
 }
