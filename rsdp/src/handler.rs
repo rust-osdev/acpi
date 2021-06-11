@@ -59,6 +59,8 @@ where
     }
 }
 
+unsafe impl<H: AcpiHandler + Send, T: Send> Send for PhysicalMapping<H, T> {}
+
 impl<H, T> Deref for PhysicalMapping<H, T>
 where
     H: AcpiHandler,
@@ -100,4 +102,18 @@ pub trait AcpiHandler: Clone {
     ///
     /// Note: A reference to the handler used to construct `region` can be acquired by calling [`PhysicalMapping::handler`].
     fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_send_sync() {
+        // verify that PhysicalMapping implements Send and Sync
+        fn test_send_sync<T: Send>() {}
+        fn caller<H: AcpiHandler + Send, T: Send>() {
+            test_send_sync::<PhysicalMapping<H, T>>();
+        }
+    }
 }
