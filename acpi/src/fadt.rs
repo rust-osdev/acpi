@@ -44,7 +44,7 @@ pub struct Fadt {
     /// The SCI should be treated as a sharable, level, active-low interrupt.
     pub sci_interrupt: u16,
     /// The system port address of the SMI Command Port. This port should only be accessed from the boot processor.
-    /// A value of `0` indicates that System Management Mode.
+    /// A value of `0` indicates that System Management Mode is not supported.
     ///
     ///    - Writing the value in `acpi_enable` to this port will transfer control of the ACPI hardware registers
     ///      from the firmware to the OS. You must synchronously wait for the transfer to complete, indicated by the
