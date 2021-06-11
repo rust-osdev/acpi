@@ -23,7 +23,7 @@ where
     ///
     /// ## Safety
     ///
-    /// This function must only be called by the `AcpiHandler` `H` to make sure that it's safe to unmap the mapping.
+    /// This function must only be called by an `AcpiHandler` of type `H` to make sure that it's safe to unmap the mapping.
     ///
     /// - `virtual_start` must be a valid pointer.
     /// - `region_length` must be equal to or larger than `size_of::<T>()`.
@@ -96,6 +96,8 @@ pub trait AcpiHandler: Clone {
     /// - `size` must be at least `size_of::<T>()`.
     unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
 
-    /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped.
+    /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped, you should **not** manually call this.
+    ///
+    /// Note: A reference to the handler used to construct `region` can be acquired by calling [`PhysicalMapping::handler`].
     fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
 }
