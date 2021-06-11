@@ -15,7 +15,6 @@ where
 }
 
 unsafe impl<H: AcpiHandler + Send, T: Send> Send for PhysicalMapping<H, T> {}
-unsafe impl<H: AcpiHandler + Sync, T: Sync> Sync for PhysicalMapping<H, T> {}
 
 impl<H, T> Deref for PhysicalMapping<H, T>
 where
@@ -60,8 +59,8 @@ mod tests {
     #[test]
     fn test_send_sync() {
         // verify that PhysicalMapping implements Send and Sync
-        fn test_send_sync<T: Send + Sync>() {}
-        fn caller<H: AcpiHandler + Send + Sync, T: Send + Sync>() {
+        fn test_send_sync<T: Send>() {}
+        fn caller<H: AcpiHandler + Send, T: Send>() {
             test_send_sync::<PhysicalMapping<H, T>>();
         }
     }
