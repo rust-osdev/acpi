@@ -7,11 +7,56 @@ pub struct PhysicalMapping<H, T>
 where
     H: AcpiHandler,
 {
-    pub physical_start: usize,
-    pub virtual_start: NonNull<T>,
-    pub region_length: usize, // Can be equal or larger than size_of::<T>()
-    pub mapped_length: usize, // Differs from `region_length` if padding is added for alignment
-    pub handler: H,
+    physical_start: usize,
+    virtual_start: NonNull<T>,
+    region_length: usize, // Can be equal or larger than size_of::<T>()
+    mapped_length: usize, // Differs from `region_length` if padding is added for alignment
+    handler: H,
+}
+
+impl<H, T> PhysicalMapping<H, T>
+where
+    H: AcpiHandler,
+{
+    /// Construct a new `PhysicalMapping`.
+    /// `mapped_length` may differ from `region_length` if padding is added for alignment.
+    ///
+    /// ## Safety
+    ///
+    /// This function must only be called by the `AcpiHandler` `H` to make sure that it's safe to unmap the mapping.
+    ///
+    /// - `virtual_start` must be a valid pointer.
+    /// - `region_length` must be equal to or larger than `size_of::<T>()`.
+    /// - `handler` must be the same `AcpiHandler` that created the mapping.
+    pub unsafe fn new(
+        physical_start: usize,
+        virtual_start: NonNull<T>,
+        region_length: usize,
+        mapped_length: usize,
+        handler: H,
+    ) -> Self {
+        Self { physical_start, virtual_start, region_length, mapped_length, handler }
+    }
+
+    pub fn physical_start(&self) -> usize {
+        self.physical_start
+    }
+
+    pub fn virtual_start(&self) -> NonNull<T> {
+        self.virtual_start
+    }
+
+    pub fn region_length(&self) -> usize {
+        self.region_length
+    }
+
+    pub fn mapped_length(&self) -> usize {
+        self.mapped_length
+    }
+
+    pub fn handler(&self) -> &H {
+        &self.handler
+    }
 }
 
 impl<H, T> Deref for PhysicalMapping<H, T>
@@ -30,7 +75,7 @@ where
     H: AcpiHandler,
 {
     fn drop(&mut self) {
-        self.handler.unmap_physical_region(self)
+        H::unmap_physical_region(self)
     }
 }
 
@@ -44,8 +89,13 @@ pub trait AcpiHandler: Clone + Sized {
     /// size may be larger than `size_of::<T>()`). The address is not neccessarily page-aligned, so the
     /// implementation may need to map more than `size` bytes. The virtual address the region is mapped to does not
     /// matter, as long as it is accessible to `acpi`.
+    ///
+    /// ## Safety
+    ///
+    /// `physical_address` must point to a valid `T` in physical memory.
+    /// `size` must be at least `size_of::<T>()`.
     unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
 
     /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped.
-    fn unmap_physical_region<T>(&self, region: &PhysicalMapping<Self, T>);
+    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
 }
