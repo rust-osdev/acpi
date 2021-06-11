@@ -83,7 +83,7 @@ impl Rsdp {
 
                 for address in area.clone().step_by(16) {
                     let ptr_in_mapping =
-                        unsafe { mapping.virtual_start.as_ptr().offset((address - area.start) as isize) };
+                        unsafe { mapping.virtual_start().as_ptr().offset((address - area.start) as isize) };
                     let signature = unsafe { *(ptr_in_mapping as *const [u8; 8]) };
 
                     if signature == *RSDP_SIGNATURE {

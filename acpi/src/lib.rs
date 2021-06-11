@@ -163,7 +163,7 @@ where
 
             let num_tables = (mapping.length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
             let tables_base =
-                ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
+                ((mapping.virtual_start().as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
             for i in 0..num_tables {
                 result.process_sdt(unsafe { *tables_base.offset(i as isize) as usize })?;
@@ -176,7 +176,7 @@ where
 
             let num_tables = (mapping.length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
             let tables_base =
-                ((mapping.virtual_start.as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
+                ((mapping.virtual_start().as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
             for i in 0..num_tables {
                 result.process_sdt(unsafe { *tables_base.offset(i as isize) as usize })?;
