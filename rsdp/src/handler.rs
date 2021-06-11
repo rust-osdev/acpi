@@ -92,8 +92,8 @@ pub trait AcpiHandler: Clone {
     ///
     /// ## Safety
     ///
-    /// `physical_address` must point to a valid `T` in physical memory.
-    /// `size` must be at least `size_of::<T>()`.
+    /// - `physical_address` must point to a valid `T` in physical memory.
+    /// - `size` must be at least `size_of::<T>()`.
     unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
 
     /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped.
