@@ -37,6 +37,16 @@
 //!    - [`PciConfigRegions`](crate::mcfg::PciConfigRegions) parses the MCFG and tells you how PCIe configuration
 //!      space is mapped into physical memory.
 
+/*
+ * Contributing notes (you may find these useful if you're new to contributing to the library):
+ *    - Accessing packed fields without UB: Lots of the structures defined by ACPI are defined with `repr(packed)`
+ *      to prevent padding being introduced, which would make the structure's layout incorrect. In Rust, this
+ *      creates a problem as references to these fields could be unaligned, which is undefined behaviour. For the
+ *      majority of these fields, this problem can be easily avoided by telling the compiler to make a copy of the
+ *      field's contents: this is the perhaps unfamiliar pattern of e.g. `!{ entry.flags }.get_bit(0)` we use
+ *      around the codebase.
+ */
+
 #![no_std]
 #![feature(const_generics)]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -201,7 +211,7 @@ where
 
     fn process_sdt(&mut self, physical_address: usize) -> Result<(), AcpiError> {
         let header = sdt::peek_at_sdt_header(&self.handler, physical_address);
-        trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, header.length);
+        trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, { header.length });
 
         match header.signature {
             Signature::FADT => {
