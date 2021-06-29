@@ -129,7 +129,7 @@ impl Madt {
                      * the BSP yet, this must be it.
                      */
                     let is_ap = boot_processor.is_some();
-                    let is_disabled = !unsafe { entry.flags.get_bit(0) };
+                    let is_disabled = !entry.flags.get_bit(0);
 
                     let state = match (is_ap, is_disabled) {
                         (_, true) => ProcessorState::Disabled,
@@ -229,7 +229,7 @@ impl Madt {
     }
 
     pub fn supports_8259(&self) -> bool {
-        unsafe { self.flags.get_bit(0) }
+        self.flags.get_bit(0)
     }
 }
 
