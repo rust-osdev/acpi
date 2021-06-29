@@ -1,7 +1,9 @@
 //! This crate provides types for representing the RSDP (the Root System Descriptor Table; the first ACPI table)
 //! and methods for searching for it on BIOS systems. Importantly, this crate (unlike `acpi`, which re-exports the
 //! contents of this crate) does not need `alloc`, and so can be used in environments that can't allocate. This is
-//! specifically meant to be used from bootloaders for finding the RSDP, so it can be passed to the payload.
+//! specifically meant to be used from bootloaders for finding the RSDP, so it can be passed to the payload. If you
+//! don't have this requirement, and want to do more than just find the RSDP, you can use `acpi` instead of this
+//! crate.
 //!
 //! To use this crate, you will need to provide an implementation of `AcpiHandler`. This is the same handler type
 //! used in the `acpi` crate.
@@ -30,7 +32,7 @@ pub enum RsdpError {
 ///
 /// On BIOS systems, it is either found in the first 1KB of the Extended Bios Data Area, or between
 /// 0x000E0000 and 0x000FFFFF. The signature is always on a 16 byte boundary. On (U)EFI, it may not
-/// be located in these locations, and so an address should be found in the EFI_SYSTEM_TABLE
+/// be located in these locations, and so an address should be found in the EFI configuration table
 /// instead.
 ///
 /// The recommended way of locating the RSDP is to let the bootloader do it - Multiboot2 can pass a
@@ -72,6 +74,7 @@ impl Rsdp {
     /// side-effects. On UEFI systems, the RSDP should be found in the Configuration Table, using two GUIDs:
     ///     - ACPI v1.0 structures use `eb9d2d30-2d88-11d3-9a16-0090273fc14d`.
     ///     - ACPI v2.0 or later structures use `8868e871-e4f1-11d3-bc22-0080c73c8881`.
+    /// You should search the entire table for the v2.0 GUID before searching for the v1.0 one.
     pub unsafe fn search_for_on_bios<H>(handler: H) -> Result<PhysicalMapping<H, Rsdp>, RsdpError>
     where
         H: AcpiHandler,
