@@ -38,7 +38,7 @@
 //!      space is mapped into physical memory.
 
 #![no_std]
-#![feature(const_generics, unsafe_block_in_unsafe_fn)]
+#![feature(const_generics)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;

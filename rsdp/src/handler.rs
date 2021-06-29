@@ -109,6 +109,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(dead_code)]
     fn test_send_sync() {
         // verify that PhysicalMapping implements Send and Sync
         fn test_send_sync<T: Send>() {}
