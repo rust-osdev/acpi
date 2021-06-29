@@ -68,7 +68,7 @@ pub use crate::{
     hpet::HpetInfo,
     madt::MadtError,
     mcfg::PciConfigRegions,
-    platform::{InterruptModel, PlatformInfo},
+    platform::{interrupt::InterruptModel, PlatformInfo},
 };
 pub use rsdp::{
     handler::{AcpiHandler, PhysicalMapping},

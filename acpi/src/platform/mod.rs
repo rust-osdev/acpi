@@ -1,22 +1,10 @@
 pub mod address;
 pub mod interrupt;
 
-use address::GenericAddress;
-pub use interrupt::{
-    Apic,
-    InterruptModel,
-    InterruptSourceOverride,
-    IoApic,
-    LocalInterruptLine,
-    NmiLine,
-    NmiProcessor,
-    NmiSource,
-    Polarity,
-    TriggerMode,
-};
-
 use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
+use address::GenericAddress;
 use alloc::vec::Vec;
+use interrupt::InterruptModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
