@@ -1,6 +1,8 @@
 # Acpi
 ![Build Status](https://github.com/rust-osdev/acpi/actions/workflows/build.yml/badge.svg)
+[![Version](https://img.shields.io/crates/v/rsdp.svg?style=rounded-square)](https://crates.io/crates/rsdp/)
 [![Version](https://img.shields.io/crates/v/acpi.svg?style=rounded-square)](https://crates.io/crates/acpi/)
+[![Version](https://img.shields.io/crates/v/aml.svg?style=rounded-square)](https://crates.io/crates/aml/)
 
 ### [Documentation (`rsdp`)](https://docs.rs/rsdp)
 ### [Documentation (`acpi`)](https://docs.rs/acpi)
