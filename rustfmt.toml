@@ -1,7 +1,7 @@
 unstable_features = true
 edition = "2018"
 
-merge_imports = true
+imports_granularity='Crate'
 imports_layout = "HorizontalVertical"
 use_field_init_shorthand = true
 use_try_shorthand = true

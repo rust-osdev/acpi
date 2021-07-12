@@ -167,7 +167,7 @@ impl Fadt {
     pub fn pm1a_event_block(&self) -> Result<GenericAddress, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_event_block.access(self.header().revision) } {
             if raw.address != 0x0 {
-                return Ok(GenericAddress::from_raw(raw)?);
+                return GenericAddress::from_raw(raw);
             }
         }
 
@@ -203,7 +203,7 @@ impl Fadt {
     pub fn pm1a_control_block(&self) -> Result<GenericAddress, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_control_block.access(self.header().revision) } {
             if raw.address != 0x0 {
-                return Ok(GenericAddress::from_raw(raw)?);
+                return GenericAddress::from_raw(raw);
             }
         }
 
@@ -507,3 +507,4 @@ impl ArmBootArchFlags {
         self.0.get_bit(1)
     }
 }
+

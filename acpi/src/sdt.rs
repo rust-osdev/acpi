@@ -26,74 +26,74 @@ impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
 /// The ACPI Spec (Version 6.4) defines the following SDT signatures:
 ///
 /// * APIC - Multiple APIC Description Table (MADT)
-/// *BERT - Boot Error Record Table
-/// *BGRT - Boot Graphics Resource Table
-/// *CPEP - Corrected Platform Error Polling Table
-/// *DSDT - Differentiated System Description Table (DSDT)
-/// *ECDT - Embedded Controller Boot Resources Table
-/// *EINJ - Error Injection Table
-/// *ERST - Error Record Serialization Table
-/// *FACP - Fixed ACPI Description Table (FADT)
-/// *FACS - Firmware ACPI Control Structure
-/// *FPDT - Firmware Performance Data Table
-/// *GTDT - Generic Timer Description Table
-/// *HEST - Hardware Error Source Table
-/// *MSCT - Maximum System Characteristics Table
-/// *MPST - Memory Power StateTable
-/// *NFIT - NVDIMM Firmware Interface Table
-/// *OEMx - OEM Specific Information Tables
-/// *PCCT - Platform Communications Channel Table
-/// *PHAT - Platform Health Assessment Table
-/// *PMTT - Platform Memory Topology Table
-/// *PSDT - Persistent System Description Table
-/// *RASF - ACPI RAS Feature Table
-/// *RSDT - Root System Description Table
-/// *SBST - Smart Battery Specification Table
-/// *SDEV - Secure DEVices Table
-/// *SLIT - System Locality Distance Information Table
-/// *SRAT - System Resource Affinity Table
-/// *SSDT - Secondary System Description Table
-/// *XSDT - Extended System Description Table
+/// * BERT - Boot Error Record Table
+/// * BGRT - Boot Graphics Resource Table
+/// * CPEP - Corrected Platform Error Polling Table
+/// * DSDT - Differentiated System Description Table (DSDT)
+/// * ECDT - Embedded Controller Boot Resources Table
+/// * EINJ - Error Injection Table
+/// * ERST - Error Record Serialization Table
+/// * FACP - Fixed ACPI Description Table (FADT)
+/// * FACS - Firmware ACPI Control Structure
+/// * FPDT - Firmware Performance Data Table
+/// * GTDT - Generic Timer Description Table
+/// * HEST - Hardware Error Source Table
+/// * MSCT - Maximum System Characteristics Table
+/// * MPST - Memory Power StateTable
+/// * NFIT - NVDIMM Firmware Interface Table
+/// * OEMx - OEM Specific Information Tables
+/// * PCCT - Platform Communications Channel Table
+/// * PHAT - Platform Health Assessment Table
+/// * PMTT - Platform Memory Topology Table
+/// * PSDT - Persistent System Description Table
+/// * RASF - ACPI RAS Feature Table
+/// * RSDT - Root System Description Table
+/// * SBST - Smart Battery Specification Table
+/// * SDEV - Secure DEVices Table
+/// * SLIT - System Locality Distance Information Table
+/// * SRAT - System Resource Affinity Table
+/// * SSDT - Secondary System Description Table
+/// * XSDT - Extended System Description Table
 ///
 /// Acpi reserves the following signatures and the specifications for them can be found [here](https://uefi.org/acpi):
 ///
-/// *AEST - ARM Error Source Table
-/// *BDAT - BIOS Data ACPI Table
-/// *CDIT - Component Distance Information Table
-/// *CEDT - CXL Early Discovery Table
-/// *CRAT - Component Resource Attribute Table
-/// *CSRT - Core System Resource Table
-/// *DBGP - Debug Port Table
-/// *DBG2 - Debug Port Table 2 (note: ACPI 6.4 defines this as "DBPG2" but this is incorrect)
-/// *DMAR - DMA Remapping Table
-/// *DRTM -Dynamic Root of Trust for Measurement Table
-/// *ETDT - Event Timer Description Table (obsolete, superseeded by HPET)
-/// *HPET - IA-PC High Precision Event Timer Table
-/// *IBFT - iSCSI Boot Firmware Table
-/// *IORT - I/O Remapping Table
-/// *IVRS - I/O Virtualization Reporting Structure
-/// *LPIT - Low Power Idle Table
-/// *MCFG - PCI Express Memory-mapped Configuration Space base address description table
-/// *MCHI - Management Controller Host Interface table
-/// *MPAM - ARM Memory Partitioning And Monitoring table
-/// *MSDM - Microsoft Data Management Table
-/// *PRMT - Platform Runtime Mechanism Table
-/// *RGRT - Regulatory Graphics Resource Table
-/// *SDEI - Software Delegated Exceptions Interface table
-/// *SLIC - Microsoft Software Licensing table
-/// *SPCR - Microsoft Serial Port Console Redirection table
-/// *SPMI - Server Platform Management Interface table
-/// *STAO - _STA Override table
-/// *SVKL - Storage Volume Key Data table (Intel TDX only)
-/// *TCPA - Trusted Computing Platform Alliance Capabilities Table
-/// *TPM2 - Trusted Platform Module 2 Table
-/// *UEFI - Unified Extensible Firmware Interface Specification table
-/// *WAET - Windows ACPI Emulated Devices Table
-/// *WDAT - Watch Dog Action Table
-/// *WDRT - Watchdog Resource Table
-/// *WPBT - Windows Platform Binary Table
-/// *WSMT - Windows Security Mitigations Table
-/// *XENV - Xen Project
+/// * AEST - ARM Error Source Table
+/// * BDAT - BIOS Data ACPI Table
+/// * CDIT - Component Distance Information Table
+/// * CEDT - CXL Early Discovery Table
+/// * CRAT - Component Resource Attribute Table
+/// * CSRT - Core System Resource Table
+/// * DBGP - Debug Port Table
+/// * DBG2 - Debug Port Table 2 (note: ACPI 6.4 defines this as "DBPG2" but this is incorrect)
+/// * DMAR - DMA Remapping Table
+/// * DRTM -Dynamic Root of Trust for Measurement Table
+/// * ETDT - Event Timer Description Table (obsolete, superseeded by HPET)
+/// * HPET - IA-PC High Precision Event Timer Table
+/// * IBFT - iSCSI Boot Firmware Table
+/// * IORT - I/O Remapping Table
+/// * IVRS - I/O Virtualization Reporting Structure
+/// * LPIT - Low Power Idle Table
+/// * MCFG - PCI Express Memory-mapped Configuration Space base address description table
+/// * MCHI - Management Controller Host Interface table
+/// * MPAM - ARM Memory Partitioning And Monitoring table
+/// * MSDM - Microsoft Data Management Table
+/// * PRMT - Platform Runtime Mechanism Table
+/// * RGRT - Regulatory Graphics Resource Table
+/// * SDEI - Software Delegated Exceptions Interface table
+/// * SLIC - Microsoft Software Licensing table
+/// * SPCR - Microsoft Serial Port Console Redirection table
+/// * SPMI - Server Platform Management Interface table
+/// * STAO - _STA Override table
+/// * SVKL - Storage Volume Key Data table (Intel TDX only)
+/// * TCPA - Trusted Computing Platform Alliance Capabilities Table
+/// * TPM2 - Trusted Platform Module 2 Table
+/// * UEFI - Unified Extensible Firmware Interface Specification table
+/// * WAET - Windows ACPI Emulated Devices Table
+/// * WDAT - Watch Dog Action Table
+/// * WDRT - Watchdog Resource Table
+/// * WPBT - Windows Platform Binary Table
+/// * WSMT - Windows Security Mitigations Table
+/// * XENV - Xen Project
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
@@ -144,12 +144,12 @@ impl SdtHeader {
         Ok(())
     }
 
-    pub fn oem_id<'a>(&'a self) -> &'a str {
+    pub fn oem_id(&self) -> &str {
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_id).unwrap()
     }
 
-    pub fn oem_table_id<'a>(&'a self) -> &'a str {
+    pub fn oem_table_id(&self) -> &str {
         // Safe to unwrap because checked in `validate`
         str::from_utf8(&self.oem_table_id).unwrap()
     }
@@ -251,5 +251,5 @@ where
 {
     let mapping =
         unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
-    (*mapping).clone()
+    *mapping
 }
