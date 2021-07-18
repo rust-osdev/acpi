@@ -116,7 +116,7 @@ where
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
     pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
-        rsdp_mapping.validate().map_err(|err| AcpiError::Rsdp(err))?;
+        rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
 
         Self::from_validated_rsdp(handler, rsdp_mapping)
     }
@@ -125,8 +125,7 @@ where
     /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
     /// details.
     pub unsafe fn search_for_rsdp_bios(handler: H) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdp_mapping =
-            unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(|err| AcpiError::Rsdp(err))?;
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(AcpiError::Rsdp)?;
         Self::from_validated_rsdp(handler, rsdp_mapping)
     }
 
@@ -176,7 +175,7 @@ where
                 ((mapping.virtual_start().as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
 
             for i in 0..num_tables {
-                result.process_sdt(unsafe { *tables_base.offset(i as isize) as usize })?;
+                result.process_sdt(unsafe { *tables_base.add(i) as usize })?;
             }
         } else {
             /*
@@ -189,7 +188,7 @@ where
                 ((mapping.virtual_start().as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
 
             for i in 0..num_tables {
-                result.process_sdt(unsafe { *tables_base.offset(i as isize) as usize })?;
+                result.process_sdt(unsafe { *tables_base.add(i) as usize })?;
             }
         }
 
@@ -215,7 +214,7 @@ where
 
         match header.signature {
             Signature::FADT => {
-                use fadt::Fadt;
+                use crate::fadt::Fadt;
 
                 /*
                  * For whatever reason, they chose to put the DSDT inside the FADT, instead of just listing it

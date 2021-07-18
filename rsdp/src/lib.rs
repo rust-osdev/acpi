@@ -88,10 +88,10 @@ impl Rsdp {
 
                 for address in area.clone().step_by(16) {
                     let ptr_in_mapping =
-                        unsafe { mapping.virtual_start().as_ptr().offset((address - area.start) as isize) };
+                        unsafe { mapping.virtual_start().as_ptr().add(address - area.start) };
                     let signature = unsafe { *(ptr_in_mapping as *const [u8; 8]) };
 
-                    if signature == *RSDP_SIGNATURE {
+                    if signature == RSDP_SIGNATURE {
                         match unsafe { *(ptr_in_mapping as *const Rsdp) }.validate() {
                             Ok(()) => {
                                 rsdp_address = Some(address);
@@ -123,7 +123,7 @@ impl Rsdp {
         const RSDP_V1_LENGTH: usize = 20;
 
         // Check the signature
-        if &self.signature != RSDP_SIGNATURE {
+        if self.signature != RSDP_SIGNATURE {
             return Err(RsdpError::IncorrectSignature);
         }
 
@@ -213,4 +213,4 @@ const RSDP_BIOS_AREA_START: usize = 0xe0000;
 /// The end of the main BIOS area below 1mb in which to search for the RSDP (Root System Description Pointer)
 const RSDP_BIOS_AREA_END: usize = 0xfffff;
 /// The RSDP (Root System Description Pointer)'s signature, "RSD PTR " (note trailing space)
-const RSDP_SIGNATURE: &'static [u8; 8] = b"RSD PTR ";
+const RSDP_SIGNATURE: [u8; 8] = *b"RSD PTR ";

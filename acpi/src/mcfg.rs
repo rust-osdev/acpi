@@ -22,7 +22,7 @@ impl PciConfigRegions {
                 .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
         };
-        Ok(PciConfigRegions { regions: mcfg.entries().iter().map(|&entry| entry).collect() })
+        Ok(PciConfigRegions { regions: mcfg.entries().iter().copied().collect() })
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -67,8 +67,7 @@ impl Mcfg {
         let num_entries = length / mem::size_of::<McfgEntry>();
 
         unsafe {
-            let pointer =
-                (self as *const Mcfg as *const u8).offset(mem::size_of::<Mcfg>() as isize) as *const McfgEntry;
+            let pointer = (self as *const Mcfg as *const u8).add(mem::size_of::<Mcfg>()) as *const McfgEntry;
             slice::from_raw_parts(pointer, num_entries)
         }
     }

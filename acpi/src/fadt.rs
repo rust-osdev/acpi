@@ -92,14 +92,12 @@ pub struct Fadt {
     pub day_alarm: u8,
     pub month_alarm: u8,
     pub century: u8,
-    // TODO: expose through a type
-    iapc_boot_arch: u16,
+    pub iapc_boot_arch: IaPcBootArchFlags,
     _reserved2: u8, // must be 0
-    pub flags: Flags,
+    pub flags: FixedFeatureFlags,
     reset_reg: RawGenericAddress,
     pub reset_value: u8,
-    // TODO: expose through a type
-    arm_boot_arch: u16,
+    pub arm_boot_arch: ArmBootArchFlags,
     fadt_minor_version: u8,
     x_firmware_ctrl: ExtendedField<u64, 2>,
     x_dsdt_address: ExtendedField<u64, 2>,
@@ -169,7 +167,7 @@ impl Fadt {
     pub fn pm1a_event_block(&self) -> Result<GenericAddress, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_event_block.access(self.header().revision) } {
             if raw.address != 0x0 {
-                return Ok(GenericAddress::from_raw(raw)?);
+                return GenericAddress::from_raw(raw);
             }
         }
 
@@ -205,7 +203,7 @@ impl Fadt {
     pub fn pm1a_control_block(&self) -> Result<GenericAddress, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_control_block.access(self.header().revision) } {
             if raw.address != 0x0 {
-                return Ok(GenericAddress::from_raw(raw)?);
+                return GenericAddress::from_raw(raw);
             }
         }
 
@@ -340,11 +338,174 @@ impl Fadt {
 }
 
 #[derive(Clone, Copy)]
-// TODO: methods for other flags
-pub struct Flags(u32);
+pub struct FixedFeatureFlags(u32);
 
-impl Flags {
+impl FixedFeatureFlags {
+    /// If true, an equivalent to the x86 [WBINVD](https://www.felixcloutier.com/x86/wbinvd) instruction is supported.
+    /// All caches will be flushed and invalidated upon completion of this instruction,
+    /// and memory coherency is properly maintained. The cache *SHALL* only contain what OSPM references or allows to be cached.
+    pub fn supports_equivalent_to_wbinvd(&self) -> bool {
+        self.0.get_bit(0)
+    }
+
+    /// If true, [WBINVD](https://www.felixcloutier.com/x86/wbinvd) properly flushes all caches and  memory coherency is maintained, but caches may not be invalidated.
+    pub fn wbinvd_flushes_all_caches(&self) -> bool {
+        self.0.get_bit(1)
+    }
+
+    /// If true, all processors implement the C1 power state.
+    pub fn all_procs_support_c1_power_state(&self) -> bool {
+        self.0.get_bit(2)
+    }
+
+    /// If true, the C2 power state is configured to work on a uniprocessor and multiprocessor system.
+    pub fn c2_configured_for_mp_system(&self) -> bool {
+        self.0.get_bit(3)
+    }
+
+    /// If true, the power button is handled as a control method device.
+    /// If false, the power button is handled as a fixed-feature programming model.
+    pub fn power_button_is_control_method(&self) -> bool {
+        self.0.get_bit(4)
+    }
+
+    /// If true, the sleep button is handled as a control method device.
+    /// If false, the sleep button is handled as a fixed-feature programming model.
+    pub fn sleep_button_is_control_method(&self) -> bool {
+        self.0.get_bit(5)
+    }
+
+    /// If true, the RTC wake status is not supported in fixed register space.
+    pub fn no_rtc_wake_in_fixed_register_space(&self) -> bool {
+        self.0.get_bit(6)
+    }
+
+    /// If true, the RTC alarm function can wake the system from an S4 sleep state.
+    pub fn rtc_wakes_system_from_s4(&self) -> bool {
+        self.0.get_bit(7)
+    }
+
+    /// If true, indicates that the PM timer is a 32-bit value.
+    /// If false, the PM timer is a 24-bit value and the remaining 8 bits are clear.
     pub fn pm_timer_is_32_bit(&self) -> bool {
         self.0.get_bit(8)
     }
+
+    /// If true, the system supports docking.
+    pub fn supports_docking(&self) -> bool {
+        self.0.get_bit(9)
+    }
+
+    /// If true, the system supports system reset via the reset_reg field of the FADT.
+    pub fn supports_system_reset_via_fadt(&self) -> bool {
+        self.0.get_bit(10)
+    }
+
+    /// If true, the system supports no expansion capabilities and the case is sealed.
+    pub fn case_is_sealed(&self) -> bool {
+        self.0.get_bit(11)
+    }
+
+    /// If true, the system cannot detect the monitor or keyboard/mouse devices.
+    pub fn system_is_headless(&self) -> bool {
+        self.0.get_bit(12)
+    }
+
+    /// If true, OSPM must use a processor instruction after writing to the SLP_TYPx register.
+    pub fn use_instr_after_write_to_slp_typx(&self) -> bool {
+        self.0.get_bit(13)
+    }
+
+    /// If set, the platform supports the `PCIEXP_WAKE_STS` and `PCIEXP_WAKE_EN` bits in the PM1 status and enable registers.
+    pub fn supports_pciexp_wake_in_pm1(&self) -> bool {
+        self.0.get_bit(14)
+    }
+
+    /// If true, OSPM should use the ACPI power management timer or HPET for monotonically-decreasing timers.
+    pub fn use_pm_or_hpet_for_monotonically_decreasing_timers(&self) -> bool {
+        self.0.get_bit(15)
+    }
+
+    /// If true, the contents of the `RTC_STS` register are valid after wakeup from S4.
+    pub fn rtc_sts_is_valid_after_wakeup_from_s4(&self) -> bool {
+        self.0.get_bit(16)
+    }
+
+    /// If true, the platform supports OSPM leaving GPE wake events armed prior to an S5 transition.
+    pub fn ospm_may_leave_gpe_wake_events_armed_before_s5(&self) -> bool {
+        self.0.get_bit(17)
+    }
+
+    /// If true, all LAPICs must be configured using the cluster destination model when delivering interrupts in logical mode.
+    pub fn lapics_must_use_cluster_model_for_logical_mode(&self) -> bool {
+        self.0.get_bit(18)
+    }
+
+    /// If true, all LXAPICs must be configured using physical destination mode.
+    pub fn local_xapics_must_use_physical_destination_mode(&self) -> bool {
+        self.0.get_bit(19)
+    }
+
+    /// If true, this system is a hardware-reduced ACPI platform, and software methods are used for fixed-feature functions defined in chapter 4 of the ACPI specification.
+    pub fn system_is_hw_reduced_acpi(&self) -> bool {
+        self.0.get_bit(20)
+    }
+
+    /// If true, the system can achieve equal or better power savings in an S0 power state, making an S3 transition useless.
+    pub fn no_benefit_to_s3(&self) -> bool {
+        self.0.get_bit(21)
+    }
 }
+
+#[derive(Clone, Copy)]
+pub struct IaPcBootArchFlags(u16);
+
+impl IaPcBootArchFlags {
+    /// If true, legacy user-accessible devices are available on the LPC and/or ISA buses.
+    pub fn legacy_devices_are_accessible(&self) -> bool {
+        self.0.get_bit(0)
+    }
+
+    /// If true, the motherboard exposes an IO port 60/64 keyboard controller, typically implemented as an 8042 microcontroller.
+    pub fn motherboard_implements_8042(&self) -> bool {
+        self.0.get_bit(1)
+    }
+
+    /// If true, OSPM *must not* blindly probe VGA hardware.
+    /// VGA hardware is at MMIO addresses A0000h-BFFFFh and IO ports 3B0h-3BBh and 3C0h-3DFh.
+    pub fn dont_probe_vga(&self) -> bool {
+        self.0.get_bit(2)
+    }
+
+    /// If true, OSPM *must not* enable message-signaled interrupts.
+    pub fn dont_enable_msi(&self) -> bool {
+        self.0.get_bit(3)
+    }
+
+    /// If true, OSPM *must not* enable PCIe ASPM control.
+    pub fn dont_enable_pcie_aspm(&self) -> bool {
+        self.0.get_bit(4)
+    }
+
+    /// If true, OSPM *must not* use the RTC via its IO ports, either because it isn't implemented or is at other addresses;
+    /// instead, OSPM *MUST* use the time and alarm namespace device control method.
+    pub fn use_time_and_alarm_namespace_for_rtc(&self) -> bool {
+        self.0.get_bit(5)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ArmBootArchFlags(u16);
+
+impl ArmBootArchFlags {
+    /// If true, the system implements PSCI.
+    pub fn implements_psci(&self) -> bool {
+        self.0.get_bit(0)
+    }
+
+    /// If true, OSPM must use HVC instead of SMC as the PSCI conduit.
+    pub fn use_hvc_as_psci_conduit(&self) -> bool {
+        self.0.get_bit(1)
+    }
+}
+

@@ -125,7 +125,7 @@ impl Madt {
 
         for entry in self.entries() {
             match entry {
-                MadtEntry::LocalApic(ref entry) => {
+                MadtEntry::LocalApic(entry) => {
                     /*
                      * The first processor is the BSP. Subsequent ones are APs. If we haven't found
                      * the BSP yet, this must be it.
@@ -153,7 +153,7 @@ impl Madt {
                     }
                 }
 
-                MadtEntry::IoApic(ref entry) => {
+                MadtEntry::IoApic(entry) => {
                     io_apics.push(IoApic {
                         id: entry.io_apic_id,
                         address: entry.io_apic_address,
@@ -161,7 +161,7 @@ impl Madt {
                     });
                 }
 
-                MadtEntry::InterruptSourceOverride(ref entry) => {
+                MadtEntry::InterruptSourceOverride(entry) => {
                     if entry.bus != 0 {
                         return Err(AcpiError::InvalidMadt(MadtError::InterruptOverrideEntryHasInvalidBus));
                     }
@@ -176,7 +176,7 @@ impl Madt {
                     });
                 }
 
-                MadtEntry::NmiSource(ref entry) => {
+                MadtEntry::NmiSource(entry) => {
                     let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
 
                     nmi_sources.push(NmiSource {
@@ -186,7 +186,7 @@ impl Madt {
                     });
                 }
 
-                MadtEntry::LocalApicNmi(ref entry) => local_apic_nmi_lines.push(NmiLine {
+                MadtEntry::LocalApicNmi(entry) => local_apic_nmi_lines.push(NmiLine {
                     processor: if entry.processor_id == 0xff {
                         NmiProcessor::All
                     } else {
@@ -199,7 +199,7 @@ impl Madt {
                     },
                 }),
 
-                MadtEntry::LocalApicAddressOverride(ref entry) => {
+                MadtEntry::LocalApicAddressOverride(entry) => {
                     local_apic_address = entry.local_apic_address;
                 }
 
@@ -224,7 +224,7 @@ impl Madt {
 
     pub fn entries(&self) -> MadtEntryIter {
         MadtEntryIter {
-            pointer: unsafe { (self as *const Madt as *const u8).offset(mem::size_of::<Madt>() as isize) },
+            pointer: unsafe { (self as *const Madt as *const u8).add(mem::size_of::<Madt>()) },
             remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
             _phantom: PhantomData,
         }
