@@ -348,7 +348,7 @@ impl FixedFeatureFlags {
         self.0.get_bit(0)
     }
 
-    /// If true, [WBINVD](https://www.felixcloutier.com/x86/wbinvd) properly flushes all caches, but memory coherency is not maintained.
+    /// If true, [WBINVD](https://www.felixcloutier.com/x86/wbinvd) properly flushes all caches and  memory coherency is maintained, but caches may not be invalidated.
     pub fn wbinvd_flushes_all_caches(&self) -> bool {
         self.0.get_bit(1)
     }
@@ -375,8 +375,8 @@ impl FixedFeatureFlags {
         self.0.get_bit(5)
     }
 
-    /// If true, the RTC wake status is supported in fixed register space.
-    pub fn rtc_wake_in_fixed_register_space(&self) -> bool {
+    /// If true, the RTC wake status is not supported in fixed register space.
+    pub fn no_rtc_wake_in_fixed_register_space(&self) -> bool {
         self.0.get_bit(6)
     }
 
@@ -386,6 +386,7 @@ impl FixedFeatureFlags {
     }
 
     /// If true, indicates that the PM timer is a 32-bit value.
+    /// If false, the PM timer is a 24-bit value and the remaining 8 bits are clear.
     pub fn pm_timer_is_32_bit(&self) -> bool {
         self.0.get_bit(8)
     }
@@ -465,28 +466,28 @@ impl IaPcBootArchFlags {
         self.0.get_bit(0)
     }
 
-    /// If true, the motherboard exposes an IO port 60/64 keyboard controller, typically implemented as an 8064 microcontroller.
+    /// If true, the motherboard exposes an IO port 60/64 keyboard controller, typically implemented as an 8042 microcontroller.
     pub fn motherboard_implements_8042(&self) -> bool {
         self.0.get_bit(1)
     }
 
-    /// If true, OSPM must not blindly probe VGA hardware.
+    /// If true, OSPM *must not* blindly probe VGA hardware.
     /// VGA hardware is at MMIO addresses A0000h-BFFFFh and IO ports 3B0h-3BBh and 3C0h-3DFh.
     pub fn dont_probe_vga(&self) -> bool {
         self.0.get_bit(2)
     }
 
-    /// If true, OSPM must not enable message-signaled interrupts.
+    /// If true, OSPM *must not* enable message-signaled interrupts.
     pub fn dont_enable_msi(&self) -> bool {
         self.0.get_bit(3)
     }
 
-    /// If true, OSPM must not enable PCIe ASPM control.
+    /// If true, OSPM *must not* enable PCIe ASPM control.
     pub fn dont_enable_pcie_aspm(&self) -> bool {
         self.0.get_bit(4)
     }
 
-    /// If true, OSPM must not use the RTC via its IO ports either because it isn't implemented or is at other addresses;
+    /// If true, OSPM *must not* use the RTC via its IO ports, either because it isn't implemented or is at other addresses;
     /// instead, OSPM *MUST* use the time and alarm namespace device control method.
     pub fn use_time_and_alarm_namespace_for_rtc(&self) -> bool {
         self.0.get_bit(5)
