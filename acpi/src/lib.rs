@@ -48,7 +48,6 @@
  */
 
 #![no_std]
-#![feature(const_generics)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
