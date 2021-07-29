@@ -32,6 +32,8 @@ pub enum LevelType {
     Processor,
     /// A `PowerResource` object's sub-objects are stored in a level of this type.
     PowerResource,
+    /// A `ThermalZone` object's sub-objects are stored in a level of this type.
+    ThermalZone,
     /// A level of this type is created at the same path as the name of a method when it is invoked. It can be
     /// used by the method to store local variables.
     MethodLocals,

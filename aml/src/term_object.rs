@@ -104,6 +104,7 @@ where
             def_device(),
             def_processor(),
             def_power_res(),
+            def_thermal_zone(),
             def_mutex()
         ),
     )
@@ -239,56 +240,6 @@ where
                     (Ok(()), context)
                 },
             ),
-        ))
-        .discard_result()
-}
-
-pub fn def_power_res<'a, 'c>() -> impl Parser<'a, 'c, ()>
-where
-    'c: 'a,
-{
-    /*
-     * DefPowerRes := ExtOpPrefix 0x84 PkgLength NameString SystemLevel ResourceOrder TermList
-     * SystemLevel := ByteData
-     * ResourceOrder := WordData
-     */
-    ext_opcode(opcode::EXT_DEF_POWER_RES_OP)
-        .then(comment_scope(
-            DebugVerbosity::Scopes,
-            "DefPowerRes",
-            pkg_length()
-                .then(name_string())
-                .then(take())
-                .then(take_u16())
-                .map_with_context(|(((pkg_length, name), system_level), resource_order), context| {
-                    /*
-                     * `PowerResource` objects contain data within themselves, and can also have sub-objects,
-                     * so we add both a level for the sub-objects, and a value for the data.
-                     */
-                    let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
-                    try_with_context!(
-                        context,
-                        context.namespace.add_level(resolved_name.clone(), LevelType::PowerResource)
-                    );
-                    try_with_context!(
-                        context,
-                        context.namespace.add_value(
-                            resolved_name.clone(),
-                            AmlValue::PowerResource { system_level, resource_order }
-                        )
-                    );
-                    let previous_scope = context.current_scope.clone();
-                    context.current_scope = resolved_name;
-
-                    (Ok((previous_scope, pkg_length)), context)
-                })
-                .feed(move |(previous_scope, pkg_length)| {
-                    term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
-                })
-                .map_with_context(|previous_scope, context| {
-                    context.current_scope = previous_scope;
-                    (Ok(()), context)
-                }),
         ))
         .discard_result()
 }
@@ -516,6 +467,92 @@ where
                 .feed(move |(previous_scope, pkg_length)| {
                     term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
                 })
+                .map_with_context(|previous_scope, context| {
+                    context.current_scope = previous_scope;
+                    (Ok(()), context)
+                }),
+        ))
+        .discard_result()
+}
+
+pub fn def_power_res<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefPowerRes := ExtOpPrefix 0x84 PkgLength NameString SystemLevel ResourceOrder TermList
+     * SystemLevel := ByteData
+     * ResourceOrder := WordData
+     */
+    ext_opcode(opcode::EXT_DEF_POWER_RES_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefPowerRes",
+            pkg_length()
+                .then(name_string())
+                .then(take())
+                .then(take_u16())
+                .map_with_context(|(((pkg_length, name), system_level), resource_order), context| {
+                    /*
+                     * `PowerResource` objects contain data within themselves, and can also have sub-objects,
+                     * so we add both a level for the sub-objects, and a value for the data.
+                     */
+                    let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
+                    try_with_context!(
+                        context,
+                        context.namespace.add_level(resolved_name.clone(), LevelType::PowerResource)
+                    );
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value(
+                            resolved_name.clone(),
+                            AmlValue::PowerResource { system_level, resource_order }
+                        )
+                    );
+                    let previous_scope = context.current_scope.clone();
+                    context.current_scope = resolved_name;
+
+                    (Ok((previous_scope, pkg_length)), context)
+                })
+                .feed(move |(previous_scope, pkg_length)| {
+                    term_list(pkg_length).map(move |_| Ok(previous_scope.clone()))
+                })
+                .map_with_context(|previous_scope, context| {
+                    context.current_scope = previous_scope;
+                    (Ok(()), context)
+                }),
+        ))
+        .discard_result()
+}
+
+pub fn def_thermal_zone<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefThermalZone := ExtOpPrefix 0x85 PkgLength NameString TermList
+     * TODO: we use this pattern a lot (move into scope, parse a term_list, move back out). Could we simplify into
+     * just a `feed` by passing a scope into term_list?
+     */
+    ext_opcode(opcode::EXT_DEF_THERMAL_ZONE_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefThermalZone",
+            pkg_length()
+                .then(name_string())
+                .map_with_context(|(pkg_length, name), context| {
+                    let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
+                    try_with_context!(
+                        context,
+                        context.namespace.add_level(resolved_name.clone(), LevelType::ThermalZone)
+                    );
+
+                    let previous_scope = context.current_scope.clone();
+                    context.current_scope = resolved_name;
+
+                    (Ok((pkg_length, previous_scope)), context)
+                })
+                .feed(|(length, previous_scope)| term_list(length).map(move |_| Ok(previous_scope.clone())))
                 .map_with_context(|previous_scope, context| {
                     context.current_scope = previous_scope;
                     (Ok(()), context)
