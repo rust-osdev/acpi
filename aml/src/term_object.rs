@@ -421,6 +421,10 @@ where
                     let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
                     try_with_context!(
                         context,
+                        context.namespace.add_value(resolved_name.clone(), AmlValue::Device)
+                    );
+                    try_with_context!(
+                        context,
                         context.namespace.add_level(resolved_name.clone(), LevelType::Device)
                     );
 
@@ -557,6 +561,10 @@ where
                 .then(name_string())
                 .map_with_context(|(pkg_length, name), context| {
                     let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value(resolved_name.clone(), AmlValue::ThermalZone)
+                    );
                     try_with_context!(
                         context,
                         context.namespace.add_level(resolved_name.clone(), LevelType::ThermalZone)

@@ -138,6 +138,7 @@ pub enum AmlType {
     DebugObject,
     Event,
     FieldUnit,
+    Device,
     Integer,
     Method,
     Mutex,
@@ -187,6 +188,7 @@ pub enum AmlValue {
         offset: u64,
         length: u64,
     },
+    Device,
     Method {
         flags: MethodFlags,
         code: MethodCode,
@@ -205,6 +207,7 @@ pub enum AmlValue {
         system_level: u8,
         resource_order: u16,
     },
+    ThermalZone,
 }
 
 impl AmlValue {
@@ -235,12 +238,14 @@ impl AmlValue {
             AmlValue::String(_) => AmlType::String,
             AmlValue::OpRegion { .. } => AmlType::OpRegion,
             AmlValue::Field { .. } => AmlType::FieldUnit,
+            AmlValue::Device => AmlType::Device,
             AmlValue::Method { .. } => AmlType::Method,
             AmlValue::Buffer(_) => AmlType::Buffer,
             AmlValue::Processor { .. } => AmlType::Processor,
             AmlValue::Mutex { .. } => AmlType::Mutex,
             AmlValue::Package(_) => AmlType::Package,
             AmlValue::PowerResource { .. } => AmlType::PowerResource,
+            AmlValue::ThermalZone => AmlType::ThermalZone,
         }
     }
 
