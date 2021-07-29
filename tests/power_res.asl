@@ -14,4 +14,3 @@ DefinitionBlock("power_res.aml", "DSDT", 1, "RSACPI", "PWRRES", 1) {
 		}
 	}
 }
-
