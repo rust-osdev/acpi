@@ -30,6 +30,8 @@ pub enum LevelType {
     /// A legacy `Processor` object's sub-objects are stored in a level of this type. Modern tables define
     /// processors as `Device`s.
     Processor,
+    /// A `PowerResource` object's sub-objects are stored in a level of this type.
+    PowerResource,
     /// A level of this type is created at the same path as the name of a method when it is invoked. It can be
     /// used by the method to store local variables.
     MethodLocals,

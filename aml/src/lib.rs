@@ -296,8 +296,9 @@ impl AmlContext {
 
             LevelType::Scope => Ok(true),
 
-            // TODO: can either of these contain devices?
+            // TODO: can any of these contain devices?
             LevelType::Processor => Ok(false),
+            LevelType::PowerResource => Ok(false),
             LevelType::MethodLocals => Ok(false),
         })?;
 

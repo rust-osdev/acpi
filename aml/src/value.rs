@@ -201,6 +201,10 @@ pub enum AmlValue {
         sync_level: u8,
     },
     Package(Vec<AmlValue>),
+    PowerResource {
+        system_level: u8,
+        resource_order: u16,
+    },
 }
 
 impl AmlValue {
@@ -236,6 +240,7 @@ impl AmlValue {
             AmlValue::Processor { .. } => AmlType::Processor,
             AmlValue::Mutex { .. } => AmlType::Mutex,
             AmlValue::Package(_) => AmlType::Package,
+            AmlValue::PowerResource { .. } => AmlType::PowerResource,
         }
     }
 
