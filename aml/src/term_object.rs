@@ -101,6 +101,7 @@ where
             def_op_region(),
             def_field(),
             def_method(),
+            def_external(),
             def_device(),
             def_processor(),
             def_power_res(),
@@ -386,6 +387,20 @@ where
                     (Ok(()), context)
                 }),
         ))
+        .discard_result()
+}
+
+pub fn def_external<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefExternal = 0x15 NameString ObjectType ArgumentCount
+     * ObjectType := ByteData
+     * ArgumentCount := ByteData (0 to 7)
+     */
+    opcode(opcode::DEF_EXTERNAL_OP)
+        .then(comment_scope(DebugVerbosity::Scopes, "DefExternal", name_string().then(take()).then(take())))
         .discard_result()
 }
 
