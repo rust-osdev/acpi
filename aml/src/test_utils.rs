@@ -148,6 +148,10 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             }
             _ => false,
         },
+        AmlValue::Device => match b {
+            AmlValue::Device => true,
+            _ => false,
+        },
         AmlValue::Method { flags, code } => match b {
             AmlValue::Method { flags: b_flags, code: b_code } => {
                 if flags != b_flags {
@@ -187,6 +191,16 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
 
                 true
             }
+            _ => false,
+        },
+        AmlValue::PowerResource { system_level, resource_order } => match b {
+            AmlValue::PowerResource { system_level: b_system_level, resource_order: b_resource_order } => {
+                system_level == b_system_level && resource_order == b_resource_order
+            }
+            _ => false,
+        },
+        AmlValue::ThermalZone => match b {
+            AmlValue::ThermalZone => true,
             _ => false,
         },
     }

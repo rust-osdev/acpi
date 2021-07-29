@@ -569,11 +569,6 @@ mod tests {
         assert_eq!(AmlValue::Integer(11).cmp(AmlValue::Integer(11), &mut context), Ok(Ordering::Equal));
         assert_eq!(AmlValue::Integer(8362836690).cmp(AmlValue::Integer(1), &mut context), Ok(Ordering::Greater));
 
-        assert_eq!(
-            AmlValue::Integer(4).cmp(AmlValue::Boolean(true), &mut context),
-            Err(AmlError::IncompatibleValueConversion { current: AmlType::Integer, target: AmlType::Integer })
-        );
-
         // TODO: test the other combinations too, as well as conversions to the correct types for the second operand
     }
 }
