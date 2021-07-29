@@ -59,6 +59,7 @@ pub const DEF_L_NOT_OP: u8 = 0x92;
 pub const DEF_L_EQUAL_OP: u8 = 0x93;
 pub const DEF_L_GREATER_OP: u8 = 0x94;
 pub const DEF_L_LESS_OP: u8 = 0x95;
+pub const DEF_MID_OP: u8 = 0x9e;
 
 /*
  * Miscellaneous objects

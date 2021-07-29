@@ -18,7 +18,11 @@ use crate::{
     AmlError,
     DebugVerbosity,
 };
-use alloc::{vec, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use core::{cmp::Ordering, convert::TryInto, mem};
 
 /// Type 2 opcodes return a value and so can be used in expressions.
@@ -53,6 +57,7 @@ where
             def_l_less_equal(),
             def_l_not_equal(),
             def_l_or(),
+            def_mid(),
             def_package(),
             def_shift_left(),
             def_shift_right(),
@@ -388,6 +393,60 @@ where
             }),
         ))
         .map(|(((), ()), result)| Ok(result))
+}
+
+fn def_mid<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefMid := 0x9e MidObj TermArg TermArg Target
+     * MidObj := TermArg => Buffer | String
+     */
+    opcode(opcode::DEF_MID_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefMid",
+            term_arg().then(term_arg()).then(term_arg()).then(target()).map_with_context(
+                |(((source, index), length), target), context| {
+                    let index = try_with_context!(context, index.as_integer(context)) as usize;
+                    let length = try_with_context!(context, length.as_integer(context)) as usize;
+
+                    let result = try_with_context!(
+                        context,
+                        match source {
+                            AmlValue::Buffer(bytes) => {
+                                if index >= bytes.len() {
+                                    Ok(AmlValue::Buffer(vec![]))
+                                } else if (index + length) >= bytes.len() {
+                                    Ok(AmlValue::Buffer(bytes[index..].to_vec()))
+                                } else {
+                                    Ok(AmlValue::Buffer(bytes[index..(index + length)].to_vec()))
+                                }
+                            }
+                            /*
+                             * XXX: The spec conflates characters and bytes, so we effectively ignore unicode and do
+                             * this bytewise, to hopefully match other implementations.
+                             */
+                            AmlValue::String(string) => {
+                                if index >= string.len() {
+                                    Ok(AmlValue::String(String::new()))
+                                } else if (index + length) >= string.len() {
+                                    Ok(AmlValue::String(string[index..].to_string()))
+                                } else {
+                                    Ok(AmlValue::String(string[index..(index + length)].to_string()))
+                                }
+                            }
+                            _ => Err(AmlError::TypeCannotBeSliced(source.type_of())),
+                        }
+                    );
+
+                    try_with_context!(context, context.store(target, result.clone()));
+                    (Ok(result), context)
+                },
+            ),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 pub fn def_package<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

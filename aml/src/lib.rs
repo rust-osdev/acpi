@@ -715,10 +715,6 @@ pub enum AmlError {
     InvalidNameSeg,
     InvalidPkgLength,
     InvalidFieldFlags,
-    IncompatibleValueConversion {
-        current: AmlType,
-        target: AmlType,
-    },
     UnterminatedStringConstant,
     InvalidStringConstant,
     InvalidRegionSpace(u8),
@@ -785,6 +781,10 @@ pub enum AmlError {
     /*
      * Errors produced working with AML values.
      */
+    IncompatibleValueConversion {
+        current: AmlType,
+        target: AmlType,
+    },
     InvalidStatusObject,
     InvalidShiftLeft,
     InvalidShiftRight,
@@ -792,6 +792,8 @@ pub enum AmlError {
     FieldInvalidAddress,
     FieldInvalidAccessSize,
     TypeCannotBeCompared(AmlType),
+    /// Produced when the `Mid` operator is applied to a value of a type other than `Buffer` or `String`.
+    TypeCannotBeSliced(AmlType),
 }
 
 #[cfg(test)]
