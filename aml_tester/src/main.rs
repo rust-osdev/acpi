@@ -36,7 +36,8 @@ fn main() -> std::io::Result<()> {
     println!("Running tests in directory: {:?}", dir_path);
 
     if !matches.is_present("no_compile") {
-        compile_asl_files(dir_path)?;
+        let (passed, failed) = compile_asl_files(dir_path)?;
+        println!("Compiled {} ASL files: {} passed, {} failed.", passed + failed, passed, failed);
     }
 
     /*
@@ -45,7 +46,7 @@ fn main() -> std::io::Result<()> {
      */
     let aml_files = fs::read_dir(dir_path)?
         .filter(|entry| entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("aml")))
-        .map(|entry| entry.unwrap());
+        .map(Result::unwrap);
 
     let (passed, failed) = aml_files.fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry.path());
@@ -77,10 +78,10 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
+fn compile_asl_files(dir_path: &Path) -> std::io::Result<(u32, u32)> {
     let mut asl_files = fs::read_dir(dir_path)?
         .filter(|entry| entry.is_ok() && entry.as_ref().unwrap().path().extension() == Some(OsStr::new("asl")))
-        .map(|file| file.unwrap())
+        .map(Result::unwrap)
         .peekable();
 
     if !asl_files.peek().is_none() {
@@ -89,6 +90,9 @@ fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
             panic!("`iasl` is not installed, but we want to compile some ASL files! Pass --no-compile, or install `iasl`");
         }
     }
+
+    let mut passed = 0;
+    let mut failed = 0;
 
     for file in asl_files {
         let aml_path = file.path().with_extension(OsStr::new("aml"));
@@ -110,19 +114,19 @@ fn compile_asl_files(dir_path: &Path) -> std::io::Result<()> {
         println!("Compiling file: {}", file.path().to_str().unwrap());
         let output = Command::new("iasl").arg(file.path()).output()?;
 
-        if !output.status.success() {
-            // TODO: this doesn't print the whole output of `iasl` for some reason (no actual error messages), but
-            // it doesn't seem to be on stdout either. No idea how it ends up at the shell tbh; would be good to
-            // find it and print it here.
+        if output.status.success() {
+            passed += 1;
+        } else {
+            failed += 1;
             println!(
-                "Failed to compile ASL file: {}. Output from iasl: {}",
+                "Failed to compile ASL file: {}. Output from iasl:\n {}",
                 file.path().to_str().unwrap(),
                 String::from_utf8_lossy(&output.stderr)
             );
         }
     }
 
-    Ok(())
+    Ok((passed, failed))
 }
 
 struct Logger;
