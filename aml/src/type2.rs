@@ -45,6 +45,7 @@ where
             def_and(),
             def_buffer(),
             def_concat(),
+            def_concat_res(),
             def_l_equal(),
             def_l_greater(),
             def_l_greater_equal(),
@@ -185,6 +186,62 @@ where
                         AmlValue::String(left + &right)
                     }
                     _ => panic!("Invalid type returned from `as_concat_type`"),
+                };
+
+                try_with_context!(context, context.store(target, result.clone()));
+                (Ok(result), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
+}
+
+pub fn def_concat_res<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefConcatRes := 0x84 BufData BufData Target
+     * BufData := TermArg => Buffer
+     */
+    opcode(opcode::DEF_CONCAT_RES_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefConcatRes",
+            term_arg().then(term_arg()).then(target()).map_with_context(|((left, right), target), context| {
+                let left = try_with_context!(context, left.as_buffer(context));
+                let right = try_with_context!(context, right.as_buffer(context));
+
+                if left.len() == 1 || right.len() == 1 {
+                    return (Err(Propagate::Err(AmlError::ResourceDescriptorTooShort)), context);
+                }
+
+                /*
+                 * `left` and `right` are buffers of resource descriptors, which we're trying to concatenate into a
+                 * new, single buffer containing all of the descriptors from the source buffers. We need to strip
+                 * off the end tags (2 bytes from each buffer), and then add our own end tag.
+                 *
+                 * XXX: either buffer may be empty (contains no tags), and so our arithmetic has to be careful.
+                 */
+                let result = {
+                    let mut result =
+                        Vec::with_capacity(left.len().saturating_sub(2) + right.len().saturating_sub(2) + 2);
+                    result.extend_from_slice(if left.len() == 0 { &[] } else { &left[..(left.len() - 2)] });
+                    result.extend_from_slice(if right.len() == 0 { &[] } else { &right[..(right.len() - 2)] });
+
+                    /*
+                     * Construct a new end tag, including a new checksum:
+                     *    | Bits        | Field             | Value                     |
+                     *    |-------------|-------------------|---------------------------|
+                     *    | 0-2         | Length - n bytes  | 1 (for checksum)          |
+                     *    | 3-6         | Small item type   | 0x0f = end tag descriptor |
+                     *    | 7           | 0 = small item    | 0                         |
+                     */
+                    result.push(0b01111001);
+                    result.push(
+                        result.iter().fold(0u8, |checksum, byte| checksum.wrapping_add(*byte)).wrapping_neg(),
+                    );
+
+                    AmlValue::Buffer(result)
                 };
 
                 try_with_context!(context, context.store(target, result.clone()));
