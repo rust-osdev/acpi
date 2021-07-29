@@ -403,7 +403,7 @@ where
             pkg_length()
                 .then(name_string())
                 .map_with_context(|(length, name), context| {
-                    let resolved_name = try_with_context!(context, name.clone().resolve(&context.current_scope));
+                    let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
                     try_with_context!(
                         context,
                         context.namespace.add_level(resolved_name.clone(), LevelType::Device)
