@@ -260,6 +260,7 @@ impl AmlValue {
     pub fn as_integer(&self, context: &AmlContext) -> Result<u64, AmlError> {
         match self {
             AmlValue::Integer(value) => Ok(*value),
+            AmlValue::Boolean(value) => Ok(if *value { u64::max_value() } else { 0 }),
 
             AmlValue::Buffer(ref bytes) => {
                 /*
