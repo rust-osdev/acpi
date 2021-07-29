@@ -1,5 +1,9 @@
 use crate::{misc::ArgNum, AmlContext, AmlError, AmlHandle, AmlName};
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use bit_field::BitField;
 use core::{cmp, fmt, fmt::Debug};
 
@@ -304,6 +308,34 @@ impl AmlValue {
             // TODO: implement conversion of Buffer to String
             AmlValue::Field { .. } => self.read_field(context)?.as_string(context),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::String }),
+        }
+    }
+
+    /// Converts an `AmlValue` to the representation that should be used when concatenating it with other values,
+    /// primarily by the `DefConcat` opcode. This will always produce a `AmlValue::Integer`, `AmlValue::String`, or
+    /// `AmlValue::Buffer`, with other types being converted to strings containing the name of their type.
+    pub fn as_concat_type(&self) -> AmlValue {
+        match self.type_of() {
+            AmlType::Integer => self.clone(),
+            AmlType::String => self.clone(),
+            AmlType::Buffer => self.clone(),
+
+            AmlType::Uninitialized => AmlValue::String("[Uninitialized]".to_string()),
+            AmlType::BufferField => AmlValue::String("[Buffer Field]".to_string()),
+            AmlType::DdbHandle => AmlValue::String("[Ddb Handle]".to_string()),
+            AmlType::DebugObject => AmlValue::String("[Debug Object]".to_string()),
+            AmlType::Event => AmlValue::String("[Event]".to_string()),
+            AmlType::FieldUnit => AmlValue::String("[Field]".to_string()),
+            AmlType::Device => AmlValue::String("[Device]".to_string()),
+            AmlType::Method => AmlValue::String("[Control Method]".to_string()),
+            AmlType::Mutex => AmlValue::String("[Mutex]".to_string()),
+            AmlType::ObjReference => AmlValue::String("[Obj Reference]".to_string()),
+            AmlType::OpRegion => AmlValue::String("[Operation Region]".to_string()),
+            AmlType::Package => AmlValue::String("[Package]".to_string()),
+            AmlType::Processor => AmlValue::String("[Processor]".to_string()),
+            AmlType::PowerResource => AmlValue::String("[Power Resource]".to_string()),
+            AmlType::RawDataBuffer => AmlValue::String("[Raw Data Buffer]".to_string()),
+            AmlType::ThermalZone => AmlValue::String("[Thermal Zone]".to_string()),
         }
     }
 

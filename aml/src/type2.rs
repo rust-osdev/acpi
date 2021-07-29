@@ -19,7 +19,7 @@ use crate::{
     DebugVerbosity,
 };
 use alloc::{vec, vec::Vec};
-use core::{cmp::Ordering, convert::TryInto};
+use core::{cmp::Ordering, convert::TryInto, mem};
 
 /// Type 2 opcodes return a value and so can be used in expressions.
 pub fn type2_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -44,6 +44,7 @@ where
             def_add(),
             def_and(),
             def_buffer(),
+            def_concat(),
             def_l_equal(),
             def_l_greater(),
             def_l_greater_equal(),
@@ -145,6 +146,52 @@ where
             }),
         ))
         .map(|((), buffer)| Ok(AmlValue::Buffer(buffer)))
+}
+
+pub fn def_concat<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefConcat := 0x73 Data Data Target
+     * Data := TermArg => ComputationalData
+     */
+    opcode(opcode::DEF_CONCAT_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefConcat",
+            term_arg().then(term_arg()).then(target()).map_with_context(|((left, right), target), context| {
+                let result = match left.as_concat_type() {
+                    AmlValue::Integer(left) => {
+                        let right = try_with_context!(context, right.as_integer(context));
+
+                        let mut buffer = Vec::with_capacity(mem::size_of::<u64>() * 2);
+                        buffer.extend_from_slice(&left.to_le_bytes());
+                        buffer.extend_from_slice(&right.to_le_bytes());
+
+                        AmlValue::Buffer(buffer)
+                    }
+                    AmlValue::Buffer(mut left) => {
+                        left.extend(try_with_context!(context, right.as_buffer(context)));
+                        AmlValue::Buffer(left)
+                    }
+                    AmlValue::String(left) => {
+                        let right = match right.as_concat_type() {
+                            AmlValue::String(right) => right,
+                            AmlValue::Integer(_) => try_with_context!(context, right.as_string(context)),
+                            AmlValue::Buffer(_) => try_with_context!(context, right.as_string(context)),
+                            _ => panic!("Invalid type returned from `as_concat_type`"),
+                        };
+                        AmlValue::String(left + &right)
+                    }
+                    _ => panic!("Invalid type returned from `as_concat_type`"),
+                };
+
+                try_with_context!(context, context.store(target, result.clone()));
+                (Ok(result), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 fn def_l_or<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
