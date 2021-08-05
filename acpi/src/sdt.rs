@@ -3,7 +3,7 @@ use core::{fmt, mem, mem::MaybeUninit, str};
 
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
 /// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
-#[repr(C, packed)]
+#[repr(transparent)]
 pub struct ExtendedField<T: Copy, const MIN_REVISION: u8>(MaybeUninit<T>);
 
 impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
