@@ -127,7 +127,7 @@ impl Fadt {
 
     pub fn facs_address(&self) -> Result<usize, AcpiError> {
         unsafe {
-            self.x_firmware_ctrl
+            { self.x_firmware_ctrl }
                 .access(self.header.revision)
                 .filter(|&p| p != 0)
                 .or(Some(self.firmware_ctrl as u64))
@@ -139,7 +139,7 @@ impl Fadt {
 
     pub fn dsdt_address(&self) -> Result<usize, AcpiError> {
         unsafe {
-            self.x_dsdt_address
+            { self.x_dsdt_address }
                 .access(self.header.revision)
                 .filter(|&p| p != 0)
                 .or(Some(self.dsdt_address as u64))
@@ -508,4 +508,3 @@ impl ArmBootArchFlags {
         self.0.get_bit(1)
     }
 }
-
