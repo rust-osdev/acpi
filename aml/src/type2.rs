@@ -606,7 +606,8 @@ where
             .feed(|(path, num_args)| {
                 n_of(term_arg(), num_args.unwrap_or(0) as usize).map_with_context(move |arg_list, context| {
                     if num_args.is_some() {
-                        let result = context.invoke_method(&path, Args::from_list(arg_list));
+                        let args = try_with_context!(context, Args::from_list(arg_list));
+                        let result = context.invoke_method(&path, args);
                         (Ok(try_with_context!(context, result)), context)
                     } else {
                         (Ok(try_with_context!(context, context.namespace.get_by_path(&path)).clone()), context)

@@ -519,47 +519,38 @@ impl AmlValue {
     }
 }
 
-/// A control method can take up to 7 arguments, each of which can be an `AmlValue`.
-#[derive(Clone, Debug, Default)]
-pub struct Args {
-    pub arg_0: Option<AmlValue>,
-    pub arg_1: Option<AmlValue>,
-    pub arg_2: Option<AmlValue>,
-    pub arg_3: Option<AmlValue>,
-    pub arg_4: Option<AmlValue>,
-    pub arg_5: Option<AmlValue>,
-    pub arg_6: Option<AmlValue>,
-}
+/// A control method can take up to 7 arguments, each of which is an `AmlValue`.
+#[derive(Clone, Default, Debug)]
+pub struct Args(pub [Option<AmlValue>; 7]);
 
 impl Args {
-    pub fn from_list(mut list: Vec<AmlValue>) -> Args {
-        assert!(list.len() <= 7);
-        list.reverse();
-        Args {
-            arg_0: list.pop(),
-            arg_1: list.pop(),
-            arg_2: list.pop(),
-            arg_3: list.pop(),
-            arg_4: list.pop(),
-            arg_5: list.pop(),
-            arg_6: list.pop(),
+    pub fn from_list(list: Vec<AmlValue>) -> Result<Args, AmlError> {
+        use core::convert::TryInto;
+
+        if list.len() > 7 {
+            return Err(AmlError::TooManyArgs);
         }
+
+        let mut args: Vec<Option<AmlValue>> = list.into_iter().map(Option::Some).collect();
+        args.extend(core::iter::repeat(None).take(7 - args.len()));
+        Ok(Args(args.try_into().unwrap()))
     }
-    /// Get an argument by its `ArgNum`.
-    ///
-    /// ### Panics
-    /// Panics if passed an invalid argument number (valid argument numbers are `0..=6`)
-    pub fn arg(&self, num: ArgNum) -> Result<&AmlValue, AmlError> {
-        match num {
-            0 => self.arg_0.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            1 => self.arg_1.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            2 => self.arg_2.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            3 => self.arg_3.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            4 => self.arg_4.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            5 => self.arg_5.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            6 => self.arg_6.as_ref().ok_or(AmlError::InvalidArgAccess(num)),
-            _ => Err(AmlError::InvalidArgAccess(num)),
+
+    pub fn arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
+        if arg > 6 {
+            return Err(AmlError::InvalidArgAccess(arg));
         }
+
+        self.0[arg as usize].as_ref().ok_or(AmlError::InvalidArgAccess(arg))
+    }
+
+    pub fn store_arg(&mut self, arg: ArgNum, value: AmlValue) -> Result<(), AmlError> {
+        if arg > 6 {
+            return Err(AmlError::InvalidArgAccess(arg));
+        }
+
+        self.0[arg as usize] = Some(value);
+        Ok(())
     }
 }
 

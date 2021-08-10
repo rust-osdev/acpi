@@ -91,19 +91,9 @@ pub enum DebugVerbosity {
 }
 
 struct MethodContext {
-    /*
-     * AML local variables. These are used when we invoke a control method. A `None` value
-     * represents a null AML object.
-     */
-    local_0: Option<AmlValue>,
-    local_1: Option<AmlValue>,
-    local_2: Option<AmlValue>,
-    local_3: Option<AmlValue>,
-    local_4: Option<AmlValue>,
-    local_5: Option<AmlValue>,
-    local_6: Option<AmlValue>,
-    local_7: Option<AmlValue>,
-
+    /// AML local variables. These are used when we invoke a control method. A `None` value represents a null AML
+    /// object.
+    locals: [Option<AmlValue>; 8],
     /// If we're currently invoking a control method, this stores the arguments that were passed to
     /// it. It's `None` if we aren't invoking a method.
     args: Args,
@@ -111,17 +101,11 @@ struct MethodContext {
 
 impl MethodContext {
     fn new(args: Args) -> MethodContext {
-        MethodContext {
-            local_0: None,
-            local_1: None,
-            local_2: None,
-            local_3: None,
-            local_4: None,
-            local_5: None,
-            local_6: None,
-            local_7: None,
-            args,
-        }
+        // XXX: this is required because `Option<AmlValue>` is not `Copy`, so it can't be used to initialize an
+        // array, but consts can :(
+        const NONE_BUT_CONST: Option<AmlValue> = None;
+
+        MethodContext { locals: [NONE_BUT_CONST; 8], args }
     }
 }
 
@@ -316,23 +300,19 @@ impl AmlContext {
         if let None = self.method_context {
             return Err(AmlError::NotExecutingControlMethod);
         }
-
-        match local {
-            0 => self.method_context.as_ref().unwrap().local_0.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            1 => self.method_context.as_ref().unwrap().local_1.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            2 => self.method_context.as_ref().unwrap().local_2.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            3 => self.method_context.as_ref().unwrap().local_3.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            4 => self.method_context.as_ref().unwrap().local_4.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            5 => self.method_context.as_ref().unwrap().local_5.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            6 => self.method_context.as_ref().unwrap().local_6.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            7 => self.method_context.as_ref().unwrap().local_7.as_ref().ok_or(AmlError::InvalidLocalAccess(local)),
-            _ => Err(AmlError::InvalidLocalAccess(local)),
+        if local > 7 {
+            return Err(AmlError::InvalidLocalAccess(local));
         }
+
+        self.method_context.as_ref().unwrap().locals[local as usize]
+            .as_ref()
+            .ok_or(AmlError::InvalidLocalAccess(local))
     }
 
-    /// Perform a store into a `Target`. This returns a value read out of the target, if neccessary, as values can
-    /// be altered during a store in some circumstances. If the target is a `Name`, this also performs required
-    /// implicit conversions. Stores to other targets are semantically equivalent to a `CopyObject`.
+    /// Perform a store into a `Target`, according to the rules specified by §19.3.5.8. This returns a value read
+    /// out of the target, if neccessary, as values can be altered during a store in some circumstances.  When
+    /// required, this also performs required implicit conversions, otherwise stores are semantically equivalent to
+    /// a `CopyObject`.
     pub(crate) fn store(&mut self, target: Target, value: AmlValue) -> Result<AmlValue, AmlError> {
         match target {
             Target::Name(ref path) => {
@@ -365,17 +345,13 @@ impl AmlContext {
                     return Err(AmlError::NotExecutingControlMethod);
                 }
 
-                // TODO: I don't think these semantics are correct? If the arg/local is a field unit or buffer
-                // field, don't we need to do special stuff?
-                match arg_num {
-                    1 => self.method_context.as_mut().unwrap().args.arg_1 = Some(value.clone()),
-                    2 => self.method_context.as_mut().unwrap().args.arg_2 = Some(value.clone()),
-                    3 => self.method_context.as_mut().unwrap().args.arg_3 = Some(value.clone()),
-                    4 => self.method_context.as_mut().unwrap().args.arg_4 = Some(value.clone()),
-                    5 => self.method_context.as_mut().unwrap().args.arg_5 = Some(value.clone()),
-                    6 => self.method_context.as_mut().unwrap().args.arg_6 = Some(value.clone()),
-                    _ => return Err(AmlError::InvalidArgAccess(arg_num)),
-                }
+                /*
+                 * Stores into `Arg` objects are simply copied with no conversion applied, unless the `Arg`
+                 * contains an Object Reference, in which case an automatic de-reference occurs and the object is
+                 * copied to the target of the Object Reference, instead of overwriting the `Arg.`
+                 */
+                // TODO: implement behaviour for object references
+                self.method_context.as_mut().unwrap().args.store_arg(arg_num, value.clone())?;
                 Ok(value)
             }
 
@@ -384,19 +360,11 @@ impl AmlContext {
                     return Err(AmlError::NotExecutingControlMethod);
                 }
 
-                // TODO: I don't think these semantics are correct? If the arg/local is a field unit or buffer
-                // field, don't we need to do special stuff?
-                match local_num {
-                    0 => self.method_context.as_mut().unwrap().local_0 = Some(value.clone()),
-                    1 => self.method_context.as_mut().unwrap().local_1 = Some(value.clone()),
-                    2 => self.method_context.as_mut().unwrap().local_2 = Some(value.clone()),
-                    3 => self.method_context.as_mut().unwrap().local_3 = Some(value.clone()),
-                    4 => self.method_context.as_mut().unwrap().local_4 = Some(value.clone()),
-                    5 => self.method_context.as_mut().unwrap().local_5 = Some(value.clone()),
-                    6 => self.method_context.as_mut().unwrap().local_6 = Some(value.clone()),
-                    7 => self.method_context.as_mut().unwrap().local_7 = Some(value.clone()),
-                    _ => return Err(AmlError::InvalidLocalAccess(local_num)),
-                }
+                /*
+                 * Stores into `Local` objects are always simply copied into the destination with no conversion
+                 * applied, even if it contains an Object Reference.
+                 */
+                self.method_context.as_mut().unwrap().locals[local_num as usize] = Some(value.clone());
                 Ok(value)
             }
 
@@ -764,6 +732,8 @@ pub enum AmlError {
     InvalidArgAccess(ArgNum),
     /// Produced when a method accesses a local that it has not stored into.
     InvalidLocalAccess(LocalNum),
+    /// Tried to invoke a method with too many arguments.
+    TooManyArgs,
 
     /*
      * Errors produced parsing the PCI routing tables (_PRT objects).
