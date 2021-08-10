@@ -1,0 +1,4 @@
+DefinitionBlock("buffer_fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
+	Name(X, Buffer (10) { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09 })
+	CreateBitField(X, 3, XB3)
+}
