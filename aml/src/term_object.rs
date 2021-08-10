@@ -102,6 +102,7 @@ where
             def_create_byte_field(),
             def_create_word_field(),
             def_create_dword_field(),
+            def_create_qword_field(),
             def_op_region(),
             def_field(),
             def_method(),
@@ -303,6 +304,40 @@ where
                             name,
                             &context.current_scope,
                             AmlValue::BufferField { buffer_data: source_data, offset: index * 8, length: 32 }
+                        )
+                    );
+
+                    (Ok(()), context)
+                },
+            ),
+        ))
+        .discard_result()
+}
+
+pub fn def_create_qword_field<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefCreateQWordField := 0x8f SourceBuf ByteIndex NameString
+     * SourceBuf := TermArg => Buffer
+     * ByteIndex := TermArg => Integer
+     */
+    opcode(opcode::DEF_CREATE_QWORD_FIELD_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefCreateQWordField",
+            term_arg().then(term_arg()).then(name_string()).map_with_context(
+                |((source, index), name), context| {
+                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let index = try_with_context!(context, index.as_integer(context));
+
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::BufferField { buffer_data: source_data, offset: index * 8, length: 64 }
                         )
                     );
 

@@ -30,6 +30,7 @@ pub const DEF_CREATE_DWORD_FIELD_OP: u8 = 0x8a;
 pub const DEF_CREATE_WORD_FIELD_OP: u8 = 0x8b;
 pub const DEF_CREATE_BYTE_FIELD_OP: u8 = 0x8c;
 pub const DEF_CREATE_BIT_FIELD_OP: u8 = 0x8d;
+pub const DEF_CREATE_QWORD_FIELD_OP: u8 = 0x8f;
 pub const EXT_DEF_MUTEX_OP: u8 = 0x01;
 pub const EXT_REVISION_OP: u8 = 0x30;
 pub const EXT_DEF_OP_REGION_OP: u8 = 0x80;
