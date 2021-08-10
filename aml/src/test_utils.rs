@@ -171,6 +171,12 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             AmlValue::Buffer(b) => a == b,
             _ => false,
         },
+        AmlValue::BufferField { buffer_data, offset, length } => match b {
+            AmlValue::BufferField { buffer_data: b_buffer_data, offset: b_offset, length: b_length } => {
+                buffer_data == b_buffer_data && offset == b_offset && length == b_length
+            }
+            _ => false,
+        },
         AmlValue::Processor { id, pblk_address, pblk_len } => match b {
             AmlValue::Processor { id: b_id, pblk_address: b_pblk_address, pblk_len: b_pblk_len } => {
                 id == b_id && pblk_address == b_pblk_address && pblk_len == b_pblk_len

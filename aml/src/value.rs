@@ -198,6 +198,13 @@ pub enum AmlValue {
         code: MethodCode,
     },
     Buffer(Arc<Vec<u8>>),
+    BufferField {
+        buffer_data: Arc<Vec<u8>>,
+        /// In bits.
+        offset: u64,
+        /// In bits.
+        length: u64,
+    },
     Processor {
         id: u8,
         pblk_address: u32,
@@ -245,6 +252,7 @@ impl AmlValue {
             AmlValue::Device => AmlType::Device,
             AmlValue::Method { .. } => AmlType::Method,
             AmlValue::Buffer(_) => AmlType::Buffer,
+            AmlValue::BufferField { .. } => AmlType::BufferField,
             AmlValue::Processor { .. } => AmlType::Processor,
             AmlValue::Mutex { .. } => AmlType::Mutex,
             AmlValue::Package(_) => AmlType::Package,
