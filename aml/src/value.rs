@@ -213,6 +213,7 @@ pub enum AmlValue {
     Mutex {
         sync_level: u8,
     },
+    // TODO: I think this will need to be `Arc`ed as well, as `Index` can be used on both Buffers and Packages
     Package(Vec<AmlValue>),
     PowerResource {
         system_level: u8,
