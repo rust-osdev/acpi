@@ -566,6 +566,7 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_parses_keyboard_crs() {
@@ -599,7 +600,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value: AmlValue = AmlValue::Buffer(bytes);
+        let value: AmlValue = AmlValue::Buffer(Arc::new(bytes));
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(
@@ -709,7 +710,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value: AmlValue = AmlValue::Buffer(bytes);
+        let value: AmlValue = AmlValue::Buffer(Arc::new(bytes));
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(
@@ -810,7 +811,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value: AmlValue = AmlValue::Buffer(bytes);
+        let value: AmlValue = AmlValue::Buffer(Arc::new(bytes));
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(

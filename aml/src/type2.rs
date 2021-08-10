@@ -20,10 +20,11 @@ use crate::{
 };
 use alloc::{
     string::{String, ToString},
+    sync::Arc,
     vec,
     vec::Vec,
 };
-use core::{cmp::Ordering, convert::TryInto, mem};
+use core::{cmp::Ordering, convert::TryInto, mem, ops::Deref};
 
 /// Type 2 opcodes return a value and so can be used in expressions.
 pub fn type2_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -151,7 +152,7 @@ where
                 })
             }),
         ))
-        .map(|((), buffer)| Ok(AmlValue::Buffer(buffer)))
+        .map(|((), buffer)| Ok(AmlValue::Buffer(Arc::new(buffer))))
 }
 
 pub fn def_concat<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -175,11 +176,12 @@ where
                         buffer.extend_from_slice(&left.to_le_bytes());
                         buffer.extend_from_slice(&right.to_le_bytes());
 
-                        AmlValue::Buffer(buffer)
+                        AmlValue::Buffer(Arc::new(buffer))
                     }
-                    AmlValue::Buffer(mut left) => {
-                        left.extend(try_with_context!(context, right.as_buffer(context)));
-                        AmlValue::Buffer(left)
+                    AmlValue::Buffer(left) => {
+                        let mut new = left.deref().clone();
+                        new.extend(try_with_context!(context, right.as_buffer(context)).iter());
+                        AmlValue::Buffer(Arc::new(new))
                     }
                     AmlValue::String(left) => {
                         let right = match right.as_concat_type() {
@@ -246,7 +248,7 @@ where
                         result.iter().fold(0u8, |checksum, byte| checksum.wrapping_add(*byte)).wrapping_neg(),
                     );
 
-                    AmlValue::Buffer(result)
+                    AmlValue::Buffer(Arc::new(result))
                 };
 
                 try_with_context!(context, context.store(target, result.clone()));
@@ -417,11 +419,11 @@ where
                         match source {
                             AmlValue::Buffer(bytes) => {
                                 if index >= bytes.len() {
-                                    Ok(AmlValue::Buffer(vec![]))
+                                    Ok(AmlValue::Buffer(Arc::new(vec![])))
                                 } else if (index + length) >= bytes.len() {
-                                    Ok(AmlValue::Buffer(bytes[index..].to_vec()))
+                                    Ok(AmlValue::Buffer(Arc::new(bytes[index..].to_vec())))
                                 } else {
-                                    Ok(AmlValue::Buffer(bytes[index..(index + length)].to_vec()))
+                                    Ok(AmlValue::Buffer(Arc::new(bytes[index..(index + length)].to_vec())))
                                 }
                             }
                             /*

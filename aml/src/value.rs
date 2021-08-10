@@ -197,7 +197,7 @@ pub enum AmlValue {
         flags: MethodFlags,
         code: MethodCode,
     },
-    Buffer(Vec<u8>),
+    Buffer(Arc<Vec<u8>>),
     Processor {
         id: u8,
         pblk_address: u32,
@@ -293,7 +293,7 @@ impl AmlValue {
         }
     }
 
-    pub fn as_buffer(&self, context: &AmlContext) -> Result<Vec<u8>, AmlError> {
+    pub fn as_buffer(&self, context: &AmlContext) -> Result<Arc<Vec<u8>>, AmlError> {
         match self {
             AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
@@ -558,7 +558,7 @@ impl Args {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{test_utils::*, AmlError};
+    use crate::test_utils::*;
     use core::cmp::Ordering;
 
     #[test]
