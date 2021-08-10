@@ -26,6 +26,7 @@ pub const DEF_BUFFER_OP: u8 = 0x11;
 pub const DEF_PACKAGE_OP: u8 = 0x12;
 pub const DEF_METHOD_OP: u8 = 0x14;
 pub const DEF_EXTERNAL_OP: u8 = 0x15;
+pub const DEF_CREATE_BIT_FIELD_OP: u8 = 0x8d;
 pub const EXT_DEF_MUTEX_OP: u8 = 0x01;
 pub const EXT_REVISION_OP: u8 = 0x30;
 pub const EXT_DEF_OP_REGION_OP: u8 = 0x80;

@@ -26,7 +26,7 @@ use crate::{
     AmlHandle,
     DebugVerbosity,
 };
-use alloc::string::String;
+use alloc::{string::String, sync::Arc, vec::Vec};
 use core::str;
 
 /// `TermList`s are usually found within explicit-length objects (so they have a `PkgLength`
@@ -98,6 +98,7 @@ where
         DebugVerbosity::AllScopes,
         "NamedObj",
         choice!(
+            def_create_bit_field(),
             def_op_region(),
             def_field(),
             def_method(),
@@ -169,6 +170,40 @@ where
                     context.current_scope = previous_scope;
                     (Ok(()), context)
                 }),
+        ))
+        .discard_result()
+}
+
+pub fn def_create_bit_field<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefCreateBitField := 0x8d SourceBuf BitIndex NameString
+     * SourceBuf := TermArg => Buffer
+     * BitIndex := TermArg => Integer
+     */
+    opcode(opcode::DEF_CREATE_BIT_FIELD_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefCreateBitField",
+            term_arg().then(term_arg()).then(name_string()).map_with_context(
+                |((source, index), name), context| {
+                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let index = try_with_context!(context, index.as_integer(context));
+
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::BufferField { buffer_data: source_data, offset: index, length: 1 }
+                        )
+                    );
+
+                    (Ok(()), context)
+                },
+            ),
         ))
         .discard_result()
 }
