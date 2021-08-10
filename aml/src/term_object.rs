@@ -86,10 +86,9 @@ where
     'c: 'a,
 {
     /*
-     * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField | DefCreateDWordField |
-     *             DefCreateField | DefCreateQWordField | DefCreateWordField | DefDataRegion |
-     *             DefExternal | DefOpRegion | DefPowerRes | DefProcessor | DefThermalZone |
-     *             DefMethod | DefMutex
+     * NamedObj := DefBankField | DefCreateBitField | DefCreateByteField | DefCreateWordField | DefCreateDWordField |
+     *             DefCreateQWordField | DefCreateField | DefDataRegion | DefExternal | DefOpRegion | DefPowerRes |
+     *             DefProcessor | DefThermalZone | DefMethod | DefMutex
      *
      * XXX: DefMethod and DefMutex (at least) are not included in any rule in the AML grammar,
      * but are defined in the NamedObj section so we assume they're part of NamedObj
@@ -103,6 +102,7 @@ where
             def_create_word_field(),
             def_create_dword_field(),
             def_create_qword_field(),
+            def_create_field(),
             def_op_region(),
             def_field(),
             def_method(),
@@ -347,6 +347,43 @@ where
         ))
         .discard_result()
 }
+
+pub fn def_create_field<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefCreateField := ExtOpPrefix 0x13 SourceBuf BitIndex NumBits NameString
+     * SourceBuf := TermArg => Buffer
+     * BitIndex := TermArg => Integer
+     * NumBits := TermArg => Integer
+     */
+    ext_opcode(opcode::EXT_DEF_CREATE_FIELD_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefCreateField",
+            term_arg().then(term_arg()).then(term_arg()).then(name_string()).map_with_context(
+                |(((source, index), num_bits), name), context| {
+                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let index = try_with_context!(context, index.as_integer(context));
+                    let num_bits = try_with_context!(context, num_bits.as_integer(context));
+
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value_at_resolved_path(
+                            name,
+                            &context.current_scope,
+                            AmlValue::BufferField { buffer_data: source_data, offset: index, length: num_bits }
+                        )
+                    );
+
+                    (Ok(()), context)
+                },
+            ),
+        ))
+        .discard_result()
+}
+
 pub fn def_op_region<'a, 'c>() -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
