@@ -6,4 +6,6 @@ DefinitionBlock("buffer_fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
 	CreateWordField(X, 2, WORD)
 	CreateDWordField(X, 4, DWRD)
 	CreateQWordField(X, 8, QWRD)
+
+	BIT3 = 1
 }

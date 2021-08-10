@@ -337,21 +337,22 @@ impl AmlContext {
         match target {
             Target::Name(ref path) => {
                 let (_, handle) = self.namespace.search(path, &self.current_scope)?;
-                let converted_object = match self.namespace.get(handle).unwrap().type_of() {
-                    /*
-                     * We special-case FieldUnits here because we don't have the needed information to actually do
-                     * the write if we try and convert using `as_type`.
-                     */
+
+                match self.namespace.get(handle).unwrap().type_of() {
                     AmlType::FieldUnit => {
                         let mut field = self.namespace.get(handle).unwrap().clone();
                         field.write_field(value, self)?;
-                        field.read_field(self)?
+                        field.read_field(self)
                     }
-                    typ => value.as_type(typ, self)?,
-                };
-
-                *self.namespace.get_mut(handle)? = converted_object;
-                Ok(self.namespace.get(handle)?.clone())
+                    AmlType::BufferField => {
+                        log::info!("Trying to write to buffer field!");
+                        todo!()
+                    }
+                    typ => {
+                        *self.namespace.get_mut(handle)? = value.as_type(typ, self)?;
+                        Ok(self.namespace.get(handle)?.clone())
+                    }
+                }
             }
 
             Target::Debug => {
@@ -364,6 +365,8 @@ impl AmlContext {
                     return Err(AmlError::NotExecutingControlMethod);
                 }
 
+                // TODO: I don't think these semantics are correct? If the arg/local is a field unit or buffer
+                // field, don't we need to do special stuff?
                 match arg_num {
                     1 => self.method_context.as_mut().unwrap().args.arg_1 = Some(value.clone()),
                     2 => self.method_context.as_mut().unwrap().args.arg_2 = Some(value.clone()),
@@ -381,6 +384,8 @@ impl AmlContext {
                     return Err(AmlError::NotExecutingControlMethod);
                 }
 
+                // TODO: I don't think these semantics are correct? If the arg/local is a field unit or buffer
+                // field, don't we need to do special stuff?
                 match local_num {
                     0 => self.method_context.as_mut().unwrap().local_0 = Some(value.clone()),
                     1 => self.method_context.as_mut().unwrap().local_1 = Some(value.clone()),
