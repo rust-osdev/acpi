@@ -1,8 +1,21 @@
 use crate::{
-    opcode::{self, opcode},
-    parser::{choice, comment_scope, id, take_to_end_of_pkglength, ParseResult, Parser, Propagate},
+    opcode::{self, ext_opcode, opcode},
+    parser::{
+        choice,
+        comment_scope,
+        id,
+        take,
+        take_to_end_of_pkglength,
+        take_u32,
+        try_with_context,
+        ParseResult,
+        Parser,
+        Propagate,
+    },
     pkg_length::{pkg_length, PkgLength},
     term_object::{term_arg, term_list},
+    AmlContext,
+    AmlError,
     DebugVerbosity,
 };
 
@@ -19,7 +32,7 @@ where
     comment_scope(
         DebugVerbosity::AllScopes,
         "Type1Opcode",
-        choice!(def_breakpoint(), def_if_else(), def_noop(), def_return()),
+        choice!(def_breakpoint(), def_fatal(), def_if_else(), def_noop(), def_return()),
     )
 }
 
@@ -34,6 +47,31 @@ where
      */
     opcode(opcode::DEF_BREAKPOINT_OP)
         .then(comment_scope(DebugVerbosity::AllScopes, "DefBreakPoint", id()))
+        .discard_result()
+}
+
+fn def_fatal<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefFatal := ExtOpPrefix 0x32 FatalType FatalCode FatalArg
+     * FatalType := ByteData
+     * FatalCode := DWordData
+     * FatalArg := TermArg => Integer
+     */
+    ext_opcode(opcode::EXT_DEF_FATAL_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefFatal",
+            take().then(take_u32()).then(term_arg()).map_with_context(
+                |((fatal_type, fatal_code), fatal_arg), context| -> (Result<(), Propagate>, &'c mut AmlContext) {
+                    let fatal_arg = try_with_context!(context, fatal_arg.as_integer(context));
+                    context.handler.handle_fatal_error(fatal_type, fatal_code, fatal_arg);
+                    (Err(Propagate::Err(AmlError::FatalError)), context)
+                },
+            ),
+        ))
         .discard_result()
 }
 
