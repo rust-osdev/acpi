@@ -189,6 +189,7 @@ impl AmlContext {
                             // If the method doesn't return a value, we implicitly return `0`
                             Ok(_) => Ok(AmlValue::Integer(0)),
                             Err((_, _, Propagate::Return(result))) => Ok(result),
+                            Err((_, _, Propagate::Break)) => Err(AmlError::BreakInInvalidPosition),
                             Err((_, _, Propagate::Err(err))) => {
                                 error!("Failed to execute control method: {:?}", err);
                                 Err(err)
@@ -740,6 +741,8 @@ pub enum AmlError {
     InvalidLocalAccess(LocalNum),
     /// Tried to invoke a method with too many arguments.
     TooManyArgs,
+    /// A `DefBreak` operation was performed outside of a `DefWhile` or `DefSwitch`.
+    BreakInInvalidPosition,
 
     /*
      * Errors produced parsing the PCI routing tables (_PRT objects).

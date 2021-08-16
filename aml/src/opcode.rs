@@ -50,6 +50,7 @@ pub const DEF_ELSE_OP: u8 = 0xa1;
 pub const DEF_WHILE_OP: u8 = 0xa2;
 pub const DEF_NOOP_OP: u8 = 0xa3;
 pub const DEF_RETURN_OP: u8 = 0xa4;
+pub const DEF_BREAK_OP: u8 = 0xa5;
 pub const DEF_BREAKPOINT_OP: u8 = 0xcc;
 
 /*

@@ -33,8 +33,24 @@ where
     comment_scope(
         DebugVerbosity::AllScopes,
         "Type1Opcode",
-        choice!(def_breakpoint(), def_fatal(), def_if_else(), def_noop(), def_return(), def_while()),
+        choice!(def_break(), def_breakpoint(), def_fatal(), def_if_else(), def_noop(), def_return(), def_while()),
     )
+}
+
+fn def_break<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefBreak := 0xa5
+     */
+    opcode(opcode::DEF_BREAK_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefBreak",
+            id().map(|()| -> Result<(), Propagate> { Err(Propagate::Break) }),
+        ))
+        .discard_result()
 }
 
 fn def_breakpoint<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -197,6 +213,10 @@ where
                                 context = new_context;
                             }
                             // TODO: differentiate real errors and special Propagates (e.g. break, continue, etc.)
+                            Err((_, new_context, Propagate::Break)) => {
+                                context = new_context;
+                                break;
+                            }
                             Err((_, context, err)) => return (Err(err), context),
                         }
 

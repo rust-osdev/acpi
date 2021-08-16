@@ -21,6 +21,7 @@ impl AmlContext {
 pub enum Propagate {
     Err(AmlError),
     Return(AmlValue),
+    Break,
 }
 
 impl From<AmlError> for Propagate {
