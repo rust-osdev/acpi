@@ -292,6 +292,19 @@ impl AmlContext {
         Ok(())
     }
 
+    pub(crate) fn read_target(&self, target: &Target) -> Result<&AmlValue, AmlError> {
+        match target {
+            Target::Null => todo!(),
+            Target::Name(name) => {
+                let (_, handle) = self.namespace.search(name, &self.current_scope)?;
+                self.namespace.get(handle)
+            }
+            Target::Debug => todo!(),
+            Target::Arg(arg) => self.current_arg(*arg),
+            Target::Local(local) => self.local(*local),
+        }
+    }
+
     /// Get the value of an argument by its argument number. Can only be executed from inside a control method.
     pub(crate) fn current_arg(&self, arg: ArgNum) -> Result<&AmlValue, AmlError> {
         self.method_context.as_ref().ok_or(AmlError::NotExecutingControlMethod)?.args.arg(arg)

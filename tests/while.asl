@@ -1,8 +1,7 @@
-// TODO: when implemented, the `+= 1`s can be turned into `++` - this requires DefIncrement
 DefinitionBlock("while.aml", "DSDT", 1, "RSACPI", "WHILE", 1) {
 	Name(X, 0)
 	While (X < 5) {
-		X += 1
+		X++
 	}
 
 	// Test `DefBreak` - Y should only make it to 5
@@ -12,15 +11,15 @@ DefinitionBlock("while.aml", "DSDT", 1, "RSACPI", "WHILE", 1) {
 			Break
 		}
 
-		Y += 1
+		Y++
 	}
 
 	// Test `DefContinue` - Z should remain at zero
 	Name(CNT, 0)
 	Name(Z, 0)
 	While (CNT < 5) {
-		CNT += 1
+		CNT++
 		Continue
-		Z += 1
+		Z++
 	}
 }

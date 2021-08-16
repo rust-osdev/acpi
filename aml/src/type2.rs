@@ -51,6 +51,8 @@ where
             def_buffer(),
             def_concat(),
             def_concat_res(),
+            def_increment(),
+            def_decrement(),
             def_l_equal(),
             def_l_greater(),
             def_l_greater_equal(),
@@ -253,6 +255,50 @@ where
 
                 try_with_context!(context, context.store(target, result.clone()));
                 (Ok(result), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
+}
+
+fn def_increment<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefIncrement := 0x75 SuperName
+     */
+    opcode(opcode::DEF_INCREMENT_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefIncrement",
+            super_name().map_with_context(|addend, context| {
+                let value = try_with_context!(context, context.read_target(&addend));
+                let value = try_with_context!(context, value.as_integer(context));
+                let new_value = AmlValue::Integer(value + 1);
+                try_with_context!(context, context.store(addend, new_value.clone()));
+                (Ok(new_value), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
+}
+
+fn def_decrement<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefDecrement := 0x76 SuperName
+     */
+    opcode(opcode::DEF_DECREMENT_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefDecrement",
+            super_name().map_with_context(|minuend, context| {
+                let value = try_with_context!(context, context.read_target(&minuend));
+                let value = try_with_context!(context, value.as_integer(context));
+                let new_value = AmlValue::Integer(value - 1);
+                try_with_context!(context, context.store(minuend, new_value.clone()));
+                (Ok(new_value), context)
             }),
         ))
         .map(|((), result)| Ok(result))
