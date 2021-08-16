@@ -38,7 +38,7 @@ where
      *                DefLAnd | DefLEqual | DefLGreater | DefLGreaterEqual | DefLLess | DefLLessEqual |
      *                DefMid | DefLNot | DefLNotEqual | DefLoadTable | DefLOr | DefMatch | DefMod |
      *                DefMultiply | DefNAnd | DefNOr | DefNot | DefObjectType | DefOr | DefPackage |
-     *                DefVarPackage | DefRefOf | DefShiftLeft | DefShitRight | DefSizeOf | DefStore |
+     *                DefVarPackage | DefRefOf | DefShiftLeft | DefShiftRight | DefSizeOf | DefStore |
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
      *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
      */
