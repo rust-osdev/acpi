@@ -273,6 +273,26 @@ where
     }
 }
 
+/// `extract` observes another parser consuming part of the stream, and returns the result of the parser, and the
+/// section of the stream that was parsed by the parser. This is useful for re-parsing that section of the stream,
+/// which allows the result of a piece of AML to be reevaluated with a new context, for example.
+///
+/// Note that reparsing the stream is not idempotent - the context is changed by this parse.
+pub fn extract<'a, 'c, P, R>(parser: P) -> impl Parser<'a, 'c, (R, &'a [u8])>
+where
+    'c: 'a,
+    P: Parser<'a, 'c, R>,
+{
+    move |input, context: &'c mut AmlContext| {
+        let before = input;
+        let (after, context, result) = parser.parse(input, context)?;
+        let bytes_parsed = before.len() - after.len();
+        let parsed = &before[..bytes_parsed];
+
+        Ok((after, context, (result, parsed)))
+    }
+}
+
 pub struct Or<'a, 'c, P1, P2, R>
 where
     'c: 'a,

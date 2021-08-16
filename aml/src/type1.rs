@@ -3,6 +3,7 @@ use crate::{
     parser::{
         choice,
         comment_scope,
+        extract,
         id,
         take,
         take_to_end_of_pkglength,
@@ -32,7 +33,7 @@ where
     comment_scope(
         DebugVerbosity::AllScopes,
         "Type1Opcode",
-        choice!(def_breakpoint(), def_fatal(), def_if_else(), def_noop(), def_return()),
+        choice!(def_breakpoint(), def_fatal(), def_if_else(), def_noop(), def_return(), def_while()),
     )
 }
 
@@ -102,6 +103,7 @@ where
                             pkg_length().feed(|length| take_to_end_of_pkglength(length))
                         ))
                         .map(|((), else_branch): ((), &[u8])| Ok(else_branch)),
+                    // TODO: can this be `id().map(&[])`?
                     |input, context| -> ParseResult<'a, 'c, &[u8]> {
                         /*
                          * This path parses an DefIfElse that doesn't have an else branch. We simply
@@ -156,6 +158,67 @@ where
                  */
                 Err(Propagate::Return(return_arg))
             }),
+        ))
+        .discard_result()
+}
+
+fn def_while<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefWhile := 0xa2 PkgLength Predicate TermList
+     * Predicate := TermArg => Integer (0 = false, >0 = true)
+     *
+     * Parsing this does something a little unusual - it 'extracts' the predicate when it's first parsed, which
+     * allows us to reevaluate it to see if we should break out of the while yet. This is required, to make sure
+     * we're observing changes to the context between the iterations of the loop.
+     */
+    opcode(opcode::DEF_WHILE_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefWhile",
+            pkg_length()
+                .then(extract(term_arg()))
+                .feed(move |(length, (first_predicate, predicate_stream))| {
+                    take_to_end_of_pkglength(length)
+                        .map(move |body| Ok((first_predicate.clone(), predicate_stream, body)))
+                })
+                .map_with_context(|(first_predicate, predicate_stream, body), mut context| {
+                    if !try_with_context!(context, first_predicate.as_bool()) {
+                        return (Ok(()), context);
+                    }
+
+                    loop {
+                        match term_list(PkgLength::from_raw_length(body, body.len() as u32).unwrap())
+                            .parse(body, context)
+                        {
+                            Ok((_, new_context, result)) => {
+                                context = new_context;
+                            }
+                            // TODO: differentiate real errors and special Propagates (e.g. break, continue, etc.)
+                            Err((_, context, err)) => return (Err(err), context),
+                        }
+
+                        // Reevaluate the predicate to see if we should break out of the loop yet
+                        let predicate =
+                            match comment_scope(DebugVerbosity::AllScopes, "WhilePredicate", term_arg())
+                                .parse(predicate_stream, context)
+                            {
+                                Ok((_, new_context, result)) => {
+                                    context = new_context;
+                                    try_with_context!(context, result.as_bool())
+                                }
+                                Err((_, context, err)) => return (Err(err), context),
+                            };
+
+                        if !predicate {
+                            break;
+                        }
+                    }
+
+                    (Ok(()), context)
+                }),
         ))
         .discard_result()
 }
