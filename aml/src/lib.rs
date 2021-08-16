@@ -190,6 +190,7 @@ impl AmlContext {
                             Ok(_) => Ok(AmlValue::Integer(0)),
                             Err((_, _, Propagate::Return(result))) => Ok(result),
                             Err((_, _, Propagate::Break)) => Err(AmlError::BreakInInvalidPosition),
+                            Err((_, _, Propagate::Continue)) => Err(AmlError::ContinueInInvalidPosition),
                             Err((_, _, Propagate::Err(err))) => {
                                 error!("Failed to execute control method: {:?}", err);
                                 Err(err)
@@ -743,6 +744,8 @@ pub enum AmlError {
     TooManyArgs,
     /// A `DefBreak` operation was performed outside of a `DefWhile` or `DefSwitch`.
     BreakInInvalidPosition,
+    /// A `DefContinue` operation was performed outside of a `DefWhile`.
+    ContinueInInvalidPosition,
 
     /*
      * Errors produced parsing the PCI routing tables (_PRT objects).

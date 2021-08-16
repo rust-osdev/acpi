@@ -22,6 +22,7 @@ pub enum Propagate {
     Err(AmlError),
     Return(AmlValue),
     Break,
+    Continue,
 }
 
 impl From<AmlError> for Propagate {

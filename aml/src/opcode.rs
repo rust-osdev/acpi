@@ -45,6 +45,7 @@ pub const EXT_DEF_THERMAL_ZONE_OP: u8 = 0x85;
 /*
  * Type 1 opcodes
  */
+pub const DEF_CONTINUE_OP: u8 = 0x9f;
 pub const DEF_IF_ELSE_OP: u8 = 0xa0;
 pub const DEF_ELSE_OP: u8 = 0xa1;
 pub const DEF_WHILE_OP: u8 = 0xa2;

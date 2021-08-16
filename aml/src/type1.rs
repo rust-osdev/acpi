@@ -33,7 +33,16 @@ where
     comment_scope(
         DebugVerbosity::AllScopes,
         "Type1Opcode",
-        choice!(def_break(), def_breakpoint(), def_fatal(), def_if_else(), def_noop(), def_return(), def_while()),
+        choice!(
+            def_break(),
+            def_breakpoint(),
+            def_continue(),
+            def_fatal(),
+            def_if_else(),
+            def_noop(),
+            def_return(),
+            def_while()
+        ),
     )
 }
 
@@ -64,6 +73,22 @@ where
      */
     opcode(opcode::DEF_BREAKPOINT_OP)
         .then(comment_scope(DebugVerbosity::AllScopes, "DefBreakPoint", id()))
+        .discard_result()
+}
+
+fn def_continue<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefContinue := 0x9f
+     */
+    opcode(opcode::DEF_CONTINUE_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefContinue",
+            id().map(|()| -> Result<(), Propagate> { Err(Propagate::Continue) }),
+        ))
         .discard_result()
 }
 
@@ -212,10 +237,15 @@ where
                             Ok((_, new_context, result)) => {
                                 context = new_context;
                             }
-                            // TODO: differentiate real errors and special Propagates (e.g. break, continue, etc.)
                             Err((_, new_context, Propagate::Break)) => {
                                 context = new_context;
                                 break;
+                            }
+                            Err((_, new_context, Propagate::Continue)) => {
+                                // We don't need to do anything special here - the `Propagate::Continue` bubbles
+                                // up, and then we can just move on to checking the predicate for the next
+                                // iteration.
+                                context = new_context;
                             }
                             Err((_, context, err)) => return (Err(err), context),
                         }
