@@ -62,10 +62,12 @@ impl Madt {
         for entry in self.entries() {
             match entry {
                 MadtEntry::LocalApic(_) |
+                MadtEntry::LocalX2Apic(_) |
                 MadtEntry::IoApic(_) |
                 MadtEntry::InterruptSourceOverride(_) |
                 MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
                 MadtEntry::LocalApicNmi(_) |
+                MadtEntry::X2ApicNmi(_) |
                 MadtEntry::LocalApicAddressOverride(_) => {
                     return self.parse_apic_model();
                 }
@@ -73,11 +75,6 @@ impl Madt {
                 MadtEntry::IoSapic(_) |
                 MadtEntry::LocalSapic(_) |
                 MadtEntry::PlatformInterruptSource(_) => {
-                    unimplemented!();
-                }
-
-                MadtEntry::LocalX2Apic(_) |
-                MadtEntry::X2ApicNmi(_) => {
                     unimplemented!();
                 }
 
@@ -140,8 +137,33 @@ impl Madt {
                     };
 
                     let processor = Processor {
-                        processor_uid: entry.processor_id,
-                        local_apic_id: entry.apic_id,
+                        processor_uid: entry.processor_id as u32,
+                        local_apic_id: entry.apic_id as u32,
+                        state,
+                        is_ap,
+                    };
+
+                    if is_ap {
+                        application_processors.push(processor);
+                    } else {
+                        boot_processor = Some(processor);
+                    }
+                }
+
+                MadtEntry::LocalX2Apic(entry) => {
+                    let is_ap = boot_processor.is_some();
+                    let is_disabled = !{ entry.flags }.get_bit(0);
+
+                    let state = match (is_ap, is_disabled) {
+                        (_, true) => ProcessorState::Disabled,
+                        (true, false) => ProcessorState::WaitingForSipi,
+                        (false, false) => ProcessorState::Running,
+                    };
+                    log::info!("Found X2APIC in MADT!");
+
+                    let processor = Processor {
+                        processor_uid: entry.processor_uid,
+                        local_apic_id: entry.x2apic_id,
                         state,
                         is_ap,
                     };
@@ -191,6 +213,19 @@ impl Madt {
                         NmiProcessor::All
                     } else {
                         NmiProcessor::ProcessorUid(entry.processor_id as u32)
+                    },
+                    line: match entry.nmi_line {
+                        0 => LocalInterruptLine::Lint0,
+                        1 => LocalInterruptLine::Lint1,
+                        _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                    },
+                }),
+
+                MadtEntry::X2ApicNmi(entry) => local_apic_nmi_lines.push(NmiLine {
+                    processor: if entry.processor_uid == 0xffffffff {
+                        NmiProcessor::All
+                    } else {
+                        NmiProcessor::ProcessorUid(entry.processor_uid)
                     },
                     line: match entry.nmi_line {
                         0 => LocalInterruptLine::Lint0,
