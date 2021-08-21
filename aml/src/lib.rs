@@ -56,17 +56,13 @@ pub(crate) mod type1;
 pub(crate) mod type2;
 pub mod value;
 
-pub use crate::{
-    namespace::{AmlHandle, AmlName, Namespace},
-    value::AmlValue,
-};
+pub use crate::{namespace::*, value::AmlValue};
 
 use alloc::{boxed::Box, string::ToString};
 use core::mem;
 use log::{error, warn};
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
-use namespace::LevelType;
 use parser::{Parser, Propagate};
 use pkg_length::PkgLength;
 use term_object::term_list;
@@ -236,7 +232,6 @@ impl AmlContext {
     // TODO: docs
     pub fn initialize_objects(&mut self) -> Result<(), AmlError> {
         use name_object::NameSeg;
-        use namespace::NamespaceLevel;
         use value::StatusObject;
 
         /*
