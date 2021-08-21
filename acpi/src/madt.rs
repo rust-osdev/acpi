@@ -61,36 +61,36 @@ impl Madt {
          */
         for entry in self.entries() {
             match entry {
-            MadtEntry::LocalApic(_) |
-            MadtEntry::IoApic(_) |
-            MadtEntry::InterruptSourceOverride(_) |
-            MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
-            MadtEntry::LocalApicNmi(_) |
-            MadtEntry::LocalApicAddressOverride(_) => {
-                return self.parse_apic_model();
-            }
+                MadtEntry::LocalApic(_) |
+                MadtEntry::IoApic(_) |
+                MadtEntry::InterruptSourceOverride(_) |
+                MadtEntry::NmiSource(_) |   // TODO: is this one used by more than one model?
+                MadtEntry::LocalApicNmi(_) |
+                MadtEntry::LocalApicAddressOverride(_) => {
+                    return self.parse_apic_model();
+                }
 
-            MadtEntry::IoSapic(_) |
-            MadtEntry::LocalSapic(_) |
-            MadtEntry::PlatformInterruptSource(_) => {
-                unimplemented!();
-            }
+                MadtEntry::IoSapic(_) |
+                MadtEntry::LocalSapic(_) |
+                MadtEntry::PlatformInterruptSource(_) => {
+                    unimplemented!();
+                }
 
-            MadtEntry::LocalX2Apic(_) |
-            MadtEntry::X2ApicNmi(_) => {
-                unimplemented!();
-            }
+                MadtEntry::LocalX2Apic(_) |
+                MadtEntry::X2ApicNmi(_) => {
+                    unimplemented!();
+                }
 
-            MadtEntry::Gicc(_) |
-            MadtEntry::Gicd(_) |
-            MadtEntry::GicMsiFrame(_) |
-            MadtEntry::GicRedistributor(_) |
-            MadtEntry::GicInterruptTranslationService(_) => {
-                unimplemented!();
-            }
+                MadtEntry::Gicc(_) |
+                MadtEntry::Gicd(_) |
+                MadtEntry::GicMsiFrame(_) |
+                MadtEntry::GicRedistributor(_) |
+                MadtEntry::GicInterruptTranslationService(_) => {
+                    unimplemented!();
+                }
 
-            MadtEntry::MultiprocessorWakeup(_) => ()
-        }
+                MadtEntry::MultiprocessorWakeup(_) => ()
+            }
         }
 
         Ok((InterruptModel::Unknown, None))
