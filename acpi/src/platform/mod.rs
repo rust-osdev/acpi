@@ -1,14 +1,7 @@
 pub mod address;
 pub mod interrupt;
 
-use crate::{
-    fadt::Fadt,
-    madt::Madt,
-    AcpiError,
-    AcpiHandler,
-    AcpiTables,
-    PowerProfile,
-};
+use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
 use address::GenericAddress;
 use alloc::vec::Vec;
 use interrupt::InterruptModel;
@@ -28,11 +21,14 @@ pub enum ProcessorState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Processor {
-    pub processor_uid: u8,
-    pub local_apic_id: u8,
+    /// Corresponds to the `_UID` object of the processor's `Device`, or the `ProcessorId` field of the `Processor`
+    /// object, in AML.
+    pub processor_uid: u32,
+    /// The ID of the local APIC of the processor. Will be less than `256` if the APIC is being used, but can be
+    /// greater than this if the X2APIC is being used.
+    pub local_apic_id: u32,
 
-    /// The state of this processor. Always check that the processor is not `Disabled` before
-    /// attempting to bring it up!
+    /// The state of this processor. Check that the processor is not `Disabled` before attempting to bring it up!
     pub state: ProcessorState,
 
     /// Whether this processor is the Bootstrap Processor (BSP), or an Application Processor (AP).
@@ -58,10 +54,7 @@ pub struct PmTimer {
 impl PmTimer {
     pub fn new(fadt: &Fadt) -> Result<Option<PmTimer>, AcpiError> {
         match fadt.pm_timer_block()? {
-            Some(base) => Ok(Some(PmTimer {
-                base,
-                supports_32bit: {fadt.flags}.pm_timer_is_32_bit(),
-            })),
+            Some(base) => Ok(Some(PmTimer { base, supports_32bit: { fadt.flags }.pm_timer_is_32_bit() })),
             None => Ok(None),
         }
     }

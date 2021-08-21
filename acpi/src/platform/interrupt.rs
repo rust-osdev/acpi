@@ -3,7 +3,9 @@ use alloc::vec::Vec;
 #[derive(Debug)]
 pub struct IoApic {
     pub id: u8,
+    /// The physical address at which to access this I/O APIC.
     pub address: u32,
+    /// The global system interrupt number where this I/O APIC's inputs start.
     pub global_system_interrupt_base: u32,
 }
 
@@ -22,8 +24,6 @@ pub enum LocalInterruptLine {
 #[derive(Debug)]
 pub enum NmiProcessor {
     All,
-    /// Refers to a processor with the given UID. This is stored as a `u32`, but should be casted to `u8` when the
-    /// DSDT uses the deprecated `DefProcessor` operator to define processor UIDs.
     ProcessorUid(u32),
 }
 
@@ -83,8 +83,8 @@ pub enum InterruptModel {
     /// this probably means only the legacy i8259 PIC is present.
     Unknown,
 
-    /// Describes an interrupt controller based around the Advanced Programmable Interrupt
-    /// Controllers. These are likely to be found on x86 and x86_64 systems and are made up of a
-    /// Local APIC for each core and one or more I/O APICs to handle external interrupts.
+    /// Describes an interrupt controller based around the Advanced Programmable Interrupt Controller (any of APIC,
+    /// XAPIC, or X2APIC). These are likely to be found on x86 and x86_64 systems and are made up of a Local APIC
+    /// for each core and one or more I/O APICs to handle external interrupts.
     Apic(Apic),
 }
