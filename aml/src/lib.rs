@@ -335,8 +335,9 @@ impl AmlContext {
                         field.read_field(self)
                     }
                     AmlType::BufferField => {
-                        log::info!("Trying to write to buffer field!");
-                        todo!()
+                        let mut buffer_field = self.namespace.get(handle).unwrap().clone();
+                        buffer_field.write_buffer_field(value.clone(), self)?;
+                        Ok(value)
                     }
                     typ => {
                         *self.namespace.get_mut(handle)? = value.as_type(typ, self)?;
@@ -789,6 +790,7 @@ pub enum AmlError {
     TypeCannotBeCompared(AmlType),
     /// Produced when the `Mid` operator is applied to a value of a type other than `Buffer` or `String`.
     TypeCannotBeSliced(AmlType),
+    TypeCannotBeWrittenToBufferField(AmlType),
 }
 
 #[cfg(test)]

@@ -501,6 +501,43 @@ impl AmlValue {
         }
     }
 
+    pub fn write_buffer_field(&mut self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
+        use bitvec::view::BitView;
+
+        if let AmlValue::BufferField { buffer_data, offset, length } = self {
+            let offset = *offset as usize;
+            let length = *length as usize;
+            // TODO: check these against the size of the buffer to be written into
+            let mut inner_data = buffer_data.lock();
+            let bitslice = inner_data.view_bits_mut::<bitvec::order::Lsb0>();
+
+            match value {
+                AmlValue::Integer(value) => {
+                    /*
+                     * When an `Integer` is written into a `BufferField`, the entire contents are overwritten. If
+                     * it's smaller than the length of the buffer field, it's zero-extended. If it's larger, the
+                     * upper bits are truncated.
+                     */
+                    let bits_to_copy = cmp::min(*length, 64);
+                    bitslice[offset..(offset + length)]
+                        .copy_from_bitslice(&value.to_le_bytes().view_bits()[..(bits_to_copy as usize)]);
+                    Ok(())
+                }
+                AmlValue::Boolean(value) => {
+                    bitslice.set(offset, value);
+                    Ok(())
+                }
+                AmlValue::Buffer(value) => {
+                    // TODO
+                    todo!()
+                }
+                _ => Err(AmlError::TypeCannotBeWrittenToBufferField(value.type_of())),
+            }
+        } else {
+            Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::BufferField })
+        }
+    }
+
     /// Logically compare two `AmlValue`s, according to the rules that govern opcodes like `DefLEqual`, `DefLLess`,
     /// etc. The type of `self` dictates the type that `other` will be converted to, and the method by which the
     /// values will be compared:
