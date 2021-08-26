@@ -6,6 +6,7 @@ use alloc::{
 };
 use bit_field::BitField;
 use core::{cmp, fmt, fmt::Debug};
+use spinning_top::Spinlock;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionSpace {
@@ -197,9 +198,9 @@ pub enum AmlValue {
         flags: MethodFlags,
         code: MethodCode,
     },
-    Buffer(Arc<Vec<u8>>),
+    Buffer(Arc<Spinlock<Vec<u8>>>),
     BufferField {
-        buffer_data: Arc<Vec<u8>>,
+        buffer_data: Arc<Spinlock<Vec<u8>>>,
         /// In bits.
         offset: u64,
         /// In bits.
@@ -283,7 +284,8 @@ impl AmlValue {
                  *
                  * XXX: Buffers with length `0` appear in real tables, so we return `0` for them.
                  */
-                let bytes = if bytes.len() > 8 { &bytes[0..8] } else { bytes };
+                let bytes = bytes.lock();
+                let bytes = if bytes.len() > 8 { &bytes[0..8] } else { &bytes[..] };
 
                 Ok(bytes.iter().rev().fold(0: u64, |mut i, &popped| {
                     i <<= 8;
@@ -302,7 +304,7 @@ impl AmlValue {
         }
     }
 
-    pub fn as_buffer(&self, context: &AmlContext) -> Result<Arc<Vec<u8>>, AmlError> {
+    pub fn as_buffer(&self, context: &AmlContext) -> Result<Arc<Spinlock<Vec<u8>>>, AmlError> {
         match self {
             AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
@@ -513,7 +515,7 @@ impl AmlValue {
 
         match self_inner.type_of() {
             AmlType::Integer => Ok(self.as_integer(context)?.cmp(&other.as_integer(context)?)),
-            AmlType::Buffer => Ok(self.as_buffer(context)?.cmp(&other.as_buffer(context)?)),
+            AmlType::Buffer => Ok(self.as_buffer(context)?.lock().cmp(&other.as_buffer(context)?.lock())),
             AmlType::String => Ok(self.as_string(context)?.cmp(&other.as_string(context)?)),
             typ => Err(AmlError::TypeCannotBeCompared(typ)),
         }

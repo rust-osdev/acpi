@@ -193,7 +193,8 @@ where
             "DefCreateBitField",
             term_arg().then(term_arg()).then(name_string()).map_with_context(
                 |((source, index), name), context| {
-                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let source_data: Arc<spinning_top::Spinlock<Vec<u8>>> =
+                        try_with_context!(context, source.as_buffer(context)).clone();
                     let index = try_with_context!(context, index.as_integer(context));
 
                     try_with_context!(
@@ -227,7 +228,8 @@ where
             "DefCreateByteField",
             term_arg().then(term_arg()).then(name_string()).map_with_context(
                 |((source, index), name), context| {
-                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let source_data: Arc<spinning_top::Spinlock<Vec<u8>>> =
+                        try_with_context!(context, source.as_buffer(context)).clone();
                     let index = try_with_context!(context, index.as_integer(context));
 
                     try_with_context!(
@@ -261,7 +263,8 @@ where
             "DefCreateWordField",
             term_arg().then(term_arg()).then(name_string()).map_with_context(
                 |((source, index), name), context| {
-                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let source_data: Arc<spinning_top::Spinlock<Vec<u8>>> =
+                        try_with_context!(context, source.as_buffer(context)).clone();
                     let index = try_with_context!(context, index.as_integer(context));
 
                     try_with_context!(
@@ -295,7 +298,8 @@ where
             "DefCreateDWordField",
             term_arg().then(term_arg()).then(name_string()).map_with_context(
                 |((source, index), name), context| {
-                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let source_data: Arc<spinning_top::Spinlock<Vec<u8>>> =
+                        try_with_context!(context, source.as_buffer(context)).clone();
                     let index = try_with_context!(context, index.as_integer(context));
 
                     try_with_context!(
@@ -329,7 +333,8 @@ where
             "DefCreateQWordField",
             term_arg().then(term_arg()).then(name_string()).map_with_context(
                 |((source, index), name), context| {
-                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let source_data: Arc<spinning_top::Spinlock<Vec<u8>>> =
+                        try_with_context!(context, source.as_buffer(context)).clone();
                     let index = try_with_context!(context, index.as_integer(context));
 
                     try_with_context!(
@@ -364,7 +369,8 @@ where
             "DefCreateField",
             term_arg().then(term_arg()).then(term_arg()).then(name_string()).map_with_context(
                 |(((source, index), num_bits), name), context| {
-                    let source_data: Arc<Vec<u8>> = try_with_context!(context, source.as_buffer(context)).clone();
+                    let source_data: Arc<spinning_top::Spinlock<Vec<u8>>> =
+                        try_with_context!(context, source.as_buffer(context)).clone();
                     let index = try_with_context!(context, index.as_integer(context));
                     let num_bits = try_with_context!(context, num_bits.as_integer(context));
 

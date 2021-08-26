@@ -22,7 +22,8 @@ pub enum Resource {
 pub fn resource_descriptor_list(descriptor: &AmlValue) -> Result<Vec<Resource>, AmlError> {
     if let AmlValue::Buffer(bytes) = descriptor {
         let mut descriptors = Vec::new();
-        let mut bytes = bytes.as_slice();
+        let mut buffer_data = bytes.lock();
+        let mut bytes = buffer_data.as_slice();
 
         while bytes.len() > 0 {
             let (descriptor, remaining_bytes) = resource_descriptor(bytes)?;

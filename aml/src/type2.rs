@@ -154,7 +154,7 @@ where
                 })
             }),
         ))
-        .map(|((), buffer)| Ok(AmlValue::Buffer(Arc::new(buffer))))
+        .map(|((), buffer)| Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(buffer)))))
 }
 
 pub fn def_concat<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
@@ -178,12 +178,12 @@ where
                         buffer.extend_from_slice(&left.to_le_bytes());
                         buffer.extend_from_slice(&right.to_le_bytes());
 
-                        AmlValue::Buffer(Arc::new(buffer))
+                        AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(buffer)))
                     }
                     AmlValue::Buffer(left) => {
-                        let mut new = left.deref().clone();
-                        new.extend(try_with_context!(context, right.as_buffer(context)).iter());
-                        AmlValue::Buffer(Arc::new(new))
+                        let mut new: Vec<u8> = left.lock().deref().clone();
+                        new.extend(try_with_context!(context, right.as_buffer(context)).lock().iter());
+                        AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(new)))
                     }
                     AmlValue::String(left) => {
                         let right = match right.as_concat_type() {
@@ -220,7 +220,10 @@ where
                 let left = try_with_context!(context, left.as_buffer(context));
                 let right = try_with_context!(context, right.as_buffer(context));
 
-                if left.len() == 1 || right.len() == 1 {
+                let left_len = left.lock().len();
+                let right_len = right.lock().len();
+
+                if left_len == 1 || right_len == 1 {
                     return (Err(Propagate::Err(AmlError::ResourceDescriptorTooShort)), context);
                 }
 
@@ -233,9 +236,15 @@ where
                  */
                 let result = {
                     let mut result =
-                        Vec::with_capacity(left.len().saturating_sub(2) + right.len().saturating_sub(2) + 2);
-                    result.extend_from_slice(if left.len() == 0 { &[] } else { &left[..(left.len() - 2)] });
-                    result.extend_from_slice(if right.len() == 0 { &[] } else { &right[..(right.len() - 2)] });
+                        Vec::with_capacity(left_len.saturating_sub(2) + right_len.saturating_sub(2) + 2);
+                    let left_contents = left.lock();
+                    let right_contents = right.lock();
+                    result.extend_from_slice(if left_len == 0 { &[] } else { &left_contents[..(left_len - 2)] });
+                    result.extend_from_slice(if right_len == 0 {
+                        &[]
+                    } else {
+                        &right_contents[..(right_len - 2)]
+                    });
 
                     /*
                      * Construct a new end tag, including a new checksum:
@@ -250,7 +259,7 @@ where
                         result.iter().fold(0u8, |checksum, byte| checksum.wrapping_add(*byte)).wrapping_neg(),
                     );
 
-                    AmlValue::Buffer(Arc::new(result))
+                    AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(result)))
                 };
 
                 try_with_context!(context, context.store(target, result.clone()));
@@ -464,12 +473,17 @@ where
                         context,
                         match source {
                             AmlValue::Buffer(bytes) => {
-                                if index >= bytes.len() {
-                                    Ok(AmlValue::Buffer(Arc::new(vec![])))
-                                } else if (index + length) >= bytes.len() {
-                                    Ok(AmlValue::Buffer(Arc::new(bytes[index..].to_vec())))
+                                let foo = bytes.lock();
+                                if index >= foo.len() {
+                                    Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(vec![]))))
+                                } else if (index + length) >= foo.len() {
+                                    Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(
+                                        foo[index..].to_vec(),
+                                    ))))
                                 } else {
-                                    Ok(AmlValue::Buffer(Arc::new(bytes[index..(index + length)].to_vec())))
+                                    Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(
+                                        foo[index..(index + length)].to_vec(),
+                                    ))))
                                 }
                             }
                             /*
