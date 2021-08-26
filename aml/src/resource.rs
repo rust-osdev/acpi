@@ -601,7 +601,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value: AmlValue = AmlValue::Buffer(Arc::new(bytes));
+        let value: AmlValue = AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bytes)));
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(
@@ -711,7 +711,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value: AmlValue = AmlValue::Buffer(Arc::new(bytes));
+        let value: AmlValue = AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bytes)));
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(
@@ -812,7 +812,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value: AmlValue = AmlValue::Buffer(Arc::new(bytes));
+        let value: AmlValue = AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bytes)));
         let resources = resource_descriptor_list(&value).unwrap();
 
         assert_eq!(
