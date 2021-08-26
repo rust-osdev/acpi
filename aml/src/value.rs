@@ -521,7 +521,8 @@ impl AmlValue {
                     let bits_to_copy = cmp::min(length, 64);
                     bitslice[offset..(offset + bits_to_copy)]
                         .copy_from_bitslice(&value.to_le_bytes().view_bits()[..(bits_to_copy as usize)]);
-                    // TODO: zero extend the field if needed
+                    // Zero extend to the end of the buffer field
+                    bitslice[(offset + bits_to_copy)..(offset + length)].set_all(false);
                     Ok(())
                 }
                 AmlValue::Boolean(value) => {
@@ -540,7 +541,8 @@ impl AmlValue {
                     let bits_to_copy = cmp::min(length, value_data.len() * 8);
                     bitslice[offset..(offset + bits_to_copy)]
                         .copy_from_bitslice(&value_data.view_bits()[..(bits_to_copy as usize)]);
-                    // TODO: zero extend if needed
+                    // Zero extend to the end of the buffer field
+                    bitslice[(offset + bits_to_copy)..(offset + length)].set_all(false);
                     Ok(())
                 }
                 _ => Err(AmlError::TypeCannotBeWrittenToBufferField(value.type_of())),
