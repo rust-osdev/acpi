@@ -518,9 +518,10 @@ impl AmlValue {
                      * it's smaller than the length of the buffer field, it's zero-extended. If it's larger, the
                      * upper bits are truncated.
                      */
-                    let bits_to_copy = cmp::min(*length, 64);
-                    bitslice[offset..(offset + length)]
+                    let bits_to_copy = cmp::min(length, 64);
+                    bitslice[offset..(offset + bits_to_copy)]
                         .copy_from_bitslice(&value.to_le_bytes().view_bits()[..(bits_to_copy as usize)]);
+                    // TODO: zero extend the field if needed
                     Ok(())
                 }
                 AmlValue::Boolean(value) => {
@@ -528,8 +529,19 @@ impl AmlValue {
                     Ok(())
                 }
                 AmlValue::Buffer(value) => {
-                    // TODO
-                    todo!()
+                    /*
+                     * When a `Buffer` is written into a `BufferField`, the entire contents are copied into the
+                     * field. If the buffer is smaller than the size of the buffer field, it is zero extended. If
+                     * the buffer is larger, the upper bits are truncated.
+                     * XXX: this behaviour is only explicitly defined in ACPI 2.0+. While undefined in ACPI 1.0,
+                     * we produce the same behaviour there.
+                     */
+                    let value_data = value.lock();
+                    let bits_to_copy = cmp::min(length, value_data.len() * 8);
+                    bitslice[offset..(offset + bits_to_copy)]
+                        .copy_from_bitslice(&value_data.view_bits()[..(bits_to_copy as usize)]);
+                    // TODO: zero extend if needed
+                    Ok(())
                 }
                 _ => Err(AmlError::TypeCannotBeWrittenToBufferField(value.type_of())),
             }
