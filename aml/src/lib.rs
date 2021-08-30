@@ -791,6 +791,7 @@ pub enum AmlError {
     /// Produced when the `Mid` operator is applied to a value of a type other than `Buffer` or `String`.
     TypeCannotBeSliced(AmlType),
     TypeCannotBeWrittenToBufferField(AmlType),
+    BufferFieldIndexesOutOfBounds,
 }
 
 #[cfg(test)]

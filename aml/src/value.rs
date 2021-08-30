@@ -295,10 +295,11 @@ impl AmlValue {
             }
 
             /*
-             * Read from a field. This can return either a `Buffer` or an `Integer`, so we make sure to call
+             * Read from a field or buffer field. These can return either a `Buffer` or an `Integer`, so we make sure to call
              * `as_integer` on the result.
              */
             AmlValue::Field { .. } => self.read_field(context)?.as_integer(context),
+            AmlValue::BufferField { .. } => self.read_buffer_field(context)?.as_integer(context),
 
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
         }
@@ -309,6 +310,7 @@ impl AmlValue {
             AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
             AmlValue::Field { .. } => self.read_field(context)?.as_buffer(context),
+            AmlValue::BufferField { .. } => self.read_buffer_field(context)?.as_buffer(context),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Buffer }),
         }
     }
@@ -498,6 +500,32 @@ impl AmlValue {
             context.write_region(*region, *offset, access_size, field_value)
         } else {
             Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::FieldUnit })
+        }
+    }
+
+    pub fn read_buffer_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
+        use bitvec::view::BitView;
+
+        if let AmlValue::BufferField { buffer_data, offset, length } = self {
+            let offset = *offset as usize;
+            let length = *length as usize;
+            let inner_data = buffer_data.lock();
+
+            if (offset + length) > (inner_data.len() * 8) {
+                return Err(AmlError::BufferFieldIndexesOutOfBounds);
+            }
+
+            let bitslice = inner_data.view_bits::<bitvec::order::Lsb0>();
+            let bits = &bitslice[offset..(offset + length)];
+            if length > 64 {
+                Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bits.as_raw_slice().to_vec()))))
+            } else {
+                let mut value = 0u64;
+                value.view_bits_mut::<bitvec::order::Lsb0>()[0..length].clone_from_bitslice(bits);
+                Ok(AmlValue::Integer(value))
+            }
+        } else {
+            Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::BufferField })
         }
     }
 
