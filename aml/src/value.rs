@@ -275,7 +275,6 @@ impl AmlValue {
         match self {
             AmlValue::Integer(value) => Ok(*value),
             AmlValue::Boolean(value) => Ok(if *value { u64::max_value() } else { 0 }),
-
             AmlValue::Buffer(ref bytes) => {
                 /*
                  * "The first 8 bytes of the buffer are converted to an integer, taking the first
@@ -293,7 +292,6 @@ impl AmlValue {
                     i
                 }))
             }
-
             /*
              * Read from a field or buffer field. These can return either a `Buffer` or an `Integer`, so we make sure to call
              * `as_integer` on the result.
@@ -398,6 +396,7 @@ impl AmlValue {
         // TODO: implement all of the rules
         match desired_type {
             AmlType::Integer => self.as_integer(context).map(|value| AmlValue::Integer(value)),
+            AmlType::Buffer => self.as_buffer(context).map(|value| AmlValue::Buffer(value)),
             AmlType::FieldUnit => panic!(
                 "Can't implicitly convert to FieldUnit. This must be special-cased by the caller for now :("
             ),
