@@ -14,7 +14,7 @@ use crate::{
     },
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
-    value::{AmlValue, Args},
+    value::{AmlType, AmlValue, Args},
     AmlError,
     DebugVerbosity,
 };
@@ -36,7 +36,7 @@ where
      *                DefCondRefOf | DefCopyObject | DefDecrement | DefDerefOf | DefDivide |
      *                DefFindSetLeftBit | DefFindSetRightBit | DefFromBCD | DefIncrement | DefIndex |
      *                DefLAnd | DefLEqual | DefLGreater | DefLGreaterEqual | DefLLess | DefLLessEqual |
-     *                DefMid | DefLNot | DefLNotEqual | DefLoadTable | DefLOr | DefMatch | DefMod |
+     *                DefMid | DefLNot | DefLNotEqual | DefLoad | DefLoadTable | DefLOr | DefMatch | DefMod |
      *                DefMultiply | DefNAnd | DefNOr | DefNot | DefObjectType | DefOr | DefPackage |
      *                DefVarPackage | DefRefOf | DefShiftLeft | DefShiftRight | DefSizeOf | DefStore |
      *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
@@ -65,6 +65,7 @@ where
             def_shift_left(),
             def_shift_right(),
             def_store(),
+            def_to_integer(),
             method_invocation() // XXX: this must always appear last. See how we have to parse it to see why.
         ),
     ))
@@ -626,6 +627,49 @@ where
         .then(comment_scope(DebugVerbosity::Scopes, "DefStore", term_arg().then(super_name())))
         .map_with_context(|((), (value, target)), context| {
             (Ok(try_with_context!(context, context.store(target, value))), context)
+        })
+}
+
+fn def_to_integer<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefToInteger := 0x99 Operand Target
+     * Operand := TermArg
+     */
+    opcode(opcode::DEF_TO_INTEGER_OP)
+        .then(comment_scope(DebugVerbosity::AllScopes, "DefToInteger", term_arg().then(target())))
+        .map_with_context(|((), (operand, target)), context| {
+            let result = match operand {
+                AmlValue::Integer(value) => AmlValue::Integer(value),
+                AmlValue::Buffer(data) => {
+                    AmlValue::Integer(try_with_context!(context, AmlValue::Buffer(data).as_integer(context)))
+                }
+                AmlValue::String(string) => AmlValue::Integer(try_with_context!(
+                    context,
+                    if string.starts_with("0x") {
+                        u64::from_str_radix(string.trim_start_matches("0x"), 16)
+                    } else {
+                        string.parse::<u64>()
+                    }
+                    .map_err(|_| AmlError::IncompatibleValueConversion {
+                        current: AmlType::String,
+                        target: AmlType::Integer,
+                    })
+                )),
+                _ => {
+                    return (
+                        Err(Propagate::Err(AmlError::IncompatibleValueConversion {
+                            current: operand.type_of(),
+                            target: AmlType::Integer,
+                        })),
+                        context,
+                    )
+                }
+            };
+            try_with_context!(context, context.store(target, result.clone()));
+            (Ok(result), context)
         })
 }
 
