@@ -16,4 +16,8 @@ DefinitionBlock("buffer_fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
 	// Last two bytes should be cleared because of zero-extension of this store
 	// We do this as a buffer store a) to test them b) because `iasl` doesn't support 64-bit integer constants...
 	QWRD = Buffer() { 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d }
+
+	// `Y` should end up as `Integer(0x07060504)` (`Integer(117835012)` in decimal)
+	Name(Y, 4)
+	Y = DWRD
 }
