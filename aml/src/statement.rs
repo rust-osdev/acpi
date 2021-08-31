@@ -20,19 +20,17 @@ use crate::{
     DebugVerbosity,
 };
 
-/// Type 1 opcodes do not return a value and so can't be used in expressions.
-pub fn type1_opcode<'a, 'c>() -> impl Parser<'a, 'c, ()>
+pub fn statement_opcode<'a, 'c>() -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
 {
     /*
-     * Type1Opcode := DefBreak | DefBreakPoint | DefContinue | DefFatal | DefIfElse | DefLoad | DefNoop |
-     *                DefNotify | DefRelease | DefReset | DefReturn | DefSignal | DefSleep | DefStall |
-     *                DefWhile
+     * StatementOpcode := DefBreak | DefBreakPoint | DefContinue | DefFatal | DefIfElse | DefLoad | DefNoop |
+     *                    DefNotify | DefRelease | DefReset | DefReturn | DefSignal | DefSleep | DefStall | DefWhile
      */
     comment_scope(
         DebugVerbosity::AllScopes,
-        "Type1Opcode",
+        "StatementOpcode",
         choice!(
             def_break(),
             def_breakpoint(),

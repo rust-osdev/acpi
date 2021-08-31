@@ -1,4 +1,5 @@
 use crate::{
+    expression::{def_buffer, def_package, expression_opcode},
     misc::{arg_obj, local_obj},
     name_object::{name_seg, name_string},
     namespace::{AmlName, LevelType},
@@ -18,8 +19,7 @@ use crate::{
         Propagate,
     },
     pkg_length::{pkg_length, PkgLength},
-    type1::type1_opcode,
-    type2::{def_buffer, def_package, type2_opcode},
+    statement::statement_opcode,
     value::{AmlValue, FieldFlags, MethodCode, MethodFlags, RegionSpace},
     AmlContext,
     AmlError,
@@ -57,7 +57,7 @@ where
     'c: 'a,
 {
     /*
-     * TermObj := NamespaceModifierObj | NamedObj | Type1Opcode | Type2Opcode
+     * TermObj := NamespaceModifierObj | NamedObj | StatementOpcode | ExpressionOpcode
      */
     comment_scope(
         DebugVerbosity::AllScopes,
@@ -65,8 +65,8 @@ where
         choice!(
             namespace_modifier().map(|()| Ok(None)),
             named_obj().map(|()| Ok(None)),
-            type1_opcode().map(|()| Ok(None)),
-            type2_opcode().map(|value| Ok(Some(value)))
+            statement_opcode().map(|()| Ok(None)),
+            expression_opcode().map(|value| Ok(Some(value)))
         ),
     )
 }
@@ -834,7 +834,7 @@ where
     'c: 'a,
 {
     /*
-     * TermArg := Type2Opcode | DataObject | ArgObj | LocalObj
+     * TermArg := ExpressionOpcode | DataObject | ArgObj | LocalObj
      */
     comment_scope(
         DebugVerbosity::AllScopes,
@@ -847,7 +847,7 @@ where
             local_obj().map_with_context(|local_num, context| {
                 (Ok(try_with_context!(context, context.local(local_num)).clone()), context)
             }),
-            make_parser_concrete!(type2_opcode())
+            make_parser_concrete!(expression_opcode())
         ),
     )
 }

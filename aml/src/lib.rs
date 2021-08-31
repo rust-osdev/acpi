@@ -43,6 +43,7 @@ extern crate std;
 #[cfg(test)]
 mod test_utils;
 
+pub(crate) mod expression;
 pub(crate) mod misc;
 pub(crate) mod name_object;
 pub(crate) mod namespace;
@@ -51,9 +52,8 @@ pub(crate) mod parser;
 pub mod pci_routing;
 pub(crate) mod pkg_length;
 pub mod resource;
+pub(crate) mod statement;
 pub(crate) mod term_object;
-pub(crate) mod type1;
-pub(crate) mod type2;
 pub mod value;
 
 pub use crate::{namespace::*, value::AmlValue};

@@ -40,8 +40,8 @@ where
     'c: 'a,
 {
     /*
-     * SuperName := SimpleName | DebugObj | Type6Opcode
-     * TODO: this doesn't cover Type6Opcode yet
+     * SuperName := SimpleName | DebugObj | ReferenceTypeOpcode
+     * TODO: this doesn't cover ReferenceTypeOpcode yet
      */
     comment_scope(
         DebugVerbosity::AllScopes,

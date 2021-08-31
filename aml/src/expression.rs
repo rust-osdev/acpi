@@ -26,25 +26,24 @@ use alloc::{
 };
 use core::{cmp::Ordering, convert::TryInto, mem, ops::Deref};
 
-/// Type 2 opcodes return a value and so can be used in expressions.
-pub fn type2_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+pub fn expression_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where
     'c: 'a,
 {
     /*
-     * Type2Opcode := DefAquire | DefAdd | DefAnd | DefBuffer | DefConcat | DefConcatRes |
-     *                DefCondRefOf | DefCopyObject | DefDecrement | DefDerefOf | DefDivide |
-     *                DefFindSetLeftBit | DefFindSetRightBit | DefFromBCD | DefIncrement | DefIndex |
-     *                DefLAnd | DefLEqual | DefLGreater | DefLGreaterEqual | DefLLess | DefLLessEqual |
-     *                DefMid | DefLNot | DefLNotEqual | DefLoad | DefLoadTable | DefLOr | DefMatch | DefMod |
-     *                DefMultiply | DefNAnd | DefNOr | DefNot | DefObjectType | DefOr | DefPackage |
-     *                DefVarPackage | DefRefOf | DefShiftLeft | DefShiftRight | DefSizeOf | DefStore |
-     *                DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
-     *                DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
+     * ExpressionOpcode := DefAquire | DefAdd | DefAnd | DefBuffer | DefConcat | DefConcatRes |
+     *                     DefCondRefOf | DefCopyObject | DefDecrement | DefDerefOf | DefDivide |
+     *                     DefFindSetLeftBit | DefFindSetRightBit | DefFromBCD | DefIncrement | DefIndex |
+     *                     DefLAnd | DefLEqual | DefLGreater | DefLGreaterEqual | DefLLess | DefLLessEqual |
+     *                     DefMid | DefLNot | DefLNotEqual | DefLoad | DefLoadTable | DefLOr | DefMatch | DefMod |
+     *                     DefMultiply | DefNAnd | DefNOr | DefNot | DefObjectType | DefOr | DefPackage |
+     *                     DefVarPackage | DefRefOf | DefShiftLeft | DefShiftRight | DefSizeOf | DefStore |
+     *                     DefSubtract | DefTimer | DefToBCD | DefToBuffer | DefToDecimalString |
+     *                     DefToHexString | DefToInteger | DefToString | DefWait | DefXOr | MethodInvocation
      */
-    make_parser_concrete!(comment_scope(
+    comment_scope(
         DebugVerbosity::AllScopes,
-        "Type2Opcode",
+        "ExpressionOpcode",
         choice!(
             def_add(),
             def_and(),
@@ -68,7 +67,7 @@ where
             def_to_integer(),
             method_invocation() // XXX: this must always appear last. See how we have to parse it to see why.
         ),
-    ))
+    )
 }
 
 pub fn def_add<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
