@@ -487,20 +487,6 @@ pub(crate) macro choice {
     }
 }
 
-/// This encapsulates an unfortunate hack we sometimes need to use, where the type checker gets
-/// caught in an infinite loop of parser types. This occurs when an object can indirectly contain
-/// itself, and so the parser type will contain its own type. This works by breaking the cycle of
-/// `impl Parser` chains that build up, by effectively creating a "concrete" closure type.
-///
-/// You can try using this hack if you are writing a parser and end up with an error of the form:
-/// `error[E0275]: overflow evaluating the requirement 'impl Parser<{a type}>'
-///     help: consider adding a a '#![recursion_limit="128"] attribute to your crate`
-/// Note: Increasing the recursion limit will not fix the issue, as the cycle will just continue
-/// until you either hit the new recursion limit or `rustc` overflows its stack.
-pub(crate) macro make_parser_concrete($parser: expr) {
-    |input, context| ($parser).parse(input, context)
-}
-
 /// Helper macro for use within `map_with_context` as an alternative to "trying" an expression.
 ///
 /// ### Example

@@ -7,7 +7,6 @@ use crate::{
     parser::{
         choice,
         comment_scope,
-        make_parser_concrete,
         take,
         take_to_end_of_pkglength,
         take_u16,
@@ -847,7 +846,7 @@ where
             local_obj().map_with_context(|local_num, context| {
                 (Ok(try_with_context!(context, context.local(local_num)).clone()), context)
             }),
-            make_parser_concrete!(expression_opcode())
+            expression_opcode()
         ),
     )
 }
@@ -937,7 +936,7 @@ where
         choice!(
             ext_opcode(opcode::EXT_REVISION_OP).map(|_| Ok(AmlValue::Integer(crate::AML_INTERPRETER_REVISION))),
             const_parser,
-            make_parser_concrete!(def_buffer())
+            def_buffer()
         ),
     )
 }

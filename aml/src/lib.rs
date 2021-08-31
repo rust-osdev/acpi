@@ -25,7 +25,7 @@
 //!
 //! The actual combinators can be found in `parser.rs`. Various tricks are used to provide a nice
 //! API and work around limitations in the type system, such as the concrete types like
-//! `MapWithContext`, and the `make_parser_concrete` hack macro.
+//! `MapWithContext`.
 //!
 //! The actual parsers are then grouped into categories based loosely on the AML grammar sections in
 //! the ACPI spec. Most are written in terms of combinators, but some have to be written in a more

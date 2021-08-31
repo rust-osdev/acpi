@@ -1,17 +1,7 @@
 use crate::{
     name_object::{name_string, super_name, target},
     opcode::{self, opcode},
-    parser::{
-        choice,
-        comment_scope,
-        make_parser_concrete,
-        n_of,
-        take,
-        take_to_end_of_pkglength,
-        try_with_context,
-        Parser,
-        Propagate,
-    },
+    parser::{choice, comment_scope, n_of, take, take_to_end_of_pkglength, try_with_context, Parser, Propagate},
     pkg_length::pkg_length,
     term_object::{data_ref_object, term_arg},
     value::{AmlType, AmlValue, Args},
