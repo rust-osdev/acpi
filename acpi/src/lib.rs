@@ -61,6 +61,7 @@ pub mod madt;
 pub mod mcfg;
 pub mod platform;
 pub mod sdt;
+pub mod bgrt;
 
 pub use crate::{
     fadt::PowerProfile,
