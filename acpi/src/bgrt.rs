@@ -1,6 +1,8 @@
 use crate::{sdt::SdtHeader, AcpiTable};
 use bit_field::BitField;
 
+/// The BGRT table contains information about a boot graphic that was displayed
+/// by firmware.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct Bgrt {
@@ -23,19 +25,21 @@ impl Bgrt {
     pub fn image_type(&self) -> ImageType {
         let img_type = self.image_type;
         match img_type {
-            1 => ImageType::Bitmap,
+            0 => ImageType::Bitmap,
             _ => ImageType::Reserved,
         }
     }
 
+    /// Gets the orientation offset of the image.
+    /// Degrees are clockwise from the images default orientation.
     pub fn orientation_offset(&self) -> u16 {
         let status = self.status;
-        match status.get_bits(1 .. 3) {
-            0=> 0,
+        match status.get_bits(1..3) {
+            0 => 0,
             1 => 90,
             2 => 180,
             3 => 270,
-            _ => unimplemented!(), // will never happen
+            _ => unreachable!(), // will never happen
         }
     }
 
@@ -57,4 +61,3 @@ pub enum ImageType {
     Bitmap,
     Reserved,
 }
-

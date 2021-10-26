@@ -55,13 +55,13 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+pub mod bgrt;
 pub mod fadt;
 pub mod hpet;
 pub mod madt;
 pub mod mcfg;
 pub mod platform;
 pub mod sdt;
-pub mod bgrt;
 
 pub use crate::{
     fadt::PowerProfile,
