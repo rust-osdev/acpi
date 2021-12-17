@@ -605,6 +605,8 @@ impl AmlValue {
 pub struct Args(pub [Option<AmlValue>; 7]);
 
 impl Args {
+    pub const EMPTY: Self = Self([None, None, None, None, None, None, None]);
+
     pub fn from_list(list: Vec<AmlValue>) -> Result<Args, AmlError> {
         use core::convert::TryInto;
 
