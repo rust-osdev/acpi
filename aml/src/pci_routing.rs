@@ -172,10 +172,10 @@ impl PciRoutingTable {
                 irq: gsi,
             }),
             PciRouteType::LinkObject(ref name) => {
-                let link_crs =
-                    context.namespace.get_by_path(&AmlName::from_str("_CRS").unwrap().resolve(name)?)?;
+                let path = AmlName::from_str("_CRS").unwrap().resolve(name)?;
+                let link_crs = context.invoke_method(&path, Args::EMPTY)?;
 
-                let resources = resource::resource_descriptor_list(link_crs)?;
+                let resources = resource::resource_descriptor_list(&link_crs)?;
                 match resources.as_slice() {
                     [Resource::Irq(descriptor)] => Ok(descriptor.clone()),
                     _ => Err(AmlError::UnexpectedResourceType),
