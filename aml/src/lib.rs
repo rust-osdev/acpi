@@ -1,21 +1,24 @@
 //! `aml` is a pure-Rust AML (ACPI Machine Language) parser, used for parsing the DSDT and
 //! SSDT tables from ACPI. This crate can be used by kernels to gather information about the
-//! hardware, and invoke control methods (this is not yet supported) to query and change the state
-//! of devices in a hardware-independent way.
+//! hardware, and invoke control methods to query and change the state of devices in a
+//! hardware-independent way.
 //!
 //! ### Using the library
-//! To use the library, you will mostly interact with the `AmlContext` type. You should create an
-//! instance of this type using `AmlContext::new()`, and then pass it tables containing AML
-//! (probably from the `acpi` crate), which you've mapped into the virtual address space. This will
-//! parse the table, populating the namespace with objects encoded by the AML. After this, you may
-//! unmap the memory the table was mapped into - all the information needed will be extracted and
-//! allocated on the heap.
+//! To use the library, you should create an instance of this type using `AmlContext::new()`, and
+//! then pass it tables containing AML (probably from the `acpi` crate), which you've mapped into
+//! the virtual address space. This will parse the table, populating the namespace with objects
+//! encoded by the AML. After this, you may unmap the memory the table was mapped into - all the
+//! information needed will be extracted and allocated on the heap.
 //!
 //! You can then access specific objects by name like so: e.g.
 //! ```ignore
 //! let my_aml_value = aml_context.lookup(&AmlName::from_str("\\_SB.PCI0.S08._ADR").unwrap());
 //! ```
-// TODO: add example of invoking a method
+//!
+//! And invoke control methods like this: e.g.
+//! ```ignore
+//! let result = aml_context.invoke_method(&AmlName::from_str("\\_SB.HPET._CRS").unwrap(), value::Args::EMPTY);
+//! ```
 //!
 //! ### About the parser
 //! The parser is written using a set of custom parser combinators - the code can be confusing on
