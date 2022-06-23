@@ -66,10 +66,10 @@ impl Mcfg {
         // (see rust-osdev/acpi#58)
         let num_entries = length / mem::size_of::<McfgEntry>();
 
-        unsafe {
-            let pointer = (self as *const Mcfg as *const u8).add(mem::size_of::<Mcfg>()) as *const McfgEntry;
+        
+            let pointer = unsafe { (self as *const Mcfg as *const u8).add(mem::size_of::<Mcfg>()) as *const McfgEntry };
             slice::from_raw_parts(pointer, num_entries)
-        }
+        
     }
 }
 
