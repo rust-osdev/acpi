@@ -57,7 +57,7 @@ impl HpetInfo {
     }
 
     pub fn num_comparators(&self) -> u8 {
-        self.event_timer_block_id.get_bits(8..13) as u8
+        self.event_timer_block_id.get_bits(8..13) as u8 + 1
     }
 
     pub fn main_counter_is_64bits(&self) -> bool {
