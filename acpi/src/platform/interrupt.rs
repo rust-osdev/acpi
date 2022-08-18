@@ -15,26 +15,39 @@ pub struct NmiLine {
     pub line: LocalInterruptLine,
 }
 
-#[derive(Debug)]
+/// Indicates which local interrupt line will be utilized by an external interrupt. Specifically,
+/// these lines directly correspond to their requisite LVT entries in a processor's APIC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalInterruptLine {
     Lint0,
     Lint1,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NmiProcessor {
     All,
     ProcessorUid(u32),
 }
 
-#[derive(Debug)]
+/// Polarity indicates what signal mode the interrupt line needs to be in to be considered 'active'.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Polarity {
     SameAsBus,
     ActiveHigh,
     ActiveLow,
 }
 
-#[derive(Debug)]
+/// Trigger mode of an interrupt, describing how the interrupt is triggered.
+///
+/// When an interrupt is `Edge` triggered, it is triggered exactly once, when the interrupt
+/// signal goes from its opposite polarity to its active polarity.
+///
+/// For `Level` triggered interrupts, a continuous signal is emitted so long as the interrupt
+/// is in its active polarity.
+///
+/// `SameAsBus`-triggered interrupts will utilize the same interrupt triggering as the system bus
+/// they communicate across.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerMode {
     SameAsBus,
     Edge,
