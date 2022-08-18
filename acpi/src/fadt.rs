@@ -256,7 +256,14 @@ impl Fadt {
         }
     }
 
+    /// Attempts to parse the FADT's PWM timer blocks, first returning the extended block, and falling back to
+    /// parsing the legacy block into a `GenericAddress`.
     pub fn pm_timer_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+        // ACPI spec indicates `PM_TMR_LEN` should be 4, or otherwise the PM_TMR is not supported.
+        if self.pm_timer_length != 4 {
+            return Ok(None);
+        }
+
         if let Some(raw) = unsafe { self.x_pm_timer_block.access(self.header().revision) } {
             if raw.address != 0x0 {
                 return Ok(Some(GenericAddress::from_raw(raw)?));
@@ -266,7 +273,7 @@ impl Fadt {
         if self.pm_timer_block != 0 {
             Ok(Some(GenericAddress {
                 address_space: AddressSpace::SystemIo,
-                bit_width: self.pm_timer_length * 8,
+                bit_width: 32,
                 bit_offset: 0,
                 access_size: AccessSize::Undefined,
                 address: self.pm_timer_block.into(),
