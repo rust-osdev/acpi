@@ -661,7 +661,7 @@ impl AmlContext {
     }
 }
 
-// TODO: docs
+/// Trait type used by [`AmlContext`] to handle reading and writing to various types of memory in the system.
 pub trait Handler: Send + Sync {
     fn read_u8(&self, address: usize) -> u8;
     fn read_u16(&self, address: usize) -> u16;
@@ -694,6 +694,7 @@ pub trait Handler: Send + Sync {
     }
 }
 
+/// Used when an [`AmlContext`] encounters an error.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AmlError {
     /*
