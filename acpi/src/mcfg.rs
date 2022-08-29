@@ -59,7 +59,11 @@ impl AcpiTable for Mcfg {
 }
 
 impl Mcfg {
-    fn entries(&self) -> &[McfgEntry] {
+    /// Creates a bare slice over the MCFG entry table.
+    ///
+    /// # Remark: It is suggested to construct and use the `PciConfigRegions` type instead, if possible, as it provides a
+    ///           safe wrapper around the PCI device memory.
+    pub fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
         // Intentionally round down in case length isn't an exact multiple of McfgEntry size
@@ -73,12 +77,13 @@ impl Mcfg {
     }
 }
 
+/// Entry type for the MCFG ACPI table.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct McfgEntry {
-    base_address: u64,
-    pci_segment_group: u16,
-    bus_number_start: u8,
-    bus_number_end: u8,
+    pub base_address: u64,
+    pub pci_segment_group: u16,
+    pub bus_number_start: u8,
+    pub bus_number_end: u8,
     _reserved: u32,
 }
