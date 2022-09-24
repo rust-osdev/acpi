@@ -10,7 +10,10 @@ pub struct PciConfigEntries<'a> {
 
 impl<'a> PciConfigEntries<'a> {
     /// Creates a new `PciConfigEntries` structure, encapsulating the relevant information about the system's PCI configuration space.
-    pub fn new<H: AcpiHandler>(tables: &'a AcpiTables<H>) -> Result<PciConfigEntries, AcpiError> {
+    pub fn new<H>(tables: &'a AcpiTables<H>) -> Result<PciConfigEntries, AcpiError>
+    where
+        H: AcpiHandler,
+    {
         let mcfg = unsafe {
             tables
                 .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?

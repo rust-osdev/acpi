@@ -160,16 +160,19 @@ where
     pub unsafe fn from_rsdt(handler: H, revision: u8, rsdt_address: usize) -> Result<AcpiTables<H>, AcpiError> {
         let mut result = AcpiTables { revision, sdts: BTreeMap::new(), dsdt: None, ssdts: Vec::new(), handler };
 
-        // Attempt to peek at the SDT header to correctly enumerate the entire RSDT or XSDT entry space.
         let mapping = {
-            let mapping = sdt::peek_at_sdt_header(&result.handler, rsdt_address);
+            // Attempt to peek at the SDT header to correctly enumerate the entire RSDT or XSDT entry space.
+            // SAFETY: `rsdt_address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
+            let mapping = unsafe {
+                result.handler.map_physical_region::<SdtHeader>(rsdt_address, core::mem::size_of::<SdtHeader>())
+            };
 
-            // If possible (if the existing mapping covers enough memory), resuse the existing physical to enumerate the entry space.
+            // If possible (if the existing mapping covers enough memory), resuse the existing physical mapping to enumerate the entry space.
             // This allows allocators/handlers that map in chunks larger than `size_of::<SdtHeader>()` to possibly be used more efficiently.
-            if mapping.mapped_length() < (mapping.length as usize) {
-                unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, mapping.length as usize) }
-            } else {
+            if mapping.mapped_length() >= (mapping.length as usize) {
                 mapping
+            } else {
+                unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, mapping.length as usize) }
             }
         };
 

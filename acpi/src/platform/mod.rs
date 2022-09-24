@@ -60,6 +60,18 @@ impl PmTimer {
     }
 }
 
+pub struct Pm1Event {
+    pm1a_status: GenericAddress,
+    pm1a_enable: GenericAddress,
+    pm1b_status: Option<GenericAddress>,
+    pm1b_enable: Option<GenericAddress>,
+}
+
+pub struct Pm1Control {
+    pm1a: GenericAddress,
+    pm1b: Option<GenericAddress>,
+}
+
 /// `PlatformInfo` allows the collection of some basic information about the platform from some of the fixed-size
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
@@ -70,6 +82,8 @@ pub struct PlatformInfo {
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo>,
     pub pm_timer: Option<PmTimer>,
+    pub pm1_event: Pm1Event,
+    pub pm1_control: Pm1Control,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
      */
