@@ -246,11 +246,13 @@ impl fmt::Debug for Signature {
 
 /// Takes the physical address of an SDT, and maps, clones and unmaps its header. Useful for
 /// finding out how big it is to map it correctly later.
-pub(crate) fn peek_at_sdt_header<H>(handler: &H, physical_address: usize) -> SdtHeader
+pub(crate) fn peek_at_sdt_header<H>(
+    handler: &H,
+    physical_address: usize,
+) -> rsdp::handler::PhysicalMapping<H, SdtHeader>
 where
     H: AcpiHandler,
 {
-    let mapping =
-        unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
-    *mapping
+    // SAFETY: Physical address is valid for the size of `SdtHeader`.
+    unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) }
 }

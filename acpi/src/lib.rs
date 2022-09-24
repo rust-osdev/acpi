@@ -67,7 +67,7 @@ pub use crate::{
     fadt::PowerProfile,
     hpet::HpetInfo,
     madt::MadtError,
-    mcfg::PciConfigRegions,
+    mcfg::PciConfigEntries,
     platform::{interrupt::InterruptModel, PlatformInfo},
 };
 pub use rsdp::{
@@ -160,9 +160,18 @@ where
     pub unsafe fn from_rsdt(handler: H, revision: u8, rsdt_address: usize) -> Result<AcpiTables<H>, AcpiError> {
         let mut result = AcpiTables { revision, sdts: BTreeMap::new(), dsdt: None, ssdts: Vec::new(), handler };
 
-        let header = sdt::peek_at_sdt_header(&result.handler, rsdt_address);
-        let mapping =
-            unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, header.length as usize) };
+        // Attempt to peek at the SDT header to correctly enumerate the entire RSDT or XSDT entry space.
+        let mapping = {
+            let mapping = sdt::peek_at_sdt_header(&result.handler, rsdt_address);
+
+            // If possible (if the existing mapping covers enough memory), resuse the existing physical to enumerate the entry space.
+            // This allows allocators/handlers that map in chunks larger than `size_of::<SdtHeader>()` to possibly be used more efficiently.
+            if mapping.mapped_length() < (mapping.length as usize) {
+                unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, mapping.length as usize) }
+            } else {
+                mapping
+            }
+        };
 
         if revision == 0 {
             /*
