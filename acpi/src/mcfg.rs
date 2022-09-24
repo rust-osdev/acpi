@@ -1,47 +1,61 @@
 use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
-use alloc::vec::Vec;
 use core::{mem, slice};
 
-/// Describes a set of regions of physical memory used to access the PCIe configuration space. A
-/// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
-/// function of a PCIe device, the `physical_address` method on this will give you the physical
-/// address of the start of that device function's configuration space (each function has 4096
-/// bytes of configuration space in PCIe).
+/// Describes a set of regions of physical memory used to access the PCIe configuration space. An
+/// entry is created for each entry in the MCFG.
 #[derive(Clone, Debug)]
-pub struct PciConfigRegions {
-    regions: Vec<McfgEntry>,
+pub struct PciConfigEntries<'a> {
+    entries: &'a [McfgEntry],
 }
 
-impl PciConfigRegions {
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
-    where
-        H: AcpiHandler,
-    {
+impl<'a> PciConfigEntries<'a> {
+    /// Creates a new `PciConfigEntries` structure, encapsulating the relevant information about the system's PCI configuration space.
+    pub fn new<H: AcpiHandler>(tables: &'a AcpiTables<H>) -> Result<PciConfigEntries, AcpiError> {
         let mcfg = unsafe {
             tables
                 .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
         };
-        Ok(PciConfigRegions { regions: mcfg.entries().iter().copied().collect() })
+
+        Ok({
+            let entries = mcfg.entries();
+            // SAFETY: We're simply reconstructing an existing slice to elide the local lifetime (for the higher-context
+            //         lifetime of the `AcpiTables<H>`, which this type is bound to via `'a`).
+            PciConfigEntries { entries: unsafe { core::slice::from_raw_parts(entries.as_ptr(), entries.len()) } }
+        })
     }
 
-    /// Get the physical address of the start of the configuration space for a given PCIe device
-    /// function. Returns `None` if there isn't an entry in the MCFG that manages that device.
-    pub fn physical_address(&self, segment_group_no: u16, bus: u8, device: u8, function: u8) -> Option<u64> {
-        // First, find the memory region that handles this segment and bus. This method is fine
-        // because there should only be one region that handles each segment group + bus
-        // combination.
-        let region = self.regions.iter().find(|region| {
-            region.pci_segment_group == segment_group_no
-                && (region.bus_number_start..=region.bus_number_end).contains(&bus)
-        })?;
+    /// Returns an iterator providing information about the system's present PCI busses.
+    pub const fn iter(&self) -> PciConfigEntryIterator {
+        PciConfigEntryIterator { entries: self.entries, index: 0 }
+    }
+}
 
-        Some(
-            region.base_address
-                + ((u64::from(bus - region.bus_number_start) << 20)
-                    | (u64::from(device) << 15)
-                    | (u64::from(function) << 12)),
-        )
+/// Configuration entry describing a valid bus range for the given PCI segment group.
+pub struct PciConfigEntry {
+    pub segment_group: u16,
+    pub bus_range: core::ops::RangeInclusive<u8>,
+    pub physical_address: usize,
+}
+
+/// Iterator providing a `PciConfigEntry` for all of the valid bus ranges on the system.
+pub struct PciConfigEntryIterator<'a> {
+    entries: &'a [McfgEntry],
+    index: usize,
+}
+
+impl Iterator for PciConfigEntryIterator<'_> {
+    type Item = PciConfigEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.entries.get(self.index)?;
+        self.index += 1;
+
+        Some(PciConfigEntry {
+            segment_group: entry.pci_segment_group,
+            bus_range: entry.bus_number_start..=entry.bus_number_end,
+            physical_address: entry.base_address as usize,
+        })
     }
 }
 
@@ -60,10 +74,7 @@ impl AcpiTable for Mcfg {
 
 impl Mcfg {
     /// Creates a bare slice over the MCFG entry table.
-    ///
-    /// # Remark: It is suggested to construct and use the `PciConfigRegions` type instead, if possible, as it provides a
-    ///           safe wrapper around the PCI device memory.
-    pub fn entries(&self) -> &[McfgEntry] {
+    fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
         // Intentionally round down in case length isn't an exact multiple of McfgEntry size
@@ -80,10 +91,10 @@ impl Mcfg {
 /// Entry type for the MCFG ACPI table.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
-pub struct McfgEntry {
-    pub base_address: u64,
-    pub pci_segment_group: u16,
-    pub bus_number_start: u8,
-    pub bus_number_end: u8,
+struct McfgEntry {
+    base_address: u64,
+    pci_segment_group: u16,
+    bus_number_start: u8,
+    bus_number_end: u8,
     _reserved: u32,
 }
