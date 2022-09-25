@@ -28,6 +28,25 @@ impl<'a> PciConfigEntries<'a> {
         })
     }
 
+    /// Get the physical address of the start of the configuration space for a given PCIe device
+    /// function. Returns `None` if there isn't an entry in the MCFG that manages that device.
+    pub fn physical_address(&self, segment_group_no: u16, bus: u8, device: u8, function: u8) -> Option<u64> {
+        // First, find the memory region that handles this segment and bus. This method is fine
+        // because there should only be one region that handles each segment group + bus
+        // combination.
+        let region = self.entries.iter().find(|region| {
+            region.pci_segment_group == segment_group_no
+                && (region.bus_number_start..=region.bus_number_end).contains(&bus)
+        })?;
+
+        Some(
+            region.base_address
+                + ((u64::from(bus - region.bus_number_start) << 20)
+                    | (u64::from(device) << 15)
+                    | (u64::from(function) << 12)),
+        )
+    }
+
     /// Returns an iterator providing information about the system's present PCI busses.
     pub const fn iter(&self) -> PciConfigEntryIterator {
         PciConfigEntryIterator { entries: self.entries, index: 0 }
