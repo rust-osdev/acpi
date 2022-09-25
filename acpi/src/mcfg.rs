@@ -4,13 +4,13 @@ use core::{mem, slice};
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. An
 /// entry is created for each entry in the MCFG.
 #[derive(Clone, Debug)]
-pub struct PciConfigEntries<'a> {
+pub struct PciConfig<'a> {
     entries: &'a [McfgEntry],
 }
 
-impl<'a> PciConfigEntries<'a> {
+impl<'a> PciConfig<'a> {
     /// Creates a new `PciConfigEntries` structure, encapsulating the relevant information about the system's PCI configuration space.
-    pub fn new<H>(tables: &'a AcpiTables<H>) -> Result<PciConfigEntries, AcpiError>
+    pub fn new<H>(tables: &'a AcpiTables<H>) -> Result<PciConfig, AcpiError>
     where
         H: AcpiHandler,
     {
@@ -24,7 +24,7 @@ impl<'a> PciConfigEntries<'a> {
             let entries = mcfg.entries();
             // SAFETY: We're simply reconstructing an existing slice to elide the local lifetime (for the higher-context
             //         lifetime of the `AcpiTables<H>`, which this type is bound to via `'a`).
-            PciConfigEntries { entries: unsafe { core::slice::from_raw_parts(entries.as_ptr(), entries.len()) } }
+            PciConfig { entries: unsafe { core::slice::from_raw_parts(entries.as_ptr(), entries.len()) } }
         })
     }
 
