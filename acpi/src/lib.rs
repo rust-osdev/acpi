@@ -172,11 +172,12 @@ where
             if mapping.mapped_length() >= (mapping.length as usize) {
                 mapping
             } else {
+                let sdt_length = mapping.length;
                 // Drop the old mapping here, to ensure it's unmapped in software before requesting an overlapping mapping.
                 drop(mapping);
 
                 // SAFETY: Same as above safety message.
-                unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, mapping.length as usize) }
+                unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, sdt_length as usize) }
             }
         };
 

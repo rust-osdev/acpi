@@ -1,31 +1,23 @@
+use rsdp::handler::PhysicalMapping;
+
 use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
 use core::{mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. An
 /// entry is created for each entry in the MCFG.
-#[derive(Clone, Debug)]
-pub struct PciConfig<'a> {
-    entries: &'a [McfgEntry],
-}
+pub struct PciConfig<H: AcpiHandler>(PhysicalMapping<H, Mcfg>);
 
-impl<'a> PciConfig<'a> {
+impl<H> PciConfig<H>
+where
+    H: AcpiHandler,
+{
     /// Creates a new `PciConfigEntries` structure, encapsulating the relevant information about the system's PCI configuration space.
-    pub fn new<H>(tables: &'a AcpiTables<H>) -> Result<PciConfig, AcpiError>
-    where
-        H: AcpiHandler,
-    {
-        let mcfg = unsafe {
+    pub fn new(tables: &AcpiTables<H>) -> Result<Self, AcpiError> {
+        Ok(Self(unsafe {
             tables
                 .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
-        };
-
-        Ok({
-            let entries = mcfg.entries();
-            // SAFETY: We're simply reconstructing an existing slice to elide the local lifetime (for the higher-context
-            //         lifetime of the `AcpiTables<H>`, which this type is bound to via `'a`).
-            PciConfig { entries: unsafe { core::slice::from_raw_parts(entries.as_ptr(), entries.len()) } }
-        })
+        }))
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -34,7 +26,7 @@ impl<'a> PciConfig<'a> {
         // First, find the memory region that handles this segment and bus. This method is fine
         // because there should only be one region that handles each segment group + bus
         // combination.
-        let region = self.entries.iter().find(|region| {
+        let region = self.0.entries().iter().find(|region| {
             region.pci_segment_group == segment_group_no
                 && (region.bus_number_start..=region.bus_number_end).contains(&bus)
         })?;
@@ -48,8 +40,8 @@ impl<'a> PciConfig<'a> {
     }
 
     /// Returns an iterator providing information about the system's present PCI busses.
-    pub const fn iter(&self) -> PciConfigEntryIterator {
-        PciConfigEntryIterator { entries: self.entries, index: 0 }
+    pub fn iter(&self) -> PciConfigEntryIterator {
+        PciConfigEntryIterator { entries: self.0.entries(), index: 0 }
     }
 }
 
