@@ -11,7 +11,8 @@ impl<H> PciConfig<H>
 where
     H: AcpiHandler,
 {
-    /// Creates a new `PciConfigEntries` structure, encapsulating the relevant information about the system's PCI configuration space.
+    /// Creates a new [`PciConfig`] structure, encapsulating the relevant information about the system's
+    /// PCIe configuration space.
     pub fn new(tables: &AcpiTables<H>) -> Result<Self, AcpiError> {
         Ok(Self(unsafe {
             tables
@@ -40,6 +41,7 @@ where
     }
 
     /// Returns an iterator providing information about the system's present PCI busses.
+    /// This is roughly equivalent to manually iterating the system's MCFG table.
     pub fn iter(&self) -> PciConfigEntryIterator {
         PciConfigEntryIterator { entries: self.0.entries(), index: 0 }
     }
@@ -52,7 +54,7 @@ pub struct PciConfigEntry {
     pub physical_address: usize,
 }
 
-/// Iterator providing a `PciConfigEntry` for all of the valid bus ranges on the system.
+/// Iterator providing a [`PciConfigEntry`] for all of the valid bus ranges on the system.
 pub struct PciConfigEntryIterator<'a> {
     entries: &'a [McfgEntry],
     index: usize,
