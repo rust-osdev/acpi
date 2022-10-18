@@ -50,6 +50,7 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -76,6 +77,7 @@ pub use rsdp::{
 };
 
 use crate::sdt::{SdtHeader, Signature};
+#[cfg(feature = "alloc")]
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::mem;
 use log::trace;
@@ -103,8 +105,11 @@ where
 {
     /// The revision of ACPI that the system uses, as inferred from the revision of the RSDT/XSDT.
     pub revision: u8,
+    #[cfg(feature = "alloc")]
     pub sdts: BTreeMap<sdt::Signature, Sdt>,
+    #[cfg(feature = "alloc")]
     pub dsdt: Option<AmlTable>,
+    #[cfg(feature = "alloc")]
     pub ssdts: Vec<AmlTable>,
     handler: H,
 }
