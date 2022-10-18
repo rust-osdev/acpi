@@ -3,7 +3,7 @@ use core::{fmt, mem, mem::MaybeUninit, str};
 
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
 /// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct ExtendedField<T: Copy, const MIN_REVISION: u8>(MaybeUninit<T>);
 
@@ -95,7 +95,7 @@ impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
 /// * WPBT - Windows Platform Binary Table
 /// * WSMT - Windows Security Mitigations Table
 /// * XENV - Xen Project
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
     pub signature: Signature,

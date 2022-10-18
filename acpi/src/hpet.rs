@@ -74,6 +74,7 @@ impl HpetInfo {
 }
 
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 pub struct HpetTable {
     /// The contents of the HPET's 'General Capabilities and ID register'
     header: SdtHeader,

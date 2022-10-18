@@ -73,6 +73,12 @@ impl Mcfg {
     }
 }
 
+impl core::fmt::Debug for Mcfg {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.debug_struct("Mcfg").field("header", &self.header).field("entries", &self.entries()).finish()
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct McfgEntry {
