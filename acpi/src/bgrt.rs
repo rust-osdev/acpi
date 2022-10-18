@@ -4,7 +4,7 @@ use bit_field::BitField;
 /// The BGRT table contains information about a boot graphic that was displayed
 /// by firmware.
 #[repr(C, packed)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Bgrt {
     header: SdtHeader,
     pub version: u16,

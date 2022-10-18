@@ -28,6 +28,7 @@ pub enum PowerProfile {
 /// always prefer the 64-bit one. Only if it's zero or the CPU will not allow us to access that
 /// address should the 32-bit one be used.
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 pub struct Fadt {
     header: SdtHeader,
 
@@ -344,7 +345,7 @@ impl Fadt {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FixedFeatureFlags(u32);
 
 impl FixedFeatureFlags {
@@ -464,7 +465,7 @@ impl FixedFeatureFlags {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct IaPcBootArchFlags(u16);
 
 impl IaPcBootArchFlags {
@@ -501,7 +502,7 @@ impl IaPcBootArchFlags {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ArmBootArchFlags(u16);
 
 impl ArmBootArchFlags {

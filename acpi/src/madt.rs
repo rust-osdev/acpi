@@ -42,6 +42,7 @@ pub enum MadtError {
 ///     * The Streamlined Advanced Programmable Interrupt Controller (SAPIC) model (for Itanium systems)
 ///     * The Generic Interrupt Controller (GIC) model (for ARM systems)
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 pub struct Madt {
     header: SdtHeader,
     local_apic_address: u32,
@@ -270,6 +271,7 @@ impl Madt {
     }
 }
 
+#[derive(Debug)]
 pub struct MadtEntryIter<'a> {
     pointer: *const u8,
     /*
@@ -280,6 +282,7 @@ pub struct MadtEntryIter<'a> {
     _phantom: PhantomData<&'a ()>,
 }
 
+#[derive(Debug)]
 pub enum MadtEntry<'a> {
     LocalApic(&'a LocalApicEntry),
     IoApic(&'a IoApicEntry),
@@ -368,13 +371,14 @@ impl<'a> Iterator for MadtEntryIter<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct EntryHeader {
     entry_type: u8,
     length: u8,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalApicEntry {
     header: EntryHeader,
@@ -383,6 +387,7 @@ pub struct LocalApicEntry {
     flags: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct IoApicEntry {
     header: EntryHeader,
@@ -392,6 +397,7 @@ pub struct IoApicEntry {
     global_system_interrupt_base: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct InterruptSourceOverrideEntry {
     header: EntryHeader,
@@ -401,6 +407,7 @@ pub struct InterruptSourceOverrideEntry {
     flags: u16,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct NmiSourceEntry {
     header: EntryHeader,
@@ -408,6 +415,7 @@ pub struct NmiSourceEntry {
     global_system_interrupt: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalApicNmiEntry {
     header: EntryHeader,
@@ -416,6 +424,7 @@ pub struct LocalApicNmiEntry {
     nmi_line: u8, // Describes which LINTn is the NMI connected to
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalApicAddressOverrideEntry {
     header: EntryHeader,
@@ -425,6 +434,7 @@ pub struct LocalApicAddressOverrideEntry {
 
 /// If this entry is present, the system has an I/O SAPIC, which must be used instead of the I/O
 /// APIC.
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct IoSapicEntry {
     header: EntryHeader,
@@ -434,6 +444,7 @@ pub struct IoSapicEntry {
     io_sapic_address: u64,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalSapicEntry {
     header: EntryHeader,
@@ -451,6 +462,7 @@ pub struct LocalSapicEntry {
     processor_uid_string: u8,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct PlatformInterruptSourceEntry {
     header: EntryHeader,
@@ -463,6 +475,7 @@ pub struct PlatformInterruptSourceEntry {
     platform_interrupt_source_flags: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalX2ApicEntry {
     header: EntryHeader,
@@ -472,6 +485,7 @@ pub struct LocalX2ApicEntry {
     processor_uid: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct X2ApicNmiEntry {
     header: EntryHeader,
@@ -484,6 +498,7 @@ pub struct X2ApicNmiEntry {
 /// This field will appear for ARM processors that support ACPI and use the Generic Interrupt
 /// Controller. In the GICC interrupt model, each logical process has a Processor Device object in
 /// the namespace, and uses this structure to convey its GIC information.
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GiccEntry {
     header: EntryHeader,
@@ -503,6 +518,7 @@ pub struct GiccEntry {
     _reserved2: [u8; 3],
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicdEntry {
     header: EntryHeader,
@@ -522,6 +538,7 @@ pub struct GicdEntry {
     _reserved2: [u8; 3],
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicMsiFrameEntry {
     header: EntryHeader,
@@ -533,6 +550,7 @@ pub struct GicMsiFrameEntry {
     spi_base: u16,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicRedistributorEntry {
     header: EntryHeader,
@@ -541,6 +559,7 @@ pub struct GicRedistributorEntry {
     discovery_range_length: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicInterruptTranslationServiceEntry {
     header: EntryHeader,
@@ -550,6 +569,7 @@ pub struct GicInterruptTranslationServiceEntry {
     _reserved2: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct MultiprocessorWakeupEntry {
     header: EntryHeader,

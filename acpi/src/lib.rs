@@ -97,6 +97,7 @@ pub enum AcpiError {
     InvalidGenericAddress,
 }
 
+#[derive(Debug)]
 pub struct AcpiTables<H>
 where
     H: AcpiHandler,
@@ -281,6 +282,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct Sdt {
     /// Physical address of the start of the SDT, including the header.
     pub physical_address: usize,
