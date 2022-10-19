@@ -99,6 +99,19 @@ pub enum AcpiError {
     InvalidGenericAddress,
 }
 
+pub struct RsdpReader<H: AcpiHandler> {
+    mapping: PhysicalMapping<H, Rsdp>,
+}
+
+impl<H: AcpiHandler> RsdpReader<H> {
+    pub fn from_address(address: usize) -> Result<Self, AcpiError> {
+        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
+        rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
+
+        Self::from_validated_rsdp(handler, rsdp_mapping)
+    }
+}
+
 pub struct AcpiTables<H>
 where
     H: AcpiHandler,
