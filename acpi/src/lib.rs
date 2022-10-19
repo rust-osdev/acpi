@@ -50,7 +50,6 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-#[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -77,9 +76,9 @@ pub use rsdp::{
 };
 
 use crate::sdt::{SdtHeader, Signature};
-#[cfg(feature = "alloc")]
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::mem;
+#[cfg(feature = "logging")]
 use log::trace;
 use rsdp::Rsdp;
 
@@ -137,14 +136,16 @@ pub unsafe fn from_validated_rsdp<H: AcpiHandler>(
         /*
          * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
          */
-        let mapping = read_table(handler, rsdp_mapping.rsdt_address() as usize)?;
+        // SAFETY: Addresses from a validated `RSDP` are also guaranteed to be valid.
+        let mapping = unsafe { read_table(handler, rsdp_mapping.rsdt_address() as usize)? };
         Ok(RootTable::Rsdt(mapping))
     } else {
         /*
          * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
          * to 32 bits on x86.
          */
-        let mapping = read_table(handler, rsdp_mapping.xsdt_address() as usize)?;
+        // SAFETY: Addresses from a validated `RSDP` are also guaranteed to be valid.
+        let mapping = unsafe { read_table(handler, rsdp_mapping.xsdt_address() as usize)? };
         Ok(RootTable::Xsdt(mapping))
     }
 }
@@ -188,11 +189,8 @@ where
 {
     /// The revision of ACPI that the system uses, as inferred from the revision of the RSDT/XSDT.
     pub revision: u8,
-    #[cfg(feature = "alloc")]
     pub sdts: BTreeMap<sdt::Signature, Sdt>,
-    #[cfg(feature = "alloc")]
     pub dsdt: Option<AmlTable>,
-    #[cfg(feature = "alloc")]
     pub ssdts: Vec<AmlTable>,
     handler: H,
 }
@@ -315,6 +313,7 @@ where
 
     fn process_sdt(&mut self, physical_address: usize) -> Result<(), AcpiError> {
         let header = sdt::peek_at_sdt_header(&self.handler, physical_address);
+        #[cfg(feature = "logging")]
         trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, { header.length });
 
         match header.signature {

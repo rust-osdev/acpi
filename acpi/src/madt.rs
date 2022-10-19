@@ -159,6 +159,7 @@ impl Madt {
                         (true, false) => ProcessorState::WaitingForSipi,
                         (false, false) => ProcessorState::Running,
                     };
+                    #[cfg(feature = "logging")]
                     log::info!("Found X2APIC in MADT!");
 
                     let processor = Processor {
