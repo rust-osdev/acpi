@@ -99,16 +99,86 @@ pub enum AcpiError {
     InvalidGenericAddress,
 }
 
-pub struct RsdpReader<H: AcpiHandler> {
-    mapping: PhysicalMapping<H, Rsdp>,
+#[repr(C, packed)]
+pub struct Rsdt {
+    header: SdtHeader,
 }
 
-impl<H: AcpiHandler> RsdpReader<H> {
-    pub fn from_address(address: usize) -> Result<Self, AcpiError> {
-        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
-        rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
+#[repr(C, packed)]
+pub struct Xsdt {
+    header: SdtHeader,
+}
 
-        Self::from_validated_rsdp(handler, rsdp_mapping)
+pub enum RootTable<H: AcpiHandler> {
+    Rsdt(PhysicalMapping<H, Rsdt>),
+    Xsdt(PhysicalMapping<H, Xsdt>),
+}
+
+pub fn from_rsdp_address<H: AcpiHandler>(handler: H, address: usize) -> Result<RootTable<H>, AcpiError> {
+    let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
+    rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
+
+    // SAFETY: `RSDP` has been validated.
+    unsafe { from_validated_rsdp(handler, rsdp_mapping) }
+}
+
+/// Create an `RsdpReader` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
+/// from `from_address` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
+/// system.
+///
+/// SAFETY: Caller must ensure that the provided mapping is a fully validated RSDP.
+pub unsafe fn from_validated_rsdp<H: AcpiHandler>(
+    handler: H,
+    rsdp_mapping: PhysicalMapping<H, Rsdp>,
+) -> Result<RootTable<H>, AcpiError> {
+    let revision = rsdp_mapping.revision();
+
+    if revision == 0 {
+        /*
+         * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
+         */
+        let mapping = read_table(handler, rsdp_mapping.rsdt_address() as usize)?;
+        Ok(RootTable::Rsdt(mapping))
+    } else {
+        /*
+         * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
+         * to 32 bits on x86.
+         */
+        let mapping = read_table(handler, rsdp_mapping.xsdt_address() as usize)?;
+        Ok(RootTable::Xsdt(mapping))
+    }
+}
+
+// SAFETY: Caller must ensure the provided address is valid for being read as an `SdtHeader`.
+unsafe fn read_table<H: AcpiHandler, T>(handler: H, address: usize) -> Result<PhysicalMapping<H, T>, AcpiError> {
+    // Attempt to peek at the SDT header to correctly enumerate the entire table.
+    // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
+    let mapping = unsafe { handler.map_physical_region::<SdtHeader>(address, core::mem::size_of::<SdtHeader>()) };
+
+    // If possible (if the existing mapping covers enough memory), resuse the existing physical mapping.
+    // This allows allocators/handlers that map in chunks larger than `size_of::<SdtHeader>()` to be used more efficiently.
+    if mapping.mapped_length() >= (mapping.length as usize) {
+        // SAFETY: Pointer is known non-null.
+        let virtual_start =
+            unsafe { core::ptr::NonNull::new_unchecked(mapping.virtual_start().as_ptr() as *mut _) };
+
+        // SAFETY: Mapping is known-good and validated.
+        Ok(unsafe {
+            PhysicalMapping::new(
+                mapping.physical_start(),
+                virtual_start,
+                mapping.region_length(),
+                mapping.mapped_length(),
+                handler,
+            )
+        })
+    } else {
+        let sdt_length = mapping.length;
+        // Drop the old mapping here, to ensure it's unmapped in software before requesting an overlapping mapping.
+        drop(mapping);
+
+        // SAFETY: Address and length are already known-good.
+        Ok(unsafe { handler.map_physical_region(address, sdt_length as usize) })
     }
 }
 
