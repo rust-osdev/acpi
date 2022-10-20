@@ -1,4 +1,8 @@
-use crate::{platform::address::RawGenericAddress, sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
+use crate::{platform::address::RawGenericAddress, sdt::SdtHeader, AcpiTable};
+
+#[cfg(feature = "alloc")]
+use crate::{AcpiError, AcpiHandler, AcpiTables};
+#[cfg(feature = "alloc")]
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -12,6 +16,7 @@ pub enum PageProtection {
 }
 
 /// Information about the High Precision Event Timer (HPET)
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct HpetInfo {
     // TODO(3.0.0): unpack these fields directly, and get rid of methods
@@ -23,6 +28,7 @@ pub struct HpetInfo {
     pub page_protection: PageProtection,
 }
 
+#[cfg(feature = "alloc")]
 impl HpetInfo {
     pub fn new<H>(tables: &AcpiTables<H>) -> Result<HpetInfo, AcpiError>
     where

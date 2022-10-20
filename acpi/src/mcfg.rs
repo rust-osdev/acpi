@@ -1,12 +1,17 @@
+#[cfg(feature = "alloc")]
+use crate::{AcpiError, AcpiHandler, AcpiTables};
+#[cfg(feature = "alloc")]
 use rsdp::handler::PhysicalMapping;
 
-use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
+use crate::{sdt::SdtHeader, AcpiTable};
 use core::{mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. An
 /// entry is created for each entry in the MCFG.
+#[cfg(feature = "alloc")]
 pub struct PciConfig<H: AcpiHandler>(PhysicalMapping<H, Mcfg>);
 
+#[cfg(feature = "alloc")]
 impl<H> PciConfig<H>
 where
     H: AcpiHandler,

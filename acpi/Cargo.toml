@@ -15,5 +15,6 @@ rsdp = { version = "2", path = "../rsdp" }
 log = { version = "0.4", optional = true }
 
 [features]
-default = ["logging"]
+default = ["logging", "alloc"]
 logging = ["log"]
+alloc = []

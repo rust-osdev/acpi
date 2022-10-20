@@ -1,10 +1,13 @@
 pub mod address;
 pub mod interrupt;
 
-use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
-use address::GenericAddress;
+#[cfg(feature = "alloc")]
+use crate::{madt::Madt, AcpiHandler, AcpiTables, InterruptModel, PowerProfile};
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
-use interrupt::InterruptModel;
+
+use crate::{fadt::Fadt, AcpiError};
+use address::GenericAddress;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
@@ -37,6 +40,7 @@ pub struct Processor {
     pub is_ap: bool,
 }
 
+#[cfg(feature = "alloc")]
 pub struct ProcessorInfo {
     pub boot_processor: Processor,
     /// Application processors should be brought up in the order they're defined in this list.
@@ -63,6 +67,7 @@ impl PmTimer {
 /// `PlatformInfo` allows the collection of some basic information about the platform from some of the fixed-size
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
+#[cfg(feature = "alloc")]
 pub struct PlatformInfo {
     pub power_profile: PowerProfile,
     pub interrupt_model: InterruptModel,
@@ -75,6 +80,7 @@ pub struct PlatformInfo {
      */
 }
 
+#[cfg(feature = "alloc")]
 impl PlatformInfo {
     pub fn new<H>(tables: &AcpiTables<H>) -> Result<PlatformInfo, AcpiError>
     where

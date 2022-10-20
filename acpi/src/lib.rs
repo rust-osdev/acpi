@@ -50,7 +50,9 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(feature = "alloc")]
 extern crate alloc;
+
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
@@ -63,23 +65,23 @@ pub mod mcfg;
 pub mod platform;
 pub mod sdt;
 
-pub use crate::{
-    fadt::PowerProfile,
-    hpet::HpetInfo,
-    madt::MadtError,
-    mcfg::PciConfig,
-    platform::{interrupt::InterruptModel, PlatformInfo},
-};
+pub use crate::{fadt::PowerProfile, madt::MadtError};
 pub use rsdp::{
     handler::{AcpiHandler, PhysicalMapping},
     RsdpError,
 };
 
-use crate::sdt::{SdtHeader, Signature};
+#[cfg(feature = "alloc")]
+pub use crate::{
+    hpet::HpetInfo,
+    mcfg::PciConfig,
+    platform::{interrupt::InterruptModel, PlatformInfo},
+};
+#[cfg(feature = "alloc")]
 use alloc::{collections::BTreeMap, vec::Vec};
+
+use crate::sdt::{SdtHeader, Signature};
 use core::mem;
-#[cfg(feature = "logging")]
-use log::trace;
 use rsdp::Rsdp;
 
 #[derive(Debug)]
@@ -100,14 +102,14 @@ pub enum AcpiError {
 
 pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
 
-pub struct RootTable<H: AcpiHandler> {
+pub struct RootSdt<H: AcpiHandler> {
     mapping: PhysicalMapping<H, SdtHeader>,
     revision: u8,
     handler: H,
 }
 
-impl<H: AcpiHandler> RootTable<H> {
-    pub fn from_rsdp_address(handler: H, address: usize) -> AcpiResult<RootTable<H>> {
+impl<H: AcpiHandler> RootSdt<H> {
+    pub fn from_rsdp_address(handler: H, address: usize) -> AcpiResult<RootSdt<H>> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
         rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
 
@@ -123,7 +125,7 @@ impl<H: AcpiHandler> RootTable<H> {
     pub unsafe fn from_validated_rsdp(
         handler: H,
         rsdp_mapping: PhysicalMapping<H, Rsdp>,
-    ) -> AcpiResult<RootTable<H>> {
+    ) -> AcpiResult<RootSdt<H>> {
         let revision = rsdp_mapping.revision();
 
         if revision == 0 {
@@ -140,7 +142,7 @@ impl<H: AcpiHandler> RootTable<H> {
             };
             rsdt_mapping.validate(Signature::RSDT)?;
 
-            Ok(RootTable { mapping: rsdt_mapping, revision, handler })
+            Ok(RootSdt { mapping: rsdt_mapping, revision, handler })
         } else {
             /*
              * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
@@ -156,7 +158,7 @@ impl<H: AcpiHandler> RootTable<H> {
             };
             xsdt_mapping.validate(Signature::XSDT)?;
 
-            Ok(RootTable { mapping: xsdt_mapping, revision, handler })
+            Ok(RootSdt { mapping: xsdt_mapping, revision, handler })
         }
     }
 
@@ -199,6 +201,7 @@ impl<H: AcpiHandler> RootTable<H> {
     }
 }
 
+#[cfg(feature = "alloc")]
 pub struct AcpiTables<H>
 where
     H: AcpiHandler,
@@ -211,6 +214,7 @@ where
     handler: H,
 }
 
+#[cfg(feature = "alloc")]
 impl<H> AcpiTables<H>
 where
     H: AcpiHandler,
@@ -327,7 +331,7 @@ where
     fn process_sdt(&mut self, physical_address: usize) -> Result<(), AcpiError> {
         let header = sdt::peek_at_sdt_header(&self.handler, physical_address);
         #[cfg(feature = "logging")]
-        trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, { header.length });
+        log::trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, { header.length });
 
         match header.signature {
             Signature::FADT => {
@@ -428,6 +432,7 @@ pub struct AmlTable {
 
 impl AmlTable {
     /// Create an `AmlTable` from the address and length of the table **including the SDT header**.
+    #[cfg(feature = "alloc")]
     pub(crate) fn new(address: usize, length: u32) -> AmlTable {
         AmlTable {
             address: address + mem::size_of::<SdtHeader>(),

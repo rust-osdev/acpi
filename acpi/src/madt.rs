@@ -1,28 +1,30 @@
 use crate::{
-    platform::{
-        interrupt::{
-            Apic,
-            InterruptModel,
-            InterruptSourceOverride,
-            IoApic,
-            LocalInterruptLine,
-            NmiLine,
-            NmiProcessor,
-            NmiSource,
-            Polarity,
-            TriggerMode,
-        },
-        Processor,
-        ProcessorInfo,
-        ProcessorState,
-    },
+    platform::interrupt::{Polarity, TriggerMode},
     sdt::SdtHeader,
     AcpiError,
     AcpiTable,
 };
-use alloc::vec::Vec;
 use bit_field::BitField;
 use core::{marker::PhantomData, mem};
+
+#[cfg(feature = "alloc")]
+use crate::platform::{
+    interrupt::{
+        Apic,
+        InterruptModel,
+        InterruptSourceOverride,
+        IoApic,
+        LocalInterruptLine,
+        NmiLine,
+        NmiProcessor,
+        NmiSource,
+    },
+    Processor,
+    ProcessorInfo,
+    ProcessorState,
+};
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
 
 #[derive(Debug)]
 pub enum MadtError {
@@ -57,6 +59,7 @@ impl AcpiTable for Madt {
 }
 
 impl Madt {
+    #[cfg(feature = "alloc")]
     pub fn parse_interrupt_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
         /*
          * We first do a pass through the MADT to determine which interrupt model is being used.
@@ -95,6 +98,7 @@ impl Madt {
         Ok((InterruptModel::Unknown, None))
     }
 
+    #[cfg(feature = "alloc")]
     fn parse_apic_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
         let mut local_apic_address = self.local_apic_address as u64;
         let mut io_apic_count = 0;

@@ -1,3 +1,4 @@
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 
 #[derive(Debug)]
@@ -75,6 +76,7 @@ pub struct NmiSource {
     pub trigger_mode: TriggerMode,
 }
 
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 pub struct Apic {
     pub local_apic_address: u64,
@@ -89,6 +91,7 @@ pub struct Apic {
     pub also_has_legacy_pics: bool,
 }
 
+#[cfg(feature = "alloc")]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum InterruptModel {
