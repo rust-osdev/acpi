@@ -100,32 +100,6 @@ pub enum AcpiError {
 
 pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
 
-#[repr(C)]
-pub struct Rsdt {
-    header: SdtHeader,
-}
-
-impl AcpiTable for Rsdt {
-    const SIGNATURE: Signature = Signature::RSDT;
-
-    fn header(&self) -> &sdt::SdtHeader {
-        &self.header
-    }
-}
-
-#[repr(C)]
-pub struct Xsdt {
-    header: SdtHeader,
-}
-
-impl AcpiTable for Xsdt {
-    const SIGNATURE: Signature = Signature::XSDT;
-
-    fn header(&self) -> &sdt::SdtHeader {
-        &self.header
-    }
-}
-
 pub struct RootTable<H: AcpiHandler> {
     mapping: PhysicalMapping<H, SdtHeader>,
     revision: u8,
