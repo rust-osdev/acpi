@@ -135,7 +135,10 @@ impl SdtHeader {
         let self_ptr = self as *const SdtHeader as *const u8;
         let mut sum: u8 = 0;
         for i in 0..self.length {
-            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) } as u8);
+            sum = sum.wrapping_add(
+                // SAFETY: Table length is known-good for byte-sized reads.
+                unsafe { self_ptr.offset(i as isize).read_unaligned() },
+            );
         }
 
         if sum > 0 {

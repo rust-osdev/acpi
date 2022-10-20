@@ -49,6 +49,8 @@ pub struct Madt {
 }
 
 impl AcpiTable for Madt {
+    const SIGNATURE: crate::Signature = crate::Signature::MADT;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }

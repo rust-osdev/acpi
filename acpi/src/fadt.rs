@@ -115,6 +115,8 @@ pub struct Fadt {
 }
 
 impl AcpiTable for Fadt {
+    const SIGNATURE: crate::Signature = crate::Signature::FADT;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
