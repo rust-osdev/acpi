@@ -67,7 +67,7 @@ pub use crate::{
     fadt::PowerProfile,
     hpet::HpetInfo,
     madt::MadtError,
-    mcfg::PciConfigRegions,
+    mcfg::PciConfig,
     platform::{interrupt::InterruptModel, PlatformInfo},
 };
 pub use rsdp::{

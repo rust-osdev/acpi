@@ -1,28 +1,23 @@
 use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
-use alloc::vec::Vec;
 use core::{mem, slice};
+use rsdp::handler::PhysicalMapping;
 
-/// Describes a set of regions of physical memory used to access the PCIe configuration space. A
-/// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
-/// function of a PCIe device, the `physical_address` method on this will give you the physical
-/// address of the start of that device function's configuration space (each function has 4096
-/// bytes of configuration space in PCIe).
-#[derive(Clone, Debug)]
-pub struct PciConfigRegions {
-    regions: Vec<McfgEntry>,
-}
+/// Describes a set of regions of physical memory used to access the PCIe configuration space. An
+/// entry is created for each entry in the MCFG.
+pub struct PciConfig<H: AcpiHandler>(PhysicalMapping<H, Mcfg>);
 
-impl PciConfigRegions {
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
-    where
-        H: AcpiHandler,
-    {
-        let mcfg = unsafe {
+impl<H> PciConfig<H>
+where
+    H: AcpiHandler,
+{
+    /// Creates a new [`PciConfig`] structure, encapsulating the relevant information about the system's
+    /// PCIe configuration space.
+    pub fn new(tables: &AcpiTables<H>) -> Result<Self, AcpiError> {
+        Ok(Self(unsafe {
             tables
                 .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
                 .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
-        };
-        Ok(PciConfigRegions { regions: mcfg.entries().iter().copied().collect() })
+        }))
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -31,7 +26,7 @@ impl PciConfigRegions {
         // First, find the memory region that handles this segment and bus. This method is fine
         // because there should only be one region that handles each segment group + bus
         // combination.
-        let region = self.regions.iter().find(|region| {
+        let region = self.0.entries().iter().find(|region| {
             region.pci_segment_group == segment_group_no
                 && (region.bus_number_start..=region.bus_number_end).contains(&bus)
         })?;
@@ -42,6 +37,40 @@ impl PciConfigRegions {
                     | (u64::from(device) << 15)
                     | (u64::from(function) << 12)),
         )
+    }
+
+    /// Returns an iterator providing information about the system's present PCI busses.
+    /// This is roughly equivalent to manually iterating the system's MCFG table.
+    pub fn iter(&self) -> PciConfigEntryIterator {
+        PciConfigEntryIterator { entries: self.0.entries(), index: 0 }
+    }
+}
+
+/// Configuration entry describing a valid bus range for the given PCI segment group.
+pub struct PciConfigEntry {
+    pub segment_group: u16,
+    pub bus_range: core::ops::RangeInclusive<u8>,
+    pub physical_address: usize,
+}
+
+/// Iterator providing a [`PciConfigEntry`] for all of the valid bus ranges on the system.
+pub struct PciConfigEntryIterator<'a> {
+    entries: &'a [McfgEntry],
+    index: usize,
+}
+
+impl Iterator for PciConfigEntryIterator<'_> {
+    type Item = PciConfigEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.entries.get(self.index)?;
+        self.index += 1;
+
+        Some(PciConfigEntry {
+            segment_group: entry.pci_segment_group,
+            bus_range: entry.bus_number_start..=entry.bus_number_end,
+            physical_address: entry.base_address as usize,
+        })
     }
 }
 
@@ -59,6 +88,7 @@ impl AcpiTable for Mcfg {
 }
 
 impl Mcfg {
+    /// Creates a bare slice over the MCFG entry table.
     fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
@@ -73,9 +103,10 @@ impl Mcfg {
     }
 }
 
+/// Entry type for the MCFG ACPI table.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
-pub struct McfgEntry {
+struct McfgEntry {
     base_address: u64,
     pci_segment_group: u16,
     bus_number_start: u8,
