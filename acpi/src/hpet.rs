@@ -86,6 +86,8 @@ pub struct HpetTable {
 }
 
 impl AcpiTable for HpetTable {
+    const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::HPET;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }

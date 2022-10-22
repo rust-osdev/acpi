@@ -97,6 +97,19 @@ pub enum AcpiError {
     InvalidGenericAddress,
 }
 
+pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
+
+/// All types representing ACPI tables should implement this trait.
+pub trait AcpiTable {
+    const SIGNATURE: Signature;
+
+    fn header(&self) -> &sdt::SdtHeader;
+
+    fn validate(&self) -> AcpiResult<()> {
+        self.header().validate(Self::SIGNATURE)
+    }
+}
+
 pub struct AcpiTables<H>
 where
     H: AcpiHandler,
@@ -288,11 +301,6 @@ pub struct Sdt {
     pub length: u32,
     /// Whether this SDT has been validated. This is set to `true` the first time it is mapped and validated.
     pub validated: bool,
-}
-
-/// All types representing ACPI tables should implement this trait.
-pub trait AcpiTable {
-    fn header(&self) -> &sdt::SdtHeader;
 }
 
 #[derive(Debug)]

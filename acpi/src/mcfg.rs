@@ -53,6 +53,8 @@ pub struct Mcfg {
 }
 
 impl AcpiTable for Mcfg {
+    const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::MCFG;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
