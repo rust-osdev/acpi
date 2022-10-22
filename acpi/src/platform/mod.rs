@@ -3,7 +3,6 @@ pub mod interrupt;
 
 use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
 use address::GenericAddress;
-use alloc::vec::Vec;
 use interrupt::InterruptModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,17 +79,13 @@ impl PlatformInfo {
     where
         H: AcpiHandler,
     {
-        let fadt = unsafe {
-            tables
-                .get_sdt::<Fadt>(crate::sdt::Signature::FADT)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::FADT))?
-        };
+        let fadt = tables.find_table::<Fadt>()?;
         let power_profile = fadt.power_profile();
 
-        let madt = unsafe { tables.get_sdt::<Madt>(crate::sdt::Signature::MADT)? };
+        let madt = tables.find_table::<Madt>();
         let (interrupt_model, processor_info) = match madt {
-            Some(madt) => madt.parse_interrupt_model()?,
-            None => (InterruptModel::Unknown, None),
+            Ok(madt) => madt.parse_interrupt_model()?,
+            Err(_) => (InterruptModel::Unknown, None),
         };
         let pm_timer = PmTimer::new(&fadt)?;
 

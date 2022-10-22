@@ -49,8 +49,8 @@
 
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(feature = "alloc", feature(allocator_api, ptr_as_uninit))]
 
-extern crate alloc;
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
@@ -93,6 +93,8 @@ pub enum AcpiError {
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
     InvalidGenericAddress,
+
+    AllocError,
 }
 
 pub type AcpiResult<T> = core::result::Result<T, AcpiError>;

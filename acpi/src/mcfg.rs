@@ -1,6 +1,5 @@
 use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
-use alloc::vec::Vec;
-use core::{mem, slice};
+use core::{alloc, mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
 /// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
@@ -8,21 +7,49 @@ use core::{mem, slice};
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
 #[derive(Clone, Debug)]
-pub struct PciConfigRegions {
-    regions: Vec<McfgEntry>,
+pub struct PciConfigRegions<'a, A>
+where
+    A: alloc::Allocator,
+{
+    regions: &'a [McfgEntry],
+    allocator: A,
 }
 
-impl PciConfigRegions {
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
+impl<A> PciConfigRegions<'_, A>
+where
+    A: alloc::Allocator,
+{
+    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> Result<PciConfigRegions<A>, AcpiError>
     where
         H: AcpiHandler,
     {
-        let mcfg = unsafe {
-            tables
-                .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
+        let mcfg = tables.find_table::<Mcfg>()?;
+        let mcfg_entries = mcfg.entries();
+
+        // SAFETY: Structs are required to have a valid size and alignment.
+        let region_layout = unsafe {
+            core::alloc::Layout::from_size_align_unchecked(
+                mem::size_of_val(mcfg_entries),
+                mem::align_of_val(mcfg_entries),
+            )
         };
-        Ok(PciConfigRegions { regions: mcfg.entries().iter().copied().collect() })
+        // SAFETY: Allocated memory is required to be aligned as request.
+        let regions = unsafe {
+            allocator
+                .allocate(region_layout)
+                .map_err(|_| AcpiError::AllocError)?
+                .as_uninit_slice_mut()
+                .align_to_mut::<McfgEntry>()
+                .1
+        };
+
+        if regions.len() == mcfg_entries.len() {
+            regions.copy_from_slice(mcfg.entries());
+        } else {
+            return Err(AcpiError::AllocError);
+        }
+
+        Ok(Self { regions, allocator })
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -42,6 +69,26 @@ impl PciConfigRegions {
                     | (u64::from(device) << 15)
                     | (u64::from(function) << 12)),
         )
+    }
+}
+
+impl<A> Drop for PciConfigRegions<'_, A>
+where
+    A: alloc::Allocator,
+{
+    fn drop(&mut self) {
+        // SAFETY: Slice is constructed from non-null pointer.
+        let regions_ptr = unsafe { core::ptr::NonNull::new_unchecked(self.regions.as_ptr().cast_mut()) };
+        let regions_layout = // SAFETY: Slice is constructed from a valid layout.
+        unsafe {
+            alloc::Layout::from_size_align_unchecked(
+                mem::size_of_val(self.regions),
+                mem::align_of_val(self.regions),
+            )
+        };
+
+        // SAFETY: Deallocation is from a previous allocation.
+        unsafe { self.allocator.deallocate(regions_ptr.cast(), regions_layout) };
     }
 }
 
