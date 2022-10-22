@@ -16,6 +16,8 @@ pub struct Bgrt {
 }
 
 impl AcpiTable for Bgrt {
+    const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::BGRT;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
