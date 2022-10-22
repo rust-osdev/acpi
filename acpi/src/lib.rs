@@ -76,9 +76,7 @@ pub use rsdp::{
 };
 
 use crate::sdt::{SdtHeader, Signature};
-use alloc::{collections::BTreeMap, vec::Vec};
 use core::mem;
-use log::trace;
 use rsdp::Rsdp;
 
 #[derive(Debug)]
@@ -110,186 +108,115 @@ pub trait AcpiTable {
     }
 }
 
-pub struct AcpiTables<H>
-where
-    H: AcpiHandler,
-{
-    /// The revision of ACPI that the system uses, as inferred from the revision of the RSDT/XSDT.
-    pub revision: u8,
-    pub sdts: BTreeMap<sdt::Signature, Sdt>,
-    pub dsdt: Option<AmlTable>,
-    pub ssdts: Vec<AmlTable>,
+pub struct AcpiTables<H: AcpiHandler> {
+    mapping: PhysicalMapping<H, SdtHeader>,
+    revision: u8,
     handler: H,
 }
 
-impl<H> AcpiTables<H>
-where
-    H: AcpiHandler,
-{
+impl<H: AcpiHandler> AcpiTables<H> {
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
-    pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
+    pub fn from_rsdp(handler: H, address: usize) -> AcpiResult<Self> {
+        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
         rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
 
-        Self::from_validated_rsdp(handler, rsdp_mapping)
+        // SAFETY: `RSDP` has been validated.
+        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
 
-    /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
-    /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
-    /// details.
-    pub unsafe fn search_for_rsdp_bios(handler: H) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(AcpiError::Rsdp)?;
-        Self::from_validated_rsdp(handler, rsdp_mapping)
-    }
-
-    /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
-    /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
+    /// Create an `RsdpReader` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
+    /// from `from_address` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
-    pub fn from_validated_rsdp(
-        handler: H,
-        rsdp_mapping: PhysicalMapping<H, Rsdp>,
-    ) -> Result<AcpiTables<H>, AcpiError> {
+    ///
+    /// SAFETY: Caller must ensure that the provided mapping is a fully validated RSDP.
+    pub unsafe fn from_validated_rsdp(handler: H, rsdp_mapping: PhysicalMapping<H, Rsdp>) -> AcpiResult<Self> {
         let revision = rsdp_mapping.revision();
 
         if revision == 0 {
             /*
              * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
              */
-            let rsdt_address = rsdp_mapping.rsdt_address();
-            unsafe { Self::from_rsdt(handler, revision, rsdt_address as usize) }
+
+            // SAFETY: Addresses from a validated `RSDP` are also guaranteed to be valid.
+            let rsdt_mapping: PhysicalMapping<H, SdtHeader> = unsafe {
+                handler.map_physical_region::<SdtHeader>(
+                    rsdp_mapping.rsdt_address() as usize,
+                    core::mem::size_of::<SdtHeader>(),
+                )
+            };
+            rsdt_mapping.validate(Signature::RSDT)?;
+
+            Ok(Self { mapping: rsdt_mapping, revision, handler })
         } else {
             /*
              * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
              * to 32 bits on x86.
              */
-            let xsdt_address = rsdp_mapping.xsdt_address();
-            unsafe { Self::from_rsdt(handler, revision, xsdt_address as usize) }
+
+            // SAFETY: Addresses from a validated `RSDP` are also guaranteed to be valid.
+            let xsdt_mapping: PhysicalMapping<H, SdtHeader> = unsafe {
+                handler.map_physical_region::<SdtHeader>(
+                    rsdp_mapping.xsdt_address() as usize,
+                    core::mem::size_of::<SdtHeader>(),
+                )
+            };
+            xsdt_mapping.validate(Signature::XSDT)?;
+
+            Ok(Self { mapping: xsdt_mapping, revision, handler })
         }
     }
 
-    /// Create an `AcpiTables` if you have the physical address of the RSDT. This is useful, for example, if your chosen
-    /// bootloader reads the RSDP and passes you the address of the RSDT. You also need to supply the correct ACPI
-    /// revision - if `0`, a RSDT is expected, while a `XSDT` is expected for greater revisions.
-    pub unsafe fn from_rsdt(handler: H, revision: u8, rsdt_address: usize) -> Result<AcpiTables<H>, AcpiError> {
-        let mut result = AcpiTables { revision, sdts: BTreeMap::new(), dsdt: None, ssdts: Vec::new(), handler };
+    /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
+    /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
+    /// details.
+    pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(AcpiError::Rsdp)?;
+        // SAFETY: RSDP has been validated from `Rsdp::search_for_on_bios`
+        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
+    }
 
-        let header = sdt::peek_at_sdt_header(&result.handler, rsdt_address);
-        let mapping =
-            unsafe { result.handler.map_physical_region::<SdtHeader>(rsdt_address, header.length as usize) };
+    pub fn find_table<T: AcpiTable>(&self) -> AcpiResult<PhysicalMapping<H, T>> {
+        use core::mem::size_of;
 
-        if revision == 0 {
-            /*
-             * ACPI Version 1.0. It's a RSDT!
-             */
-            mapping.validate(sdt::Signature::RSDT)?;
+        if self.revision == 0 {
+            let num_tables = ((self.mapping.length as usize) - size_of::<SdtHeader>()) / size_of::<u32>();
+            // SAFETY: Table pointer is known-good for these offsets and types.
+            let tables_base = unsafe { self.mapping.virtual_start().as_ptr().add(1).cast::<u32>() };
 
-            let num_tables = (mapping.length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u32>();
-            let tables_base =
-                ((mapping.virtual_start().as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u32;
+            for offset in 0..num_tables {
+                // SAFETY: See above safety message.
+                let sdt_header_address = unsafe { tables_base.add(offset).read_unaligned() } as usize;
 
-            for i in 0..num_tables {
-                result.process_sdt(unsafe { *tables_base.add(i) as usize })?;
+                // SAFETY: `RSDT` guarantees its contained addresses to be valid.
+                let table_result = unsafe { read_table(self.handler.clone(), sdt_header_address) };
+                if table_result.is_ok() {
+                    return table_result;
+                }
             }
         } else {
-            /*
-             * ACPI Version 2.0+. It's a XSDT!
-             */
-            mapping.validate(sdt::Signature::XSDT)?;
+            let num_tables = ((self.mapping.length as usize) - size_of::<SdtHeader>()) / size_of::<u64>();
+            // SAFETY: Table pointer is known-good for these offsets and types.
+            let tables_base = unsafe { self.mapping.virtual_start().as_ptr().add(1).cast::<u64>() };
 
-            let num_tables = (mapping.length as usize - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>();
-            let tables_base =
-                ((mapping.virtual_start().as_ptr() as usize) + mem::size_of::<SdtHeader>()) as *const u64;
+            for offset in 0..num_tables {
+                // SAFETY: See above safety message.
+                let sdt_header_address = unsafe { tables_base.add(offset).read_unaligned() } as usize;
 
-            for i in 0..num_tables {
-                result.process_sdt(unsafe { *tables_base.add(i) as usize })?;
+                // SAFETY: `RSDT` guarantees its contained addresses to be valid.
+                let table_result = unsafe { read_table(self.handler.clone(), sdt_header_address) };
+                if table_result.is_ok() {
+                    return table_result;
+                }
             }
         }
 
-        Ok(result)
-    }
-
-    /// Construct an `AcpiTables` from a custom set of "discovered" tables. This is provided to allow the library
-    /// to be used from unconventional settings (e.g. in userspace), for example with a `AcpiHandler` that detects
-    /// accesses to specific physical addresses, and provides the correct data.
-    pub fn from_tables_direct(
-        handler: H,
-        revision: u8,
-        sdts: BTreeMap<sdt::Signature, Sdt>,
-        dsdt: Option<AmlTable>,
-        ssdts: Vec<AmlTable>,
-    ) -> AcpiTables<H> {
-        AcpiTables { revision, sdts, dsdt, ssdts, handler }
-    }
-
-    fn process_sdt(&mut self, physical_address: usize) -> Result<(), AcpiError> {
-        let header = sdt::peek_at_sdt_header(&self.handler, physical_address);
-        trace!("Found ACPI table with signature {:?} and length {:?}", header.signature, { header.length });
-
-        match header.signature {
-            Signature::FADT => {
-                use crate::fadt::Fadt;
-
-                /*
-                 * For whatever reason, they chose to put the DSDT inside the FADT, instead of just listing it
-                 * as another SDT. We extract it here to provide a nicer public API.
-                 */
-                let fadt_mapping =
-                    unsafe { self.handler.map_physical_region::<Fadt>(physical_address, mem::size_of::<Fadt>()) };
-                fadt_mapping.validate()?;
-
-                let dsdt_address = fadt_mapping.dsdt_address()?;
-                let dsdt_header = sdt::peek_at_sdt_header(&self.handler, dsdt_address);
-                self.dsdt = Some(AmlTable::new(dsdt_address, dsdt_header.length));
-
-                /*
-                 * We've already validated the FADT to get the DSDT out, so it doesn't need to be done again.
-                 */
-                self.sdts
-                    .insert(Signature::FADT, Sdt { physical_address, length: header.length, validated: true });
-            }
-            Signature::SSDT => {
-                self.ssdts.push(AmlTable::new(physical_address, header.length));
-            }
-            signature => {
-                self.sdts.insert(signature, Sdt { physical_address, length: header.length, validated: false });
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Create a mapping to a SDT, given its signature. This validates the SDT if it has not already been
-    /// validated.
-    ///
-    /// ### Safety
-    /// The table's memory is naively interpreted as a `T`, and so you must be careful in providing a type that
-    /// correctly represents the table's structure. Regardless of the provided type's size, the region mapped will
-    /// be the size specified in the SDT's header. Providing a `T` that is larger than this, *may* lead to
-    /// page-faults, aliasing references, or derefencing uninitialized memory (the latter two of which are UB).
-    /// This isn't forbidden, however, because some tables rely on `T` being larger than a provided SDT in some
-    /// versions of ACPI (the [`ExtendedField`](crate::sdt::ExtendedField) type will be useful if you need to do
-    /// this. See our [`Fadt`](crate::fadt::Fadt) type for an example of this).
-    pub unsafe fn get_sdt<T>(&self, signature: sdt::Signature) -> Result<Option<PhysicalMapping<H, T>>, AcpiError>
-    where
-        T: AcpiTable,
-    {
-        let sdt = match self.sdts.get(&signature) {
-            Some(sdt) => sdt,
-            None => return Ok(None),
-        };
-        let mapping = unsafe { self.handler.map_physical_region::<T>(sdt.physical_address, sdt.length as usize) };
-
-        if !sdt.validated {
-            mapping.header().validate(signature)?;
-        }
-
-        Ok(Some(mapping))
+        Err(AcpiError::TableMissing(T::SIGNATURE))
     }
 
     /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
     /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
     /// the platform from the ACPI tables.
-    pub fn platform_info(&self) -> Result<PlatformInfo, AcpiError> {
+    pub fn platform_info(&self) -> AcpiResult<PlatformInfo> {
         PlatformInfo::new(self)
     }
 }
@@ -318,5 +245,42 @@ impl AmlTable {
             address: address + mem::size_of::<SdtHeader>(),
             length: length - mem::size_of::<SdtHeader>() as u32,
         }
+    }
+}
+
+// SAFETY: Caller must ensure the provided address is valid for being read as an `SdtHeader`.
+unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
+    handler: H,
+    address: usize,
+) -> AcpiResult<PhysicalMapping<H, T>> {
+    // Attempt to peek at the SDT header to correctly enumerate the entire table.
+    // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
+    let mapping = unsafe { handler.map_physical_region::<SdtHeader>(address, core::mem::size_of::<SdtHeader>()) };
+    mapping.validate(T::SIGNATURE)?;
+
+    // If possible (if the existing mapping covers enough memory), resuse the existing physical mapping.
+    // This allows allocators/memory managers that map in chunks larger than `size_of::<SdtHeader>()` to be used more efficiently.
+    if mapping.mapped_length() >= (mapping.length as usize) {
+        // SAFETY: Pointer is known non-null.
+        let virtual_start =
+            unsafe { core::ptr::NonNull::new_unchecked(mapping.virtual_start().as_ptr() as *mut _) };
+
+        // SAFETY: Mapping is known-good and validated.
+        Ok(unsafe {
+            PhysicalMapping::new(
+                mapping.physical_start(),
+                virtual_start,
+                mapping.region_length(),
+                mapping.mapped_length(),
+                handler.clone(),
+            )
+        })
+    } else {
+        let sdt_length = mapping.length;
+        // Drop the old mapping here, to ensure it's unmapped in software before requesting an overlapping mapping.
+        drop(mapping);
+
+        // SAFETY: Address and length are already known-good.
+        Ok(unsafe { handler.map_physical_region(address, sdt_length as usize) })
     }
 }
