@@ -50,6 +50,40 @@ where
                     | (u64::from(function) << 12)),
         )
     }
+
+    /// Returns an iterator providing information about the system's present PCI busses.
+    /// This is roughly equivalent to manually iterating the system's MCFG table.
+    pub fn iter(&self) -> PciConfigEntryIterator {
+        PciConfigEntryIterator { entries: &self.regions, index: 0 }
+    }
+}
+
+/// Configuration entry describing a valid bus range for the given PCI segment group.
+pub struct PciConfigEntry {
+    pub segment_group: u16,
+    pub bus_range: core::ops::RangeInclusive<u8>,
+    pub physical_address: usize,
+}
+
+/// Iterator providing a [`PciConfigEntry`] for all of the valid bus ranges on the system.
+pub struct PciConfigEntryIterator<'a> {
+    entries: &'a [McfgEntry],
+    index: usize,
+}
+
+impl Iterator for PciConfigEntryIterator<'_> {
+    type Item = PciConfigEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = self.entries.get(self.index)?;
+        self.index += 1;
+
+        Some(PciConfigEntry {
+            segment_group: entry.pci_segment_group,
+            bus_range: entry.bus_number_start..=entry.bus_number_end,
+            physical_address: entry.base_address as usize,
+        })
+    }
 }
 
 #[repr(C, packed)]
@@ -71,7 +105,7 @@ unsafe impl crate::AcpiTable for Mcfg {
 impl Mcfg {
     /// Returns a slice containing each of the entries in the MCFG table. Where possible, `PlatformInfo.interrupt_model` should
     /// be enumerated instead.
-    pub fn entries(&self) -> &[McfgEntry] {
+    fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
         // Intentionally round down in case length isn't an exact multiple of McfgEntry size
@@ -91,9 +125,10 @@ impl core::fmt::Debug for Mcfg {
     }
 }
 
+/// Entry type for the MCFG ACPI table.
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
-pub struct McfgEntry {
+struct McfgEntry {
     base_address: u64,
     pci_segment_group: u16,
     bus_number_start: u8,
