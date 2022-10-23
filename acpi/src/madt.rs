@@ -2,6 +2,15 @@ use crate::{sdt::SdtHeader, AcpiTable};
 use bit_field::BitField;
 use core::{marker::PhantomData, mem};
 
+#[cfg(feature = "allocator_api")]
+use crate::{
+    platform::{
+        interrupt::{InterruptModel, Polarity, TriggerMode},
+        ProcessorInfo,
+    },
+    AcpiResult,
+};
+
 #[derive(Debug)]
 pub enum MadtError {
     UnexpectedEntry,
@@ -42,7 +51,7 @@ impl Madt {
         allocator: &'a A,
     ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
     where
-        A: alloc::Allocator,
+        A: core::alloc::Allocator,
     {
         /*
          * We first do a pass through the MADT to determine which interrupt model is being used.
@@ -93,7 +102,6 @@ impl Madt {
             platform::{
                 interrupt::{
                     Apic,
-                    InterruptModel,
                     InterruptSourceOverride,
                     IoApic,
                     LocalInterruptLine,
@@ -102,12 +110,10 @@ impl Madt {
                     NmiSource,
                 },
                 Processor,
-                ProcessorInfo,
                 ProcessorState,
             },
-            AcpiResult,
+            AcpiError,
         };
-        use core::alloc;
 
         let mut local_apic_address = self.local_apic_address as u64;
         let mut io_apic_count = 0;
@@ -591,11 +597,7 @@ pub struct MultiprocessorWakeupEntry {
 }
 
 #[cfg(feature = "allocator_api")]
-fn parse_mps_inti_flags(
-    flags: u16,
-) -> Result<(crate::platform::interrupt::Polarity, crate::platform::interrupt::TriggerMode), AcpiError> {
-    use crate::platform::interrupt::{Polarity, TriggerMode};
-
+fn parse_mps_inti_flags(flags: u16) -> crate::AcpiResult<(Polarity, TriggerMode)> {
     let polarity = match flags.get_bits(0..2) {
         0b00 => Polarity::SameAsBus,
         0b01 => Polarity::ActiveHigh,
