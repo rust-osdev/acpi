@@ -1,5 +1,5 @@
-use crate::{AcpiError, AcpiHandler};
-use core::{fmt, mem, mem::MaybeUninit, str};
+use crate::AcpiError;
+use core::{fmt, mem::MaybeUninit, str};
 
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
 /// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
@@ -242,15 +242,4 @@ impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "\"{}\"", self.as_str())
     }
-}
-
-/// Takes the physical address of an SDT, and maps, clones and unmaps its header. Useful for
-/// finding out how big it is to map it correctly later.
-pub(crate) fn peek_at_sdt_header<H>(handler: &H, physical_address: usize) -> SdtHeader
-where
-    H: AcpiHandler,
-{
-    let mapping =
-        unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
-    *mapping
 }

@@ -1,55 +1,35 @@
-use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
-use core::{alloc, mem, slice};
+use crate::sdt::SdtHeader;
+use core::{mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
 /// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
 /// function of a PCIe device, the `physical_address` method on this will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
-#[derive(Clone, Debug)]
+#[cfg(feature = "alloc")]
 pub struct PciConfigRegions<'a, A>
 where
-    A: alloc::Allocator,
+    A: core::alloc::Allocator,
 {
-    regions: &'a [McfgEntry],
-    allocator: A,
+    regions: crate::ManagedSlice<'a, McfgEntry, A>,
 }
 
-impl<A> PciConfigRegions<'_, A>
+#[cfg(feature = "alloc")]
+impl<'a, A> PciConfigRegions<'a, A>
 where
-    A: alloc::Allocator,
+    A: core::alloc::Allocator,
 {
-    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> Result<PciConfigRegions<A>, AcpiError>
+    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<PciConfigRegions<'a, A>>
     where
-        H: AcpiHandler,
+        H: crate::AcpiHandler,
     {
         let mcfg = tables.find_table::<Mcfg>()?;
         let mcfg_entries = mcfg.entries();
 
-        // SAFETY: Structs are required to have a valid size and alignment.
-        let region_layout = unsafe {
-            core::alloc::Layout::from_size_align_unchecked(
-                mem::size_of_val(mcfg_entries),
-                mem::align_of_val(mcfg_entries),
-            )
-        };
-        // SAFETY: Allocated memory is required to be aligned as request.
-        let regions = unsafe {
-            allocator
-                .allocate(region_layout)
-                .map_err(|_| AcpiError::AllocError)?
-                .as_uninit_slice_mut()
-                .align_to_mut::<McfgEntry>()
-                .1
-        };
+        let mut regions = crate::ManagedSlice::new_in(mcfg_entries.len(), allocator)?;
+        regions.copy_from_slice(mcfg_entries);
 
-        if regions.len() == mcfg_entries.len() {
-            regions.copy_from_slice(mcfg.entries());
-        } else {
-            return Err(AcpiError::AllocError);
-        }
-
-        Ok(Self { regions, allocator })
+        Ok(Self { regions })
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -72,26 +52,6 @@ where
     }
 }
 
-impl<A> Drop for PciConfigRegions<'_, A>
-where
-    A: alloc::Allocator,
-{
-    fn drop(&mut self) {
-        // SAFETY: Slice is constructed from non-null pointer.
-        let regions_ptr = unsafe { core::ptr::NonNull::new_unchecked(self.regions.as_ptr().cast_mut()) };
-        let regions_layout = // SAFETY: Slice is constructed from a valid layout.
-        unsafe {
-            alloc::Layout::from_size_align_unchecked(
-                mem::size_of_val(self.regions),
-                mem::align_of_val(self.regions),
-            )
-        };
-
-        // SAFETY: Deallocation is from a previous allocation.
-        unsafe { self.allocator.deallocate(regions_ptr.cast(), regions_layout) };
-    }
-}
-
 #[repr(C, packed)]
 pub struct Mcfg {
     header: SdtHeader,
@@ -99,7 +59,7 @@ pub struct Mcfg {
     // Followed by `n` entries with format `McfgEntry`
 }
 
-impl AcpiTable for Mcfg {
+impl crate::AcpiTable for Mcfg {
     const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::MCFG;
 
     fn header(&self) -> &SdtHeader {
@@ -108,7 +68,9 @@ impl AcpiTable for Mcfg {
 }
 
 impl Mcfg {
-    fn entries(&self) -> &[McfgEntry] {
+    /// Returns a slice containing each of the entries in the MCFG table. Where possible, `PlatformInfo.interrupt_model` should
+    /// be enumerated instead.
+    pub fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
         // Intentionally round down in case length isn't an exact multiple of McfgEntry size

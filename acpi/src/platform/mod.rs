@@ -1,5 +1,6 @@
-pub mod address;
 pub mod interrupt;
+
+use core::alloc::Allocator;
 
 use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
 use address::GenericAddress;
@@ -36,10 +37,25 @@ pub struct Processor {
     pub is_ap: bool,
 }
 
-pub struct ProcessorInfo {
+pub struct ProcessorInfo<'a, A>
+where
+    A: core::alloc::Allocator,
+{
     pub boot_processor: Processor,
     /// Application processors should be brought up in the order they're defined in this list.
-    pub application_processors: Vec<Processor>,
+    pub application_processors: crate::ManagedSlice<'a, Processor, A>,
+}
+
+impl<'a, A> ProcessorInfo<'a, A>
+where
+    A: Allocator,
+{
+    pub(crate) fn new(
+        boot_processor: Processor,
+        application_processors: crate::ManagedSlice<'a, Processor, A>,
+    ) -> Self {
+        Self { boot_processor, application_processors }
+    }
 }
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
@@ -62,20 +78,26 @@ impl PmTimer {
 /// `PlatformInfo` allows the collection of some basic information about the platform from some of the fixed-size
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
-pub struct PlatformInfo {
+pub struct PlatformInfo<'a, A>
+where
+    A: Allocator,
+{
     pub power_profile: PowerProfile,
-    pub interrupt_model: InterruptModel,
+    pub interrupt_model: InterruptModel<'a, A>,
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
-    pub processor_info: Option<ProcessorInfo>,
+    pub processor_info: Option<ProcessorInfo<'a, A>>,
     pub pm_timer: Option<PmTimer>,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
      */
 }
 
-impl PlatformInfo {
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PlatformInfo, AcpiError>
+impl<'a, A> PlatformInfo<'a, A>
+where
+    A: Allocator,
+{
+    pub fn new<H>(tables: &AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<PlatformInfo<'a, A>>
     where
         H: AcpiHandler,
     {
@@ -84,7 +106,7 @@ impl PlatformInfo {
 
         let madt = tables.find_table::<Madt>();
         let (interrupt_model, processor_info) = match madt {
-            Ok(madt) => madt.parse_interrupt_model()?,
+            Ok(madt) => madt.parse_interrupt_model_in(allocator)?,
             Err(_) => (InterruptModel::Unknown, None),
         };
         let pm_timer = PmTimer::new(&fadt)?;

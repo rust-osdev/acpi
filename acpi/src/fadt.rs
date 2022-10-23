@@ -1,5 +1,5 @@
 use crate::{
-    platform::address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
+    address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
     sdt::{ExtendedField, SdtHeader},
     AcpiError,
     AcpiTable,

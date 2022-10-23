@@ -1,4 +1,4 @@
-use crate::{platform::address::RawGenericAddress, sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
+use crate::{address::RawGenericAddress, sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -28,11 +28,7 @@ impl HpetInfo {
     where
         H: AcpiHandler,
     {
-        let hpet = unsafe {
-            tables
-                .get_sdt::<HpetTable>(crate::sdt::Signature::HPET)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::HPET))?
-        };
+        let hpet = tables.find_table::<HpetTable>()?;
 
         // Make sure the HPET's in system memory
         assert_eq!(hpet.base_address.address_space, 0);
