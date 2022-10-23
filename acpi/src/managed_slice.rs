@@ -1,5 +1,6 @@
 use core::{alloc, mem};
 
+/// Acts as a thing wrapper around a regular slice, for use with the `allocator_api` feature set in `core`.
 pub struct ManagedSlice<'a, T, A>
 where
     A: alloc::Allocator,
@@ -12,6 +13,7 @@ impl<'a, T, A> ManagedSlice<'a, T, A>
 where
     A: alloc::Allocator,
 {
+    /// Attempts to allocate a new `&mut [T]` in the given allocator.
     pub fn new_in(len: usize, allocator: &'a A) -> crate::AcpiResult<Self> {
         // ### Safety: Struct layouts are required to be valid.
         let layout =

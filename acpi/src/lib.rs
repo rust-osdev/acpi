@@ -104,6 +104,7 @@ pub enum AcpiError {
     AllocError,
 }
 
+/// Common result type used by most result-returning functions.
 pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
 
 /// All types representing ACPI tables should implement this trait.
@@ -133,8 +134,17 @@ impl<H: AcpiHandler> AcpiTables<H> {
         unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
 
-    /// Create an `RsdpReader` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
-    /// from `from_address` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
+    /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
+    /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
+    /// details.
+    pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(AcpiError::Rsdp)?;
+        // ### Safety: RSDP has been validated from `Rsdp::search_for_on_bios`
+        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
+    }
+
+    /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
+    /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
     ///
     /// ### Safety: Caller must ensure that the provided mapping is a fully validated RSDP.
@@ -175,15 +185,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
         }
     }
 
-    /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
-    /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
-    /// details.
-    pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
-        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(AcpiError::Rsdp)?;
-        // ### Safety: RSDP has been validated from `Rsdp::search_for_on_bios`
-        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
-    }
-
+    /// Searches through the ACPI table hears and attempts to locate the table with a matching `T::SIGNATURE`.
     pub fn find_table<T: AcpiTable>(&self) -> AcpiResult<PhysicalMapping<H, T>> {
         use core::mem::size_of;
 
@@ -222,6 +224,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
         Err(AcpiError::TableMissing(T::SIGNATURE))
     }
 
+    /// Finds and returns the DSDT AML table, if it exists.
     pub fn get_dsdt(&self) -> AcpiResult<AmlTable> {
         self.find_table::<fadt::Fadt>().and_then(|fadt| {
             struct Dsdt;
@@ -241,6 +244,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
         })
     }
 
+    /// Iterates through all of the SSDT tables.
     pub fn iter_ssdts(&self) -> SsdtIterator<H> {
         let table_base_address = unsafe { self.mapping.virtual_start().as_ptr().add(1) as usize };
         let table_end_address = table_base_address
@@ -276,6 +280,7 @@ pub struct Sdt {
     pub validated: bool,
 }
 
+/// Simple table type representing either an SSDT or a DSDT.
 #[derive(Debug)]
 pub struct AmlTable {
     /// Physical address of the start of the AML stream (excluding the table header).
@@ -294,7 +299,7 @@ impl AmlTable {
     }
 }
 
-// ### Safety: Caller must ensure the provided address is valid for being read as an `SdtHeader`.
+/// ### Safety: Caller must ensure the provided address is valid for being read as an `SdtHeader`.
 unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
     handler: H,
     address: usize,
@@ -331,6 +336,7 @@ unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
     }
 }
 
+/// Iterator that steps through all of the tables, and returns only the SSDTs as `AmlTable`s.
 pub struct SsdtIterator<'a, H>
 where
     H: AcpiHandler,
