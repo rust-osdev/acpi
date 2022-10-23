@@ -596,16 +596,16 @@ fn parse_mps_inti_flags(
     use crate::platform::interrupt::{Polarity, TriggerMode};
 
     let polarity = match flags.get_bits(0..2) {
-        0b00 => platform::interrupt::Polarity::SameAsBus,
-        0b01 => platform::interrupt::Polarity::ActiveHigh,
-        0b11 => platform::interrupt::Polarity::ActiveLow,
+        0b00 => Polarity::SameAsBus,
+        0b01 => Polarity::ActiveHigh,
+        0b11 => Polarity::ActiveLow,
         _ => return Err(crate::AcpiError::InvalidMadt(MadtError::MpsIntiInvalidPolarity)),
     };
 
     let trigger_mode = match flags.get_bits(2..4) {
-        0b00 => platform::interrupt::TriggerMode::SameAsBus,
-        0b01 => platform::interrupt::TriggerMode::Edge,
-        0b11 => platform::interrupt::TriggerMode::Level,
+        0b00 => TriggerMode::SameAsBus,
+        0b01 => TriggerMode::Edge,
+        0b11 => TriggerMode::Level,
         _ => return Err(crate::AcpiError::InvalidMadt(MadtError::MpsIntiInvalidTriggerMode)),
     };
 
