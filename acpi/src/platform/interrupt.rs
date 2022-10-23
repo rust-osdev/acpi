@@ -1,4 +1,5 @@
-use alloc::vec::Vec;
+use core::alloc::Allocator;
+use crate::ManagedSlice;
 
 #[derive(Debug)]
 pub struct IoApic {
@@ -75,13 +76,15 @@ pub struct NmiSource {
     pub trigger_mode: TriggerMode,
 }
 
-#[derive(Debug)]
-pub struct Apic {
+pub struct Apic<'a, A>
+where
+    A: Allocator,
+{
     pub local_apic_address: u64,
-    pub io_apics: Vec<IoApic>,
-    pub local_apic_nmi_lines: Vec<NmiLine>,
-    pub interrupt_source_overrides: Vec<InterruptSourceOverride>,
-    pub nmi_sources: Vec<NmiSource>,
+    pub io_apics: ManagedSlice<'a, IoApic, A>,
+    pub local_apic_nmi_lines: ManagedSlice<'a, NmiLine, A>,
+    pub interrupt_source_overrides: ManagedSlice<'a, InterruptSourceOverride, A>,
+    pub nmi_sources: ManagedSlice<'a, NmiSource, A>,
 
     /// If this field is set, you must remap and mask all the lines of the legacy PIC, even if
     /// you choose to use the APIC. It's recommended that you do this even if ACPI does not
@@ -89,9 +92,34 @@ pub struct Apic {
     pub also_has_legacy_pics: bool,
 }
 
-#[derive(Debug)]
+impl<'a, A> Apic<'a, A>
+where
+    A: Allocator,
+{
+    pub(crate) fn new(
+        local_apic_address: u64,
+        io_apics: ManagedSlice<'a, IoApic, A>,
+        local_apic_nmi_lines: ManagedSlice<'a, NmiLine, A>,
+        interrupt_source_overrides: ManagedSlice<'a, InterruptSourceOverride, A>,
+        nmi_sources: ManagedSlice<'a, NmiSource, A>,
+        also_has_legacy_pics: bool,
+    ) -> Self {
+        Self {
+            local_apic_address,
+            io_apics,
+            local_apic_nmi_lines,
+            interrupt_source_overrides,
+            nmi_sources,
+            also_has_legacy_pics,
+        }
+    }
+}
+
 #[non_exhaustive]
-pub enum InterruptModel {
+pub enum InterruptModel<'a, A>
+where
+    A: Allocator,
+{
     /// This model is only chosen when the MADT does not describe another interrupt model. On `x86_64` platforms,
     /// this probably means only the legacy i8259 PIC is present.
     Unknown,
@@ -99,5 +127,5 @@ pub enum InterruptModel {
     /// Describes an interrupt controller based around the Advanced Programmable Interrupt Controller (any of APIC,
     /// XAPIC, or X2APIC). These are likely to be found on x86 and x86_64 systems and are made up of a Local APIC
     /// for each core and one or more I/O APICs to handle external interrupts.
-    Apic(Apic),
+    Apic(Apic<'a, A>),
 }

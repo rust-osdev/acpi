@@ -55,25 +55,32 @@
 #[cfg(test)]
 extern crate std;
 
+pub mod address;
 pub mod bgrt;
 pub mod fadt;
 pub mod hpet;
 pub mod madt;
 pub mod mcfg;
-pub mod platform;
 pub mod sdt;
 
-pub use crate::{
-    fadt::PowerProfile,
-    hpet::HpetInfo,
-    madt::MadtError,
-    mcfg::PciConfigRegions,
-    platform::{interrupt::InterruptModel, PlatformInfo},
-};
+pub use crate::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
 pub use rsdp::{
     handler::{AcpiHandler, PhysicalMapping},
     RsdpError,
 };
+
+#[cfg(feature = "alloc")]
+pub use crate::{
+    mcfg::PciConfigRegions,
+    platform::{interrupt::InterruptModel, PlatformInfo},
+};
+#[cfg(feature = "alloc")]
+pub mod platform;
+
+#[cfg(feature = "alloc")]
+mod managed_slice;
+#[cfg(feature = "alloc")]
+pub use managed_slice::*;
 
 use crate::sdt::{SdtHeader, Signature};
 use core::mem;
@@ -215,11 +222,47 @@ impl<H: AcpiHandler> AcpiTables<H> {
         Err(AcpiError::TableMissing(T::SIGNATURE))
     }
 
+    pub fn get_dsdt(&self) -> AcpiResult<AmlTable> {
+        self.find_table::<fadt::Fadt>().and_then(|fadt| {
+            struct Dsdt;
+            impl AcpiTable for Dsdt {
+                const SIGNATURE: Signature = Signature::DSDT;
+
+                fn header(&self) -> &sdt::SdtHeader {
+                    // SAFETY: DSDT will always be valid for an SdtHeader at its `self` pointer.
+                    unsafe { &*(self as *const Self as *const sdt::SdtHeader) }
+                }
+            }
+
+            let dsdt_address = fadt.dsdt_address()?;
+            let dsdt = unsafe { read_table::<H, Dsdt>(self.handler.clone(), dsdt_address)? };
+
+            Ok(AmlTable::new(dsdt_address, dsdt.header().length))
+        })
+    }
+
+    pub fn iter_ssdts(&self) -> SsdtIterator<H> {
+        let table_base_address = unsafe { self.mapping.virtual_start().as_ptr().add(1) as usize };
+        let table_end_address = table_base_address
+            + (((self.mapping.length as usize) - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>());
+
+        SsdtIterator {
+            cur_address: table_base_address,
+            end_address: table_end_address,
+            handler: self.handler.clone(),
+            marker: core::marker::PhantomData,
+        }
+    }
+
     /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
     /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
     /// the platform from the ACPI tables.
-    pub fn platform_info(&self) -> AcpiResult<PlatformInfo> {
-        PlatformInfo::new(self)
+    #[cfg(feature = "alloc")]
+    pub fn platform_info_in<'a, A>(&'a self, allocator: &'a A) -> AcpiResult<PlatformInfo<A>>
+    where
+        A: core::alloc::Allocator,
+    {
+        PlatformInfo::new(self, allocator)
     }
 }
 
@@ -285,5 +328,55 @@ unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
 
         // SAFETY: Address and length are already known-good.
         Ok(unsafe { handler.map_physical_region(address, sdt_length as usize) })
+    }
+}
+
+pub struct SsdtIterator<'a, H>
+where
+    H: AcpiHandler,
+{
+    cur_address: usize,
+    end_address: usize,
+    handler: H,
+    marker: core::marker::PhantomData<&'a ()>,
+}
+
+impl<'a, H> Iterator for SsdtIterator<'a, H>
+where
+    H: AcpiHandler,
+{
+    type Item = AmlTable;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        struct Ssdt;
+        impl AcpiTable for Ssdt {
+            const SIGNATURE: Signature = Signature::SSDT;
+
+            fn header(&self) -> &sdt::SdtHeader {
+                // SAFETY: DSDT will always be valid for an SdtHeader at its `self` pointer.
+                unsafe { &*(self as *const Self as *const sdt::SdtHeader) }
+            }
+        }
+
+        if self.cur_address < self.end_address {
+            loop {
+                // Attempt to peek at the SDT header to correctly enumerate the entire table.
+                // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
+                let sdt_header = unsafe {
+                    self.handler
+                        .map_physical_region::<SdtHeader>(self.cur_address, core::mem::size_of::<SdtHeader>())
+                };
+
+                self.cur_address += sdt_header.length as usize;
+
+                if sdt_header.validate(Ssdt::SIGNATURE).is_err() {
+                    continue;
+                } else {
+                    return Some(AmlTable { address: sdt_header.physical_start(), length: sdt_header.length });
+                }
+            }
+        } else {
+            None
+        }
     }
 }
