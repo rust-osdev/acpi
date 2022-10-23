@@ -2,8 +2,7 @@ pub mod interrupt;
 
 use core::alloc::Allocator;
 
-use crate::{fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
-use address::GenericAddress;
+use crate::{address::GenericAddress, fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, PowerProfile};
 use interrupt::InterruptModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

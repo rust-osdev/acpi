@@ -59,7 +59,8 @@ pub struct Mcfg {
     // Followed by `n` entries with format `McfgEntry`
 }
 
-impl crate::AcpiTable for Mcfg {
+// ### Safety: Implementation properly represents a valid MCFG.
+unsafe impl crate::AcpiTable for Mcfg {
     const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::MCFG;
 
     fn header(&self) -> &SdtHeader {
