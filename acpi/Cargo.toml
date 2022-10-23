@@ -14,5 +14,5 @@ bit_field = "0.10"
 rsdp = { version = "2", path = "../rsdp" }
 
 [features]
-default = []
-alloc = []
+default = ["allocator_api"]
+allocator_api = []
