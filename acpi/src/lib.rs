@@ -49,7 +49,7 @@
 
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
-#![cfg_attr(feature = "alloc", feature(allocator_api, ptr_as_uninit))]
+#![cfg_attr(feature = "allocator_api", feature(allocator_api, ptr_as_uninit))]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -69,17 +69,17 @@ pub use rsdp::{
     RsdpError,
 };
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "allocator_api")]
 pub use crate::{
     mcfg::PciConfigRegions,
     platform::{interrupt::InterruptModel, PlatformInfo},
 };
-#[cfg(feature = "alloc")]
+#[cfg(feature = "allocator_api")]
 pub mod platform;
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "allocator_api")]
 mod managed_slice;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "allocator_api")]
 pub use managed_slice::*;
 
 use crate::sdt::{SdtHeader, Signature};
@@ -108,7 +108,12 @@ pub enum AcpiError {
 pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
 
 /// All types representing ACPI tables should implement this trait.
-pub trait AcpiTable {
+/// 
+/// ### Safety: This trait requires the implementation to correctly lay out the memory
+/// it is attempting to represent. If, for instance, an invalid `T` is provided to
+/// `AcpiTables::find_table`, undefined behaviour would result from the enumeration of the
+/// headers.
+pub unsafe trait AcpiTable {
     const SIGNATURE: Signature;
 
     fn header(&self) -> &sdt::SdtHeader;
@@ -185,7 +190,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
         }
     }
 
-    /// Searches through the ACPI table hears and attempts to locate the table with a matching `T::SIGNATURE`.
+    /// Searches through the ACPI table headers and attempts to locate the table with a matching `T::SIGNATURE`.
     pub fn find_table<T: AcpiTable>(&self) -> AcpiResult<PhysicalMapping<H, T>> {
         use core::mem::size_of;
 
@@ -195,7 +200,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
             let tables_base = unsafe { self.mapping.virtual_start().as_ptr().add(1).cast::<u32>() };
 
             for offset in 0..num_tables {
-                // ### Safety: See above safety message.
+                // ### Safety: Table pointer is known-good for these offsets and types.
                 let sdt_header_address = unsafe { tables_base.add(offset).read_unaligned() } as usize;
 
                 // ### Safety: `RSDT` guarantees its contained addresses to be valid.
@@ -210,7 +215,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
             let tables_base = unsafe { self.mapping.virtual_start().as_ptr().add(1).cast::<u64>() };
 
             for offset in 0..num_tables {
-                // ### Safety: See above safety message.
+                // ### Safety: Table pointer is known-good for these offsets and types.
                 let sdt_header_address = unsafe { tables_base.add(offset).read_unaligned() } as usize;
 
                 // ### Safety: `RSDT` guarantees its contained addresses to be valid.
@@ -228,7 +233,8 @@ impl<H: AcpiHandler> AcpiTables<H> {
     pub fn get_dsdt(&self) -> AcpiResult<AmlTable> {
         self.find_table::<fadt::Fadt>().and_then(|fadt| {
             struct Dsdt;
-            impl AcpiTable for Dsdt {
+// ### Safety: Implementation properly represents a valid DSDT.
+            unsafe impl AcpiTable for Dsdt {
                 const SIGNATURE: Signature = Signature::DSDT;
 
                 fn header(&self) -> &sdt::SdtHeader {
@@ -245,7 +251,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
     }
 
     /// Iterates through all of the SSDT tables.
-    pub fn iter_ssdts(&self) -> SsdtIterator<H> {
+    pub fn ssdts(&self) -> SsdtIterator<H> {
         let table_base_address = unsafe { self.mapping.virtual_start().as_ptr().add(1) as usize };
         let table_end_address = table_base_address
             + (((self.mapping.length as usize) - mem::size_of::<SdtHeader>()) / mem::size_of::<u64>());
@@ -261,7 +267,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
     /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
     /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
     /// the platform from the ACPI tables.
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "allocator_api")]
     pub fn platform_info_in<'a, A>(&'a self, allocator: &'a A) -> AcpiResult<PlatformInfo<A>>
     where
         A: core::alloc::Allocator,
@@ -355,7 +361,8 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         struct Ssdt;
-        impl AcpiTable for Ssdt {
+// ### Safety: Implementation properly represents a valid SSDT.
+        unsafe impl AcpiTable for Ssdt {
             const SIGNATURE: Signature = Signature::SSDT;
 
             fn header(&self) -> &sdt::SdtHeader {

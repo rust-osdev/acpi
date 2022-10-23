@@ -82,7 +82,8 @@ pub struct HpetTable {
     page_protection_and_oem: u8,
 }
 
-impl AcpiTable for HpetTable {
+// ### Safety: Implementation properly represents a valid HPET.
+unsafe impl AcpiTable for HpetTable {
     const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::HPET;
 
     fn header(&self) -> &SdtHeader {

@@ -27,7 +27,8 @@ pub struct Madt {
     flags: u32,
 }
 
-impl AcpiTable for Madt {
+// ### Safety: Implementation properly represents a valid MADT.
+unsafe impl AcpiTable for Madt {
     const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::MADT;
 
     fn header(&self) -> &SdtHeader {
@@ -36,7 +37,7 @@ impl AcpiTable for Madt {
 }
 
 impl Madt {
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "allocator_api")]
     pub fn parse_interrupt_model_in<'a, A>(
         &self,
         allocator: &'a A,
@@ -81,7 +82,7 @@ impl Madt {
         Ok((InterruptModel::Unknown, None))
     }
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "allocator_api")]
     fn parse_apic_model_in<'a, A>(
         &self,
         allocator: &'a A,
@@ -609,7 +610,7 @@ pub struct MultiprocessorWakeupEntry {
     mailbox_address: u64,
 }
 
-#[cfg(feature = "alloc")]
+#[cfg(feature = "allocator_api")]
 fn parse_mps_inti_flags(
     flags: u16,
 ) -> Result<(crate::platform::interrupt::Polarity, crate::platform::interrupt::TriggerMode), AcpiError> {
