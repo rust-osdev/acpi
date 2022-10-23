@@ -13,7 +13,7 @@ where
     A: alloc::Allocator,
 {
     pub fn new_in(len: usize, allocator: &'a A) -> crate::AcpiResult<Self> {
-        // SAFETY: Struct layouts are required to be valid.
+        // ### Safety: Struct layouts are required to be valid.
         let layout =
             unsafe { alloc::Layout::from_size_align_unchecked(mem::size_of::<T>() * len, mem::align_of::<T>()) };
 
@@ -28,14 +28,14 @@ where
     A: alloc::Allocator,
 {
     fn drop(&mut self) {
-        // SAFETY: Slice is required by function to point to non-null memory.
+        // ### Safety: Slice is required by function to point to non-null memory.
         let slice_ptr = unsafe { core::ptr::NonNull::new_unchecked(self.slice.as_ptr().cast_mut().cast::<u8>()) };
-        // SAFETY: Slice is constructed from a valid layout.
+        // ### Safety: Slice is constructed from a valid layout.
         let slice_layout = unsafe {
             alloc::Layout::from_size_align_unchecked(mem::size_of_val(self.slice), mem::align_of_val(self.slice))
         };
 
-        // SAFETY: Caller is required to provide a slice allocated with the provided allocator.
+        // ### Safety: Caller is required to provide a slice allocated with the provided allocator.
         unsafe { self.allocator.deallocate(slice_ptr, slice_layout) };
     }
 }
