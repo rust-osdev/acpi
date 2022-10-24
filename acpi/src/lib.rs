@@ -108,7 +108,7 @@ pub enum AcpiError {
 pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
 
 /// All types representing ACPI tables should implement this trait.
-/// 
+///
 /// ### Safety: This trait requires the implementation to correctly lay out the memory
 /// it is attempting to represent. If, for instance, an invalid `T` is provided to
 /// `AcpiTables::find_table`, undefined behaviour would result from the enumeration of the
@@ -131,7 +131,9 @@ pub struct AcpiTables<H: AcpiHandler> {
 
 impl<H: AcpiHandler> AcpiTables<H> {
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
-    pub fn from_rsdp(handler: H, address: usize) -> AcpiResult<Self> {
+    ///
+    /// ### Safety: Caller must ensure the provided address is valid to read as an RSDP.
+    pub unsafe fn from_rsdp(handler: H, address: usize) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
         rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
 
@@ -233,7 +235,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
     pub fn get_dsdt(&self) -> AcpiResult<AmlTable> {
         self.find_table::<fadt::Fadt>().and_then(|fadt| {
             struct Dsdt;
-// ### Safety: Implementation properly represents a valid DSDT.
+            // ### Safety: Implementation properly represents a valid DSDT.
             unsafe impl AcpiTable for Dsdt {
                 const SIGNATURE: Signature = Signature::DSDT;
 
@@ -361,7 +363,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         struct Ssdt;
-// ### Safety: Implementation properly represents a valid SSDT.
+        // ### Safety: Implementation properly represents a valid SSDT.
         unsafe impl AcpiTable for Ssdt {
             const SIGNATURE: Signature = Signature::SSDT;
 
