@@ -274,7 +274,7 @@ impl<H: AcpiHandler> AcpiTables<H> {
     where
         A: core::alloc::Allocator,
     {
-        PlatformInfo::new(self, allocator)
+        PlatformInfo::new_in(self, allocator)
     }
 }
 

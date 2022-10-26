@@ -100,7 +100,7 @@ impl<'a, A> PlatformInfo<'a, A>
 where
     A: Allocator,
 {
-    pub fn new<H>(tables: &AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<PlatformInfo<'a, A>>
+    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<Self>
     where
         H: AcpiHandler,
     {
