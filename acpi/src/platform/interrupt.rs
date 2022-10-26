@@ -1,5 +1,5 @@
-use core::alloc::Allocator;
 use crate::ManagedSlice;
+use core::alloc::Allocator;
 
 #[derive(Debug)]
 pub struct IoApic {
@@ -76,6 +76,7 @@ pub struct NmiSource {
     pub trigger_mode: TriggerMode,
 }
 
+#[derive(Debug)]
 pub struct Apic<'a, A>
 where
     A: Allocator,
@@ -115,6 +116,7 @@ where
     }
 }
 
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum InterruptModel<'a, A>
 where

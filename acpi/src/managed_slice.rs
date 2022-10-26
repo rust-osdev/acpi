@@ -1,6 +1,7 @@
 use core::{alloc, mem};
 
 /// Acts as a thing wrapper around a regular slice, for use with the `allocator_api` feature set in `core`.
+#[derive(Debug)]
 pub struct ManagedSlice<'a, T, A>
 where
     A: alloc::Allocator,
