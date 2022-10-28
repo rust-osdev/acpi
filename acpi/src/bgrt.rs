@@ -15,7 +15,8 @@ pub struct Bgrt {
     image_offset_y: u32,
 }
 
-// ### Safety: Implementation properly represents a valid BGRT.
+/// ### Safety
+/// Implementation properly represents a valid BGRT.
 unsafe impl AcpiTable for Bgrt {
     const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::BGRT;
 
