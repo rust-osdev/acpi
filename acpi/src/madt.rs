@@ -1,28 +1,15 @@
-use crate::{
-    platform::{
-        interrupt::{
-            Apic,
-            InterruptModel,
-            InterruptSourceOverride,
-            IoApic,
-            LocalInterruptLine,
-            NmiLine,
-            NmiProcessor,
-            NmiSource,
-            Polarity,
-            TriggerMode,
-        },
-        Processor,
-        ProcessorInfo,
-        ProcessorState,
-    },
-    sdt::SdtHeader,
-    AcpiError,
-    AcpiTable,
-};
-use alloc::vec::Vec;
+use crate::{sdt::SdtHeader, AcpiTable};
 use bit_field::BitField;
 use core::{marker::PhantomData, mem};
+
+#[cfg(feature = "allocator_api")]
+use crate::{
+    platform::{
+        interrupt::{InterruptModel, Polarity, TriggerMode},
+        ProcessorInfo,
+    },
+    AcpiResult,
+};
 
 #[derive(Debug)]
 pub enum MadtError {
@@ -49,14 +36,24 @@ pub struct Madt {
     flags: u32,
 }
 
-impl AcpiTable for Madt {
+// ### Safety: Implementation properly represents a valid MADT.
+unsafe impl AcpiTable for Madt {
+    const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::MADT;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
 }
 
 impl Madt {
-    pub fn parse_interrupt_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
+    #[cfg(feature = "allocator_api")]
+    pub fn parse_interrupt_model_in<'a, A>(
+        &self,
+        allocator: &'a A,
+    ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
+    where
+        A: core::alloc::Allocator,
+    {
         /*
          * We first do a pass through the MADT to determine which interrupt model is being used.
          */
@@ -70,7 +67,7 @@ impl Madt {
                 MadtEntry::LocalApicNmi(_) |
                 MadtEntry::X2ApicNmi(_) |
                 MadtEntry::LocalApicAddressOverride(_) => {
-                    return self.parse_apic_model();
+                    return self.parse_apic_model_in(allocator);
                 }
 
                 MadtEntry::IoSapic(_) |
@@ -94,7 +91,31 @@ impl Madt {
         Ok((InterruptModel::Unknown, None))
     }
 
-    fn parse_apic_model(&self) -> Result<(InterruptModel, Option<ProcessorInfo>), AcpiError> {
+    #[cfg(feature = "allocator_api")]
+    fn parse_apic_model_in<'a, A>(
+        &self,
+        allocator: &'a A,
+    ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
+    where
+        A: core::alloc::Allocator,
+    {
+        use crate::{
+            platform::{
+                interrupt::{
+                    Apic,
+                    InterruptSourceOverride,
+                    IoApic,
+                    LocalInterruptLine,
+                    NmiLine,
+                    NmiProcessor,
+                    NmiSource,
+                },
+                Processor,
+                ProcessorState,
+            },
+            AcpiError,
+        };
+
         let mut local_apic_address = self.local_apic_address as u64;
         let mut io_apic_count = 0;
         let mut iso_count = 0;
@@ -114,12 +135,19 @@ impl Madt {
             }
         }
 
-        let mut io_apics = Vec::with_capacity(io_apic_count);
-        let mut interrupt_source_overrides = Vec::with_capacity(iso_count);
-        let mut nmi_sources = Vec::with_capacity(nmi_source_count);
-        let mut local_apic_nmi_lines = Vec::with_capacity(local_nmi_line_count);
+        let mut io_apics = crate::ManagedSlice::new_in(io_apic_count, allocator)?;
+        let mut interrupt_source_overrides = crate::ManagedSlice::new_in(iso_count, allocator)?;
+        let mut nmi_sources = crate::ManagedSlice::new_in(nmi_source_count, allocator)?;
+        let mut local_apic_nmi_lines = crate::ManagedSlice::new_in(local_nmi_line_count, allocator)?;
+        let mut application_processors =
+            crate::ManagedSlice::new_in(processor_count.saturating_sub(1), allocator)?; // Subtract one for the BSP
         let mut boot_processor = None;
-        let mut application_processors = Vec::with_capacity(processor_count.saturating_sub(1)); // Subtract one for the BSP
+
+        io_apic_count = 0;
+        iso_count = 0;
+        nmi_source_count = 0;
+        local_nmi_line_count = 0;
+        processor_count = 0;
 
         for entry in self.entries() {
             match entry {
@@ -145,7 +173,8 @@ impl Madt {
                     };
 
                     if is_ap {
-                        application_processors.push(processor);
+                        application_processors[processor_count] = processor;
+                        processor_count += 1;
                     } else {
                         boot_processor = Some(processor);
                     }
@@ -160,7 +189,6 @@ impl Madt {
                         (true, false) => ProcessorState::WaitingForSipi,
                         (false, false) => ProcessorState::Running,
                     };
-                    log::info!("Found X2APIC in MADT!");
 
                     let processor = Processor {
                         processor_uid: entry.processor_uid,
@@ -170,18 +198,20 @@ impl Madt {
                     };
 
                     if is_ap {
-                        application_processors.push(processor);
+                        application_processors[processor_count] = processor;
+                        processor_count += 1;
                     } else {
                         boot_processor = Some(processor);
                     }
                 }
 
                 MadtEntry::IoApic(entry) => {
-                    io_apics.push(IoApic {
+                    io_apics[io_apic_count] = IoApic {
                         id: entry.io_apic_id,
                         address: entry.io_apic_address,
                         global_system_interrupt_base: entry.global_system_interrupt_base,
-                    });
+                    };
+                    io_apic_count += 1;
                 }
 
                 MadtEntry::InterruptSourceOverride(entry) => {
@@ -191,49 +221,57 @@ impl Madt {
 
                     let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
 
-                    interrupt_source_overrides.push(InterruptSourceOverride {
+                    interrupt_source_overrides[iso_count] = InterruptSourceOverride {
                         isa_source: entry.irq,
                         global_system_interrupt: entry.global_system_interrupt,
                         polarity,
                         trigger_mode,
-                    });
+                    };
+                    iso_count += 1;
                 }
 
                 MadtEntry::NmiSource(entry) => {
                     let (polarity, trigger_mode) = parse_mps_inti_flags(entry.flags)?;
 
-                    nmi_sources.push(NmiSource {
+                    nmi_sources[nmi_source_count] = NmiSource {
                         global_system_interrupt: entry.global_system_interrupt,
                         polarity,
                         trigger_mode,
-                    });
+                    };
+                    nmi_source_count += 1;
                 }
 
-                MadtEntry::LocalApicNmi(entry) => local_apic_nmi_lines.push(NmiLine {
-                    processor: if entry.processor_id == 0xff {
-                        NmiProcessor::All
-                    } else {
-                        NmiProcessor::ProcessorUid(entry.processor_id as u32)
-                    },
-                    line: match entry.nmi_line {
-                        0 => LocalInterruptLine::Lint0,
-                        1 => LocalInterruptLine::Lint1,
-                        _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
-                    },
-                }),
+                MadtEntry::LocalApicNmi(entry) => {
+                    local_apic_nmi_lines[local_nmi_line_count] = NmiLine {
+                        processor: if entry.processor_id == 0xff {
+                            NmiProcessor::All
+                        } else {
+                            NmiProcessor::ProcessorUid(entry.processor_id as u32)
+                        },
+                        line: match entry.nmi_line {
+                            0 => LocalInterruptLine::Lint0,
+                            1 => LocalInterruptLine::Lint1,
+                            _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                        },
+                    };
+                    local_nmi_line_count += 1;
+                }
 
-                MadtEntry::X2ApicNmi(entry) => local_apic_nmi_lines.push(NmiLine {
-                    processor: if entry.processor_uid == 0xffffffff {
-                        NmiProcessor::All
-                    } else {
-                        NmiProcessor::ProcessorUid(entry.processor_uid)
-                    },
-                    line: match entry.nmi_line {
-                        0 => LocalInterruptLine::Lint0,
-                        1 => LocalInterruptLine::Lint1,
-                        _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
-                    },
-                }),
+                MadtEntry::X2ApicNmi(entry) => {
+                    local_apic_nmi_lines[local_nmi_line_count] = NmiLine {
+                        processor: if entry.processor_uid == 0xffffffff {
+                            NmiProcessor::All
+                        } else {
+                            NmiProcessor::ProcessorUid(entry.processor_uid)
+                        },
+                        line: match entry.nmi_line {
+                            0 => LocalInterruptLine::Lint0,
+                            1 => LocalInterruptLine::Lint1,
+                            _ => return Err(AcpiError::InvalidMadt(MadtError::InvalidLocalNmiLine)),
+                        },
+                    };
+                    local_nmi_line_count += 1;
+                }
 
                 MadtEntry::LocalApicAddressOverride(entry) => {
                     local_apic_address = entry.local_apic_address;
@@ -246,15 +284,15 @@ impl Madt {
         }
 
         Ok((
-            InterruptModel::Apic(Apic {
+            InterruptModel::Apic(Apic::new(
                 local_apic_address,
                 io_apics,
                 local_apic_nmi_lines,
                 interrupt_source_overrides,
                 nmi_sources,
-                also_has_legacy_pics: self.supports_8259(),
-            }),
-            Some(ProcessorInfo { boot_processor: boot_processor.unwrap(), application_processors }),
+                self.supports_8259(),
+            )),
+            Some(ProcessorInfo::new(boot_processor.unwrap(), application_processors)),
         ))
     }
 
@@ -578,19 +616,20 @@ pub struct MultiprocessorWakeupEntry {
     mailbox_address: u64,
 }
 
-fn parse_mps_inti_flags(flags: u16) -> Result<(Polarity, TriggerMode), AcpiError> {
+#[cfg(feature = "allocator_api")]
+fn parse_mps_inti_flags(flags: u16) -> crate::AcpiResult<(Polarity, TriggerMode)> {
     let polarity = match flags.get_bits(0..2) {
         0b00 => Polarity::SameAsBus,
         0b01 => Polarity::ActiveHigh,
         0b11 => Polarity::ActiveLow,
-        _ => return Err(AcpiError::InvalidMadt(MadtError::MpsIntiInvalidPolarity)),
+        _ => return Err(crate::AcpiError::InvalidMadt(MadtError::MpsIntiInvalidPolarity)),
     };
 
     let trigger_mode = match flags.get_bits(2..4) {
         0b00 => TriggerMode::SameAsBus,
         0b01 => TriggerMode::Edge,
         0b11 => TriggerMode::Level,
-        _ => return Err(AcpiError::InvalidMadt(MadtError::MpsIntiInvalidTriggerMode)),
+        _ => return Err(crate::AcpiError::InvalidMadt(MadtError::MpsIntiInvalidTriggerMode)),
     };
 
     Ok((polarity, trigger_mode))

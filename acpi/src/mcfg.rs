@@ -1,5 +1,4 @@
-use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
-use alloc::vec::Vec;
+use crate::sdt::SdtHeader;
 use core::{mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
@@ -7,22 +6,30 @@ use core::{mem, slice};
 /// function of a PCIe device, the `physical_address` method on this will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
-#[derive(Clone, Debug)]
-pub struct PciConfigRegions {
-    regions: Vec<McfgEntry>,
+#[cfg(feature = "allocator_api")]
+pub struct PciConfigRegions<'a, A>
+where
+    A: core::alloc::Allocator,
+{
+    regions: crate::ManagedSlice<'a, McfgEntry, A>,
 }
 
-impl PciConfigRegions {
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
+#[cfg(feature = "allocator_api")]
+impl<'a, A> PciConfigRegions<'a, A>
+where
+    A: core::alloc::Allocator,
+{
+    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<PciConfigRegions<'a, A>>
     where
-        H: AcpiHandler,
+        H: crate::AcpiHandler,
     {
-        let mcfg = unsafe {
-            tables
-                .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
-        };
-        Ok(PciConfigRegions { regions: mcfg.entries().iter().copied().collect() })
+        let mcfg = tables.find_table::<Mcfg>()?;
+        let mcfg_entries = mcfg.entries();
+
+        let mut regions = crate::ManagedSlice::new_in(mcfg_entries.len(), allocator)?;
+        regions.copy_from_slice(mcfg_entries);
+
+        Ok(Self { regions })
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -52,14 +59,19 @@ pub struct Mcfg {
     // Followed by `n` entries with format `McfgEntry`
 }
 
-impl AcpiTable for Mcfg {
+// ### Safety: Implementation properly represents a valid MCFG.
+unsafe impl crate::AcpiTable for Mcfg {
+    const SIGNATURE: crate::sdt::Signature = crate::sdt::Signature::MCFG;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
 }
 
 impl Mcfg {
-    fn entries(&self) -> &[McfgEntry] {
+    /// Returns a slice containing each of the entries in the MCFG table. Where possible, `PlatformInfo.interrupt_model` should
+    /// be enumerated instead.
+    pub fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
         // Intentionally round down in case length isn't an exact multiple of McfgEntry size
