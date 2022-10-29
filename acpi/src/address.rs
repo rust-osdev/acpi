@@ -6,7 +6,7 @@ use core::convert::TryFrom;
 
 /// This is the raw form of a Generic Address Structure, and follows the layout found in the ACPI tables. It does
 /// not form part of the public API, and should be turned into a `GenericAddress` for most use-cases.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub(crate) struct RawGenericAddress {
     pub address_space: u8,
@@ -16,7 +16,7 @@ pub(crate) struct RawGenericAddress {
     pub address: u64,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressSpace {
     SystemMemory,
     SystemIo,
@@ -41,7 +41,7 @@ pub enum AddressSpace {
     OemDefined(u8),
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessSize {
     Undefined,
     ByteAccess,
@@ -75,7 +75,7 @@ pub struct GenericAddress {
 }
 
 impl GenericAddress {
-    pub(crate) fn from_raw(raw: RawGenericAddress) -> Result<GenericAddress, AcpiError> {
+    pub(crate) fn from_raw(raw: RawGenericAddress) -> crate::AcpiResult<GenericAddress> {
         let address_space = match raw.address_space {
             0x00 => AddressSpace::SystemMemory,
             0x01 => AddressSpace::SystemIo,

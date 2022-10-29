@@ -1,28 +1,39 @@
-use crate::{sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
-use alloc::vec::Vec;
-use core::{mem, slice};
+use crate::{
+    sdt::{SdtHeader, Signature},
+    AcpiHandler,
+    AcpiTable,
+    AcpiTables,
+    ManagedSlice,
+};
+use core::{alloc::Allocator, mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
 /// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
 /// function of a PCIe device, the `physical_address` method on this will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
-#[derive(Clone, Debug)]
-pub struct PciConfigRegions {
-    regions: Vec<McfgEntry>,
+#[derive(Debug)]
+pub struct PciConfigRegions<'a, A>
+where
+    A: Allocator,
+{
+    regions: ManagedSlice<'a, McfgEntry, A>,
 }
 
-impl PciConfigRegions {
-    pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions, AcpiError>
+impl<'a, A> PciConfigRegions<'a, A>
+where
+    A: Allocator,
+{
+    pub fn new<H>(tables: &AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<Self>
     where
         H: AcpiHandler,
     {
-        let mcfg = unsafe {
-            tables
-                .get_sdt::<Mcfg>(crate::sdt::Signature::MCFG)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::MCFG))?
-        };
-        Ok(PciConfigRegions { regions: mcfg.entries().iter().copied().collect() })
+        let mcfg = tables.find_table::<Mcfg>()?;
+        let mcfg_entries = mcfg.entries();
+        let mut regions = ManagedSlice::new_in(mcfg_entries.len(), allocator)?;
+        regions.copy_from_slice(mcfg_entries);
+
+        Ok(PciConfigRegions { regions })
     }
 
     /// Get the physical address of the start of the configuration space for a given PCIe device
@@ -52,7 +63,10 @@ pub struct Mcfg {
     // Followed by `n` entries with format `McfgEntry`
 }
 
-impl AcpiTable for Mcfg {
+/// ### Safety: Implementation properly represents a valid MCFG.
+unsafe impl AcpiTable for Mcfg {
+    const SIGNATURE: Signature = Signature::MCFG;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
@@ -79,7 +93,7 @@ impl core::fmt::Debug for Mcfg {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct McfgEntry {
     base_address: u64,
