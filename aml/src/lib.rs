@@ -109,7 +109,6 @@ impl MethodContext {
     }
 }
 
-#[derive(Debug)]
 pub struct AmlContext {
     /// The `Handler` passed from the library user. This is stored as a boxed trait object simply to avoid having
     /// to add a lifetime and type parameter to `AmlContext`, as they would massively complicate the parser types.
