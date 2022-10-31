@@ -1,4 +1,11 @@
-use crate::{platform::address::RawGenericAddress, sdt::SdtHeader, AcpiError, AcpiHandler, AcpiTable, AcpiTables};
+use crate::{
+    address::RawGenericAddress,
+    sdt::{SdtHeader, Signature},
+    AcpiError,
+    AcpiHandler,
+    AcpiTable,
+    AcpiTables,
+};
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -28,13 +35,9 @@ impl HpetInfo {
     where
         H: AcpiHandler,
     {
-        let hpet = unsafe {
-            tables
-                .get_sdt::<HpetTable>(crate::sdt::Signature::HPET)?
-                .ok_or(AcpiError::TableMissing(crate::sdt::Signature::HPET))?
-        };
+        let hpet = tables.find_table::<HpetTable>()?;
 
-        // Make sure the HPET's in system memory
+        // Make sure the HPET is in system memory
         assert_eq!(hpet.base_address.address_space, 0);
 
         Ok(HpetInfo {
@@ -86,7 +89,10 @@ pub struct HpetTable {
     page_protection_and_oem: u8,
 }
 
-impl AcpiTable for HpetTable {
+/// ### Safety: Implementation properly represents a valid HPET table.
+unsafe impl AcpiTable for HpetTable {
+    const SIGNATURE: Signature = Signature::HPET;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }

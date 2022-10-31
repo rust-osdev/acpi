@@ -1,5 +1,5 @@
-use crate::{AcpiError, AcpiHandler};
-use core::{fmt, mem, mem::MaybeUninit, str};
+use crate::{AcpiError,};
+use core::{fmt,  mem::MaybeUninit, str};
 
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
 /// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
@@ -134,8 +134,10 @@ impl SdtHeader {
         // Validate the checksum
         let self_ptr = self as *const SdtHeader as *const u8;
         let mut sum: u8 = 0;
-        for i in 0..self.length {
-            sum = sum.wrapping_add(unsafe { *(self_ptr.offset(i as isize)) } as u8);
+        for offset in 0..self.length {
+            // SAFETY: Read from pointer is valid for the described table length, and all reads are read safely
+            //         via `core::ptr::read_unaligned`.
+            sum = sum.wrapping_add(unsafe { self_ptr.offset(offset as isize).read_unaligned() } as u8);
         }
 
         if sum > 0 {
@@ -242,15 +244,4 @@ impl fmt::Debug for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "\"{}\"", self.as_str())
     }
-}
-
-/// Takes the physical address of an SDT, and maps, clones and unmaps its header. Useful for
-/// finding out how big it is to map it correctly later.
-pub(crate) fn peek_at_sdt_header<H>(handler: &H, physical_address: usize) -> SdtHeader
-where
-    H: AcpiHandler,
-{
-    let mapping =
-        unsafe { handler.map_physical_region::<SdtHeader>(physical_address, mem::size_of::<SdtHeader>()) };
-    *mapping
 }

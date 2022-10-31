@@ -1,4 +1,7 @@
-use crate::{sdt::SdtHeader, AcpiTable};
+use crate::{
+    sdt::{SdtHeader, Signature},
+    AcpiTable,
+};
 use bit_field::BitField;
 
 /// The BGRT table contains information about a boot graphic that was displayed
@@ -15,7 +18,10 @@ pub struct Bgrt {
     image_offset_y: u32,
 }
 
-impl AcpiTable for Bgrt {
+/// ### Safety: Implementation properly represents a valid BGRT.
+unsafe impl AcpiTable for Bgrt {
+    const SIGNATURE: Signature = Signature::BGRT;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }

@@ -75,7 +75,7 @@ pub struct GenericAddress {
 }
 
 impl GenericAddress {
-    pub(crate) fn from_raw(raw: RawGenericAddress) -> Result<GenericAddress, AcpiError> {
+    pub(crate) fn from_raw(raw: RawGenericAddress) -> crate::AcpiResult<GenericAddress> {
         let address_space = match raw.address_space {
             0x00 => AddressSpace::SystemMemory,
             0x01 => AddressSpace::SystemIo,

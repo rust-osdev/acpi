@@ -1,12 +1,12 @@
 use crate::{
-    platform::address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
-    sdt::{ExtendedField, SdtHeader},
+    address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
+    sdt::{ExtendedField, SdtHeader, Signature},
     AcpiError,
     AcpiTable,
 };
 use bit_field::BitField;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerProfile {
     Unspecified,
     Desktop,
@@ -115,7 +115,10 @@ pub struct Fadt {
     hypervisor_vendor_id: ExtendedField<u64, 2>,
 }
 
-impl AcpiTable for Fadt {
+/// ### Safety: Implementation properly represents a valid FADT.
+unsafe impl AcpiTable for Fadt {
+    const SIGNATURE: Signature = Signature::FADT;
+
     fn header(&self) -> &SdtHeader {
         &self.header
     }
