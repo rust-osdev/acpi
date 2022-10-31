@@ -62,7 +62,7 @@ impl Bgrt {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum ImageType {
     Bitmap,
     Reserved,

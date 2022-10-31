@@ -93,7 +93,7 @@ impl core::fmt::Debug for Mcfg {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct McfgEntry {
     base_address: u64,

@@ -348,7 +348,7 @@ impl Fadt {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct FixedFeatureFlags(u32);
 
 impl FixedFeatureFlags {
@@ -468,7 +468,7 @@ impl FixedFeatureFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct IaPcBootArchFlags(u16);
 
 impl IaPcBootArchFlags {
@@ -505,7 +505,7 @@ impl IaPcBootArchFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct ArmBootArchFlags(u16);
 
 impl ArmBootArchFlags {

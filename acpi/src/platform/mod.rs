@@ -13,7 +13,7 @@ use crate::{
 use core::alloc::Allocator;
 use interrupt::InterruptModel;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
     /// A processor in this state is unusable, and you must not attempt to bring it up.
     Disabled,
@@ -26,7 +26,7 @@ pub enum ProcessorState {
     Running,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Processor {
     /// Corresponds to the `_UID` object of the processor's `Device`, or the `ProcessorId` field of the `Processor`
     /// object, in AML.
