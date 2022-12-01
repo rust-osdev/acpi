@@ -517,7 +517,9 @@ impl AmlValue {
             let bitslice = inner_data.view_bits::<bitvec::order::Lsb0>();
             let bits = &bitslice[offset..(offset + length)];
             if length > 64 {
-                Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bits.as_raw_slice().to_vec()))))
+                let mut bitvec = bits.to_bitvec();
+                bitvec.set_uninitialized(false);
+                Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bitvec.into_vec()))))
             } else {
                 let mut value = 0u64;
                 value.view_bits_mut::<bitvec::order::Lsb0>()[0..length].clone_from_bitslice(bits);
@@ -549,7 +551,7 @@ impl AmlValue {
                     bitslice[offset..(offset + bits_to_copy)]
                         .copy_from_bitslice(&value.to_le_bytes().view_bits()[..(bits_to_copy as usize)]);
                     // Zero extend to the end of the buffer field
-                    bitslice[(offset + bits_to_copy)..(offset + length)].set_all(false);
+                    bitslice[(offset + bits_to_copy)..(offset + length)].fill(false);
                     Ok(())
                 }
                 AmlValue::Boolean(value) => {
@@ -569,7 +571,7 @@ impl AmlValue {
                     bitslice[offset..(offset + bits_to_copy)]
                         .copy_from_bitslice(&value_data.view_bits()[..(bits_to_copy as usize)]);
                     // Zero extend to the end of the buffer field
-                    bitslice[(offset + bits_to_copy)..(offset + length)].set_all(false);
+                    bitslice[(offset + bits_to_copy)..(offset + length)].fill(false);
                     Ok(())
                 }
                 _ => Err(AmlError::TypeCannotBeWrittenToBufferField(value.type_of())),
