@@ -28,6 +28,11 @@ pub enum RsdpError {
     InvalidChecksum,
 }
 
+/// The size in bytes of the ACPI 1.0 RSDP.
+const RSDP_V1_LENGTH: usize = 20;
+/// The total size in bytes of the RSDP fields introduced in ACPI 2.0.
+const RSDP_V2_EXT_LENGTH: usize = mem::size_of::<Rsdp>() - RSDP_V1_LENGTH;
+
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
 /// On BIOS systems, it is either found in the first 1KB of the Extended Bios Data Area, or between
@@ -79,32 +84,45 @@ impl Rsdp {
     where
         H: AcpiHandler,
     {
-        let rsdp_address = {
-            let mut rsdp_address = None;
-            let areas = find_search_areas(handler.clone());
+        let rsdp_address = find_search_areas(handler.clone()).iter().find_map(|area| {
+            // Map the search area for the RSDP followed by `RSDP_V2_EXT_LENGTH` bytes so an ACPI 1.0 RSDP at the
+            // end of the area can be read as an `Rsdp` (which always has the size of an ACPI 2.0 RSDP)
+            let mapping = unsafe {
+                handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_V2_EXT_LENGTH)
+            };
 
-            'areas: for area in areas.iter() {
-                let mapping = unsafe { handler.map_physical_region::<u8>(area.start, area.end - area.start) };
+            // SAFETY: The entirety of `mapping` maps the search area and an additional `RSDP_V2_EXT_LENGTH` bytes
+            // that are assumed to be safe to read while `extended_area_bytes` lives. (Ideally, an assumption about
+            // the memory following the search area would not be made.)
+            let extended_area_bytes = unsafe {
+                slice::from_raw_parts(
+                    mapping.virtual_start().as_ptr(),
+                    mapping.region_length() + RSDP_V2_EXT_LENGTH,
+                )
+            };
 
-                for address in area.clone().step_by(16) {
-                    let ptr_in_mapping =
-                        unsafe { mapping.virtual_start().as_ptr().add(address - area.start) };
-                    let signature = unsafe { *(ptr_in_mapping as *const [u8; 8]) };
+            // Search `Rsdp`-sized windows at 16-byte boundaries relative to the base of the area (which is also
+            // aligned to 16 bytes due to the implementation of `find_search_areas`)
+            extended_area_bytes.windows(mem::size_of::<Rsdp>()).step_by(16).find_map(|maybe_rsdp_bytes_slice| {
+                let maybe_rsdp_virt_ptr = maybe_rsdp_bytes_slice.as_ptr().cast::<Rsdp>();
+                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize
+                    - mapping.virtual_start().as_ptr() as usize
+                    + mapping.physical_start();
+                // SAFETY: `maybe_rsdp_virt_ptr` points to an aligned, readable `Rsdp`-sized value, and the `Rsdp`
+                // struct's fields are always initialized.
+                let maybe_rsdp = unsafe { &*maybe_rsdp_virt_ptr };
 
-                    if signature == RSDP_SIGNATURE {
-                        match unsafe { *(ptr_in_mapping as *const Rsdp) }.validate() {
-                            Ok(()) => {
-                                rsdp_address = Some(address);
-                                break 'areas;
-                            }
-                            Err(err) => warn!("Invalid RSDP found at {:#x}: {:?}", address, err),
-                        }
+                match maybe_rsdp.validate() {
+                    Ok(()) => Some(maybe_rsdp_phys_start),
+                    Err(RsdpError::IncorrectSignature) => None,
+                    Err(e) => {
+                        warn!("Invalid RSDP found at {:#x}: {:?}", maybe_rsdp_phys_start, e);
+
+                        None
                     }
                 }
-            }
-
-            rsdp_address
-        };
+            })
+        });
 
         match rsdp_address {
             Some(address) => {
@@ -120,8 +138,6 @@ impl Rsdp {
     ///     2) The checksum is correct
     ///     3) For Version 2.0+, that the extension checksum is correct
     pub fn validate(&self) -> Result<(), RsdpError> {
-        const RSDP_V1_LENGTH: usize = 20;
-
         // Check the signature
         if self.signature != RSDP_SIGNATURE {
             return Err(RsdpError::IncorrectSignature);
