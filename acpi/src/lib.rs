@@ -287,14 +287,17 @@ where
     /// Finds and returns the DSDT AML table, if it exists.
     pub fn dsdt(&self) -> AcpiResult<AmlTable> {
         self.find_table::<fadt::Fadt>().and_then(|fadt| {
-            struct Dsdt;
+            #[repr(transparent)]
+            struct Dsdt {
+                header: SdtHeader,
+            }
+
             // Safety: Implementation properly represents a valid DSDT.
             unsafe impl AcpiTable for Dsdt {
                 const SIGNATURE: Signature = Signature::DSDT;
 
-                fn header(&self) -> &sdt::SdtHeader {
-                    // Safety: DSDT will always be valid for an SdtHeader at its `self` pointer.
-                    unsafe { &*(self as *const Self as *const sdt::SdtHeader) }
+                fn header(&self) -> &SdtHeader {
+                    &self.header
                 }
             }
 
