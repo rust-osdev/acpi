@@ -1,5 +1,5 @@
-use crate::{AcpiError,};
-use core::{fmt,  mem::MaybeUninit, str};
+use crate::{AcpiError, AcpiHandler, AcpiResult, AcpiTable, PhysicalMapping};
+use core::{fmt, mem::MaybeUninit, str};
 
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
 /// that a system supports. If the field is not present, it is not safe to treat the data as initialised.
@@ -110,14 +110,10 @@ pub struct SdtHeader {
 }
 
 impl SdtHeader {
-    /// Check that:
-    ///     a) The signature matches the one given
-    ///     b) The checksum of the SDT is valid
-    ///
-    /// This assumes that the whole SDT is mapped.
-    pub fn validate(&self, signature: Signature) -> Result<(), AcpiError> {
+    /// Whether values of header fields are permitted.
+    fn validate_header_fields(&self, signature: Signature) -> AcpiResult<()> {
         // Check the signature
-        if self.signature != signature {
+        if self.signature != signature || str::from_utf8(&self.signature.0).is_err() {
             return Err(AcpiError::SdtInvalidSignature(signature));
         }
 
@@ -131,20 +127,79 @@ impl SdtHeader {
             return Err(AcpiError::SdtInvalidTableId(signature));
         }
 
-        // Validate the checksum
-        let self_ptr = self as *const SdtHeader as *const u8;
-        let mut sum: u8 = 0;
-        for offset in 0..self.length {
-            // SAFETY: Read from pointer is valid for the described table length, and all reads are read safely
-            //         via `core::ptr::read_unaligned`.
-            sum = sum.wrapping_add(unsafe { self_ptr.offset(offset as isize).read_unaligned() } as u8);
-        }
+        Ok(())
+    }
 
-        if sum > 0 {
-            return Err(AcpiError::SdtInvalidChecksum(signature));
+    /// Whether table is valid according to checksum.
+    fn validate_checksum(&self, signature: Signature) -> AcpiResult<()> {
+        // SAFETY: Entire table is mapped.
+        let table_bytes =
+            unsafe { core::slice::from_raw_parts((self as *const SdtHeader).cast::<u8>(), self.length as usize) };
+        let sum = table_bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
+
+        if sum == 0 {
+            Ok(())
+        } else {
+            Err(AcpiError::SdtInvalidChecksum(signature))
         }
+    }
+
+    /// Checks that:
+    ///
+    /// 1. The signature matches the one given.
+    /// 2. The values of various fields in the header are allowed.
+    /// 3. The checksum of the SDT is valid.
+    ///
+    /// This assumes that the whole SDT is mapped.
+    pub fn validate(&self, signature: Signature) -> AcpiResult<()> {
+        self.validate_header_fields(signature)?;
+        self.validate_checksum(signature)?;
 
         Ok(())
+    }
+
+    /// Validates header, proceeding with checking entire table and returning a [`PhysicalMapping`] to it if
+    /// successful.
+    ///
+    /// The same checks are performed as [`SdtHeader::validate`], but `header_mapping` does not have to map the
+    /// entire table when calling. This is useful to avoid completely mapping a table that will be immediately
+    /// unmapped if it does not have a particular signature or has an invalid header.
+    pub(crate) fn validate_lazy<H: AcpiHandler, T: AcpiTable>(
+        header_mapping: PhysicalMapping<H, Self>,
+        handler: H,
+    ) -> AcpiResult<PhysicalMapping<H, T>> {
+        header_mapping.validate_header_fields(T::SIGNATURE)?;
+
+        // Reuse `header_mapping` to access the rest of the table if the latter is already mapped entirely
+        let table_length = header_mapping.length as usize;
+        let table_mapping = if header_mapping.mapped_length() >= table_length {
+            // Avoid requesting table unmap twice (from both `header_mapping` and `table_mapping`)
+            let header_mapping = core::mem::ManuallyDrop::new(header_mapping);
+
+            // SAFETY: `header_mapping` maps entire table.
+            unsafe {
+                PhysicalMapping::new(
+                    header_mapping.physical_start(),
+                    header_mapping.virtual_start().cast::<T>(),
+                    table_length,
+                    header_mapping.mapped_length(),
+                    handler,
+                )
+            }
+        } else {
+            // Unmap header as soon as possible
+            let table_phys_start = header_mapping.physical_start();
+            drop(header_mapping);
+
+            // SAFETY: `table_phys_start` is the physical address of the header and the rest of the table.
+            unsafe { handler.map_physical_region(table_phys_start, table_length) }
+        };
+
+        // This is usually redundant compared to simply calling `validate_checksum` but respects custom
+        // `AcpiTable::validate` implementations.
+        table_mapping.validate()?;
+
+        Ok(table_mapping)
     }
 
     pub fn oem_id(&self) -> &str {
