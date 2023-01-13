@@ -170,40 +170,64 @@ where
     ///
     /// ### Safety: Caller must ensure that the provided mapping is a fully validated RSDP.
     pub unsafe fn from_validated_rsdp(handler: H, rsdp_mapping: PhysicalMapping<H, Rsdp>) -> AcpiResult<Self> {
-        let revision = rsdp_mapping.revision();
+        macro_rules! read_root_table {
+            ($signature_name:ident, $address_getter:ident) => {{
+                #[repr(transparent)]
+                struct RootTable {
+                    header: SdtHeader,
+                }
 
-        if revision == 0 {
+                unsafe impl AcpiTable for RootTable {
+                    const SIGNATURE: Signature = Signature::$signature_name;
+
+                    fn header(&self) -> &SdtHeader {
+                        &self.header
+                    }
+                }
+
+                // Unmap RSDP as soon as possible
+                let table_phys_start = rsdp_mapping.$address_getter() as usize;
+                drop(rsdp_mapping);
+
+                // Map and validate root table
+                // SAFETY: Addresses from a validated `RSDP` are also guaranteed to be valid.
+                let table_mapping = unsafe { read_table::<_, RootTable>(handler.clone(), table_phys_start) }?;
+
+                // Convert `table_mapping` to header mapping for storage
+                // Avoid requesting table unmap twice (from both original and converted `table_mapping`s)
+                let table_mapping = mem::ManuallyDrop::new(table_mapping);
+                // SAFETY: `SdtHeader` is equivalent to `Sdt` memory-wise
+                let table_mapping = unsafe {
+                    PhysicalMapping::new(
+                        table_mapping.physical_start(),
+                        table_mapping.virtual_start().cast::<SdtHeader>(),
+                        table_mapping.region_length(),
+                        table_mapping.mapped_length(),
+                        handler.clone(),
+                    )
+                };
+
+                table_mapping
+            }};
+        }
+
+        let revision = rsdp_mapping.revision();
+        let root_table_mapping = if revision == 0 {
             /*
              * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
              */
 
-            // Safety: Addresses from a validated `RSDP` are also guaranteed to be valid.
-            let rsdt_mapping: PhysicalMapping<H, SdtHeader> = unsafe {
-                handler.map_physical_region::<SdtHeader>(
-                    rsdp_mapping.rsdt_address() as usize,
-                    core::mem::size_of::<SdtHeader>(),
-                )
-            };
-            rsdt_mapping.validate(Signature::RSDT)?;
-
-            Ok(Self { mapping: rsdt_mapping, revision, handler })
+            read_root_table!(RSDT, rsdt_address)
         } else {
             /*
              * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
              * to 32 bits on x86.
              */
 
-            // Safety: Addresses from a validated `RSDP` are also guaranteed to be valid.
-            let xsdt_mapping: PhysicalMapping<H, SdtHeader> = unsafe {
-                handler.map_physical_region::<SdtHeader>(
-                    rsdp_mapping.xsdt_address() as usize,
-                    core::mem::size_of::<SdtHeader>(),
-                )
-            };
-            xsdt_mapping.validate(Signature::XSDT)?;
+            read_root_table!(XSDT, xsdt_address)
+        };
 
-            Ok(Self { mapping: xsdt_mapping, revision, handler })
-        }
+        Ok(Self { mapping: root_table_mapping, revision, handler })
     }
 
     /// The ACPI revision of the tables enumerated by this structure.
@@ -333,35 +357,37 @@ unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
     address: usize,
 ) -> AcpiResult<PhysicalMapping<H, T>> {
     // Attempt to peek at the SDT header to correctly enumerate the entire table.
-    // Safety: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
-    let mapping = unsafe { handler.map_physical_region::<SdtHeader>(address, core::mem::size_of::<SdtHeader>()) };
-    mapping.validate(T::SIGNATURE)?;
+    // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
+    let header_mapping = unsafe { handler.map_physical_region::<SdtHeader>(address, mem::size_of::<SdtHeader>()) };
 
-    // If possible (if the existing mapping covers enough memory), resuse the existing physical mapping.
+    // If possible (if the existing mapping covers enough memory), reuse the existing physical mapping.
     // This allows allocators/memory managers that map in chunks larger than `size_of::<SdtHeader>()` to be used more efficiently.
-    if mapping.mapped_length() >= (mapping.length as usize) {
-        // Safety: Pointer is known non-null.
-        let virtual_start =
-            unsafe { core::ptr::NonNull::new_unchecked(mapping.virtual_start().as_ptr() as *mut _) };
+    let table_length = header_mapping.length as usize;
+    let table_mapping = if header_mapping.mapped_length() >= table_length {
+        // Avoid requesting table unmap twice (from both `header_mapping` and `table_mapping`)
+        let header_mapping = mem::ManuallyDrop::new(header_mapping);
 
-        // Safety: Mapping is known-good and validated.
-        Ok(unsafe {
+        // SAFETY: `header_mapping` maps entire table.
+        unsafe {
             PhysicalMapping::new(
-                mapping.physical_start(),
-                virtual_start,
-                mapping.region_length(),
-                mapping.mapped_length(),
-                handler.clone(),
+                header_mapping.physical_start(),
+                header_mapping.virtual_start().cast::<T>(),
+                table_length,
+                header_mapping.mapped_length(),
+                handler,
             )
-        })
+        }
     } else {
-        let sdt_length = mapping.length;
         // Drop the old mapping here, to ensure it's unmapped in software before requesting an overlapping mapping.
-        drop(mapping);
+        drop(header_mapping);
 
-        // Safety: Address and length are already known-good.
-        Ok(unsafe { handler.map_physical_region(address, sdt_length as usize) })
-    }
+        // SAFETY: Address and length are already known-good.
+        unsafe { handler.map_physical_region(address, table_length) }
+    };
+
+    table_mapping.validate()?;
+
+    Ok(table_mapping)
 }
 
 /// Iterator that steps through all of the tables, and returns only the SSDTs as `AmlTable`s.
