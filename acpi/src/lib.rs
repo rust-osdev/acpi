@@ -359,37 +359,12 @@ unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
     address: usize,
 ) -> AcpiResult<PhysicalMapping<H, T>> {
     // Attempt to peek at the SDT header to correctly enumerate the entire table.
-    // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a software issue).
+
+    // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a
+    // software issue).
     let header_mapping = unsafe { handler.map_physical_region::<SdtHeader>(address, mem::size_of::<SdtHeader>()) };
 
-    // If possible (if the existing mapping covers enough memory), reuse the existing physical mapping.
-    // This allows allocators/memory managers that map in chunks larger than `size_of::<SdtHeader>()` to be used more efficiently.
-    let table_length = header_mapping.length as usize;
-    let table_mapping = if header_mapping.mapped_length() >= table_length {
-        // Avoid requesting table unmap twice (from both `header_mapping` and `table_mapping`)
-        let header_mapping = mem::ManuallyDrop::new(header_mapping);
-
-        // SAFETY: `header_mapping` maps entire table.
-        unsafe {
-            PhysicalMapping::new(
-                header_mapping.physical_start(),
-                header_mapping.virtual_start().cast::<T>(),
-                table_length,
-                header_mapping.mapped_length(),
-                handler,
-            )
-        }
-    } else {
-        // Drop the old mapping here, to ensure it's unmapped in software before requesting an overlapping mapping.
-        drop(header_mapping);
-
-        // SAFETY: Address and length are already known-good.
-        unsafe { handler.map_physical_region(address, table_length) }
-    };
-
-    table_mapping.validate()?;
-
-    Ok(table_mapping)
+    SdtHeader::validate_lazy(header_mapping, handler)
 }
 
 /// Iterator that steps through all of the tables, and returns only the SSDTs as `AmlTable`s.
