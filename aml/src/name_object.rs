@@ -200,8 +200,6 @@ impl NameSeg {
         Ok(NameSeg(seg))
     }
 
-    /// Turn a `NameSeg` into a `&str`. Returns it in a `ParseResult` so it's easy to use from
-    /// inside parsers.
     pub fn as_str(&self) -> &str {
         /*
          * This is safe, because we always check that all the bytes are valid ASCII, so every
