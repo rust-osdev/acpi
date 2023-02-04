@@ -66,6 +66,7 @@ pub const DEF_SHIFT_LEFT: u8 = 0x79;
 pub const DEF_SHIFT_RIGHT: u8 = 0x7a;
 pub const DEF_AND_OP: u8 = 0x7b;
 pub const DEF_CONCAT_RES_OP: u8 = 0x84;
+pub const DEF_OBJECT_TYPE_OP: u8 = 0x8e;
 pub const DEF_L_OR_OP: u8 = 0x91;
 pub const DEF_L_NOT_OP: u8 = 0x92;
 pub const DEF_L_EQUAL_OP: u8 = 0x93;
