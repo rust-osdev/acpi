@@ -36,7 +36,7 @@
 //! combinator patterns to express the parse.
 
 #![no_std]
-#![feature(decl_macro, type_ascription, box_syntax, bool_to_option)]
+#![feature(decl_macro, type_ascription, box_syntax)]
 
 extern crate alloc;
 
