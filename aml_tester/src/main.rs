@@ -86,8 +86,11 @@ fn compile_asl_files(dir_path: &Path) -> std::io::Result<(u32, u32)> {
 
     if !asl_files.peek().is_none() {
         // Test if `iasl` is installed, so we can give a good error if it's not
-        if Command::new("iasl").arg("-v").status().unwrap().success().not() {
-            panic!("`iasl` is not installed, but we want to compile some ASL files! Pass --no-compile, or install `iasl`");
+        match Command::new("iasl").arg("-v").status() {
+            Ok(exit_status) => if exit_status.success().not() {
+                panic!("`iasl` exited with unsuccessfull status: {:?}", exit_status);
+            },
+            Err(_) => panic!("`iasl` is not installed, but we want to compile some ASL files! Pass --no-compile, or install `iasl`"),
         }
     }
 
