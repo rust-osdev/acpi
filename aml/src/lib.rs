@@ -4,11 +4,10 @@
 //! hardware-independent way.
 //!
 //! ### Using the library
-//! To use the library, you should create an instance of this type using `AmlContext::new()`, and
-//! then pass it tables containing AML (probably from the `acpi` crate), which you've mapped into
-//! the virtual address space. This will parse the table, populating the namespace with objects
-//! encoded by the AML. After this, you may unmap the memory the table was mapped into - all the
-//! information needed will be extracted and allocated on the heap.
+//! To use the library, you should create an `AmlContext` using `AmlContext::new()`, and then pass it tables
+//! containing AML (probably from the `acpi` crate), which you've mapped into the virtual address space. This will
+//! parse the table, populating the namespace with objects encoded by the AML. After this, you may unmap the memory
+//! the table was mapped into - all the information needed will be extracted and allocated on the heap.
 //!
 //! You can then access specific objects by name like so: e.g.
 //! ```ignore
