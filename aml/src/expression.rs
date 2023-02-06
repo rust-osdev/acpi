@@ -564,6 +564,7 @@ where
                         // TODO: what to do with this?
                         AmlType::DdbHandle => 0,
                         AmlType::ObjReference => todo!(),
+                        AmlType::External => unimplemented!(),
                     };
 
                     (Ok(AmlValue::Integer(typ)), context)
