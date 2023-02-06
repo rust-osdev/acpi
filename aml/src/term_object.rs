@@ -668,23 +668,22 @@ where
                         }
                     };
                     let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
-                    let parent_name = try_with_context!(context, name.parent());
                     if is_level {
                         try_with_context!(
                             context,
-                            context.namespace.add_external_levels(resolved_name.clone())
+                            context.namespace.add_external_levels(resolved_name)
                         );
                     } else {
+                        let parent_name = try_with_context!(context, resolved_name.parent());
                         try_with_context!(
                             context,
                             context.namespace.add_external_levels(parent_name)
                         );
+                        try_with_context!(
+                            context,
+                            context.namespace.add_value(resolved_name.clone(), AmlValue::External)
+                        );
                     }
-                    try_with_context!(
-                        context,
-                        context.namespace.add_value(resolved_name.clone(), AmlValue::External)
-                    );
-
                     (Ok(()), context)
                 })
                 .then(take())))

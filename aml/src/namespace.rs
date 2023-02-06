@@ -718,6 +718,33 @@ mod tests {
         assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap(), LevelType::Scope), Ok(()));
 
         /*
+         * Add some Externals, check for type corrections (allowed) and collisions (disallowed).
+         */
+        assert_eq!(namespace.add_external_levels(AmlName::from_str("\\L1.L2.L3").unwrap()), Ok(()));
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::External).is_ok());
+        // Allow attempted adding levels that are already created
+        assert_eq!(namespace.add_external_levels(AmlName::from_str("\\L1.L2").unwrap()), Ok(()));
+        // Created value is still present - levels were not changed
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::External));
+        // Scope and External do not cause a collision
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Scope), Ok(()));
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::External));
+        // Change level.typ to Device
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Device), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::External), Ok(()));
+        // Change Device to Processor is not allowed
+        assert!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Processor).is_err());
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::External));
+        // Change value from External to something more specific
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::Integer(6)).is_ok());
+        // External does not cause collision
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::External).is_ok());
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::Integer(6)));
+        // Change value from Integer to Boolean causes a collision
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::Boolean(true)).is_err());
+
+        /*
          * Add some things to the scopes to query later.
          */
         assert!(namespace.add_value(AmlName::from_str("\\MOO").unwrap(), AmlValue::Boolean(true)).is_ok());
