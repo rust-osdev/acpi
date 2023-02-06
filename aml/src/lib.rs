@@ -285,6 +285,7 @@ impl AmlContext {
             LevelType::PowerResource => Ok(false),
             LevelType::ThermalZone => Ok(false),
             LevelType::MethodLocals => Ok(false),
+            LevelType::External => Ok(false),
         })?;
 
         Ok(())
@@ -707,6 +708,7 @@ pub enum AmlError {
     InvalidNameSeg,
     InvalidPkgLength,
     InvalidFieldFlags,
+    InvalidObjectType(u8),
     UnterminatedStringConstant,
     InvalidStringConstant,
     InvalidRegionSpace(u8),

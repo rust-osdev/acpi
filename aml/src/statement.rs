@@ -14,7 +14,7 @@ use crate::{
         Propagate,
     },
     pkg_length::{pkg_length, PkgLength},
-    term_object::{term_arg, term_list},
+    term_object::{term_arg, term_list, externals_list},
     AmlContext,
     AmlError,
     DebugVerbosity,
@@ -153,13 +153,25 @@ where
                     }
                 ))
                 .map_with_context(|((predicate, then_branch), else_branch), context| {
-                    let branch = if predicate { then_branch } else { else_branch };
+                    /*
+                     * Special case: External defs are sometimes wrapped in If(false)
+                     */
+                    if !predicate && else_branch.len() == 0 {
+                        match externals_list(PkgLength::from_raw_length(then_branch, then_branch.len() as u32).unwrap())
+                            .parse(then_branch, context)
+                        {
+                            Ok((_, context, result)) => (Ok(result), context),
+                            Err((_, context, err)) => (Err(err), context),
+                        }
+                    } else {
+                        let branch = if predicate { then_branch } else { else_branch };
 
-                    match term_list(PkgLength::from_raw_length(branch, branch.len() as u32).unwrap())
-                        .parse(branch, context)
-                    {
-                        Ok((_, context, result)) => (Ok(result), context),
-                        Err((_, context, err)) => (Err(err), context),
+                        match term_list(PkgLength::from_raw_length(branch, branch.len() as u32).unwrap())
+                            .parse(branch, context)
+                        {
+                            Ok((_, context, result)) => (Ok(result), context),
+                            Err((_, context, err)) => (Err(err), context),
+                        }
                     }
                 }),
         ))

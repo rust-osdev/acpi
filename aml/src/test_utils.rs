@@ -211,5 +211,9 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             AmlValue::ThermalZone => true,
             _ => false,
         },
+        AmlValue::External => match b {
+            AmlValue::External => true,
+            _ => false,
+        }
     }
 }

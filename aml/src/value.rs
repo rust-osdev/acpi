@@ -155,6 +155,7 @@ pub enum AmlType {
     RawDataBuffer,
     String,
     ThermalZone,
+    External,
 }
 
 #[derive(Clone)]
@@ -221,6 +222,7 @@ pub enum AmlValue {
         resource_order: u16,
     },
     ThermalZone,
+    External,
 }
 
 impl AmlValue {
@@ -260,6 +262,7 @@ impl AmlValue {
             AmlValue::Package(_) => AmlType::Package,
             AmlValue::PowerResource { .. } => AmlType::PowerResource,
             AmlValue::ThermalZone => AmlType::ThermalZone,
+            AmlValue::External => AmlType::External,
         }
     }
 
@@ -286,7 +289,7 @@ impl AmlValue {
                 let bytes = bytes.lock();
                 let bytes = if bytes.len() > 8 { &bytes[0..8] } else { &bytes[..] };
 
-                Ok(bytes.iter().rev().fold(0: u64, |mut i, &popped| {
+                Ok(bytes.iter().rev().fold(0u64, |mut i, &popped| {
                     i <<= 8;
                     i += popped as u64;
                     i
@@ -347,6 +350,7 @@ impl AmlValue {
             AmlType::PowerResource => AmlValue::String("[Power Resource]".to_string()),
             AmlType::RawDataBuffer => AmlValue::String("[Raw Data Buffer]".to_string()),
             AmlType::ThermalZone => AmlValue::String("[Thermal Zone]".to_string()),
+            AmlType::External => AmlValue::String("[External]".to_string()),
         }
     }
 

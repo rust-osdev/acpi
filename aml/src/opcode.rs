@@ -97,6 +97,31 @@ pub const ARG6_OP: u8 = 0x6e;
 
 pub const EXT_OPCODE_PREFIX: u8 = 0x5b;
 
+/*
+ * Object Types (https://github.com/acpica/acpica/blob/master/source/common/dmextern.c)
+ * Used for DefExternal
+ */
+pub const OBJTYPE_UNKNOWN: u8 = 0x00;
+pub const OBJTYPE_INTEGER: u8 = 0x01;
+pub const OBJTYPE_STRING: u8 = 0x02;
+pub const OBJTYPE_BUFFER: u8 = 0x03;
+pub const OBJTYPE_PACKAGE: u8 = 0x04;
+pub const OBJTYPE_FIELD_UNIT: u8 = 0x05;
+pub const OBJTYPE_DEVICE: u8 = 0x06;
+pub const OBJTYPE_EVENT: u8 = 0x07;
+pub const OBJTYPE_METHOD: u8 = 0x08;
+pub const OBJTYPE_MUTEX: u8 = 0x09;
+pub const OBJTYPE_OP_REGION: u8 = 0x0a;
+pub const OBJTYPE_POWER_RES: u8 = 0x0b;
+pub const OBJTYPE_PROCESSOR: u8 = 0x0c;
+pub const OBJTYPE_THERMAL_ZONE: u8 = 0x0d;
+pub const OBJTYPE_BUFFER_FIELD: u8 = 0x0e;
+pub const OBJTYPE_DDBHANDLE: u8 = 0x0f;
+pub const OBJTYPE_DEBUG_OBJ: u8 = 0x10;
+pub const OBJTYPE_FIELD_UNIT_2: u8 = 0x11;
+pub const OBJTYPE_FIELD_UNIT_3: u8 = 0x12;
+pub const OBJTYPE_FIELD_UNIT_4: u8 = 0x13;
+
 pub(crate) fn opcode<'a, 'c>(opcode: u8) -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,

@@ -606,6 +606,31 @@ where
         .discard_result()
 }
 
+pub fn externals_list<'a, 'c>(list_length: PkgLength) -> impl Parser<'a, 'c, ()>
+where 'c: 'a,
+{
+    /*
+     * Used for a special case where Externals are defined in an If(false).
+     * Only Externals are parsed in this situation.
+     * Any non-External ends the list. Skip the rest of this input.
+     * This does not appear to be defined in the spec.
+     * ExternalsList := Nothing | <DefExternal ExternalsList>
+     */
+    // TODO: why does this use still_parsing, instead of just taking the whole thing and parsing it til it's empty?
+    // Copied from term_list(), update here when fixing term_list()
+    move |mut input: &'a [u8], mut context: &'c mut AmlContext| {
+        while list_length.still_parsing(input) {
+            let (new_input, new_context, _) = choice!(
+                def_external(), 
+                take_to_end_of_pkglength(list_length).discard_result())
+                .parse(input, context)?;
+            input = new_input;
+            context = new_context;
+        }
+        Ok((input, context, ()))
+    }
+}
+
 pub fn def_external<'a, 'c>() -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
@@ -616,7 +641,53 @@ where
      * ArgumentCount := ByteData (0 to 7)
      */
     opcode(opcode::DEF_EXTERNAL_OP)
-        .then(comment_scope(DebugVerbosity::Scopes, "DefExternal", name_string().then(take()).then(take())))
+        .then(comment_scope(
+            DebugVerbosity::Scopes, 
+            "DefExternal", 
+            name_string()
+                .then(take())
+                .map_with_context(|(name, object_type), context| {
+                    let is_level = match object_type {
+                        opcode::OBJTYPE_UNKNOWN => false,
+                        opcode::OBJTYPE_INTEGER => false,
+                        opcode::OBJTYPE_STRING => false,
+                        opcode::OBJTYPE_BUFFER => false,
+                        opcode::OBJTYPE_PACKAGE => false,
+                        opcode::OBJTYPE_FIELD_UNIT => false,
+                        opcode::OBJTYPE_DEVICE => true,
+                        opcode::OBJTYPE_EVENT => false,
+                        opcode::OBJTYPE_METHOD => true,
+                        opcode::OBJTYPE_MUTEX => false,
+                        opcode::OBJTYPE_OP_REGION => false,
+                        opcode::OBJTYPE_POWER_RES => true,
+                        opcode::OBJTYPE_PROCESSOR => true,
+                        opcode::OBJTYPE_THERMAL_ZONE => true,
+                        opcode::OBJTYPE_BUFFER_FIELD => false,
+                        other_type => {
+                            return (Err(Propagate::Err(AmlError::InvalidObjectType(other_type))), context);
+                        }
+                    };
+                    let resolved_name = try_with_context!(context, name.resolve(&context.current_scope));
+                    let parent_name = try_with_context!(context, name.parent());
+                    if is_level {
+                        try_with_context!(
+                            context,
+                            context.namespace.add_external_levels(resolved_name.clone())
+                        );
+                    } else {
+                        try_with_context!(
+                            context,
+                            context.namespace.add_external_levels(parent_name)
+                        );
+                    }
+                    try_with_context!(
+                        context,
+                        context.namespace.add_value(resolved_name.clone(), AmlValue::External)
+                    );
+
+                    (Ok(()), context)
+                })
+                .then(take())))
         .discard_result()
 }
 
