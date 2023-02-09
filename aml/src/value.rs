@@ -286,7 +286,7 @@ impl AmlValue {
                 let bytes = bytes.lock();
                 let bytes = if bytes.len() > 8 { &bytes[0..8] } else { &bytes[..] };
 
-                Ok(bytes.iter().rev().fold(0: u64, |mut i, &popped| {
+                Ok(bytes.iter().rev().fold(0u64, |mut i, &popped| {
                     i <<= 8;
                     i += popped as u64;
                     i
