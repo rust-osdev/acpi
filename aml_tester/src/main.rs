@@ -10,7 +10,7 @@
  */
 
 use aml::{AmlContext, DebugVerbosity};
-use clap::{App, Arg};
+use clap::{Arg, ArgAction};
 use std::{
     ffi::OsStr,
     fs::{self, File},
@@ -24,18 +24,18 @@ fn main() -> std::io::Result<()> {
     log::set_logger(&Logger).unwrap();
     log::set_max_level(log::LevelFilter::Trace);
 
-    let matches = App::new("aml_tester")
+    let matches = clap::Command::new("aml_tester")
         .version("v0.1.0")
         .author("Isaac Woods")
         .about("Compiles and tests ASL files")
-        .arg(Arg::with_name("path").short("p").long("path").required(true).takes_value(true))
-        .arg(Arg::with_name("no_compile").long("no-compile"))
+        .arg(Arg::new("path").short('p').long("path").required(true).action(ArgAction::Set).value_name("DIR"))
+        .arg(Arg::new("no_compile").long("no-compile").action(ArgAction::SetTrue))
         .get_matches();
 
-    let dir_path = Path::new(matches.value_of("path").unwrap());
+    let dir_path = Path::new(matches.get_one::<String>("path").unwrap());
     println!("Running tests in directory: {:?}", dir_path);
 
-    if !matches.is_present("no_compile") {
+    if !matches.get_flag("no_compile") {
         let (passed, failed) = compile_asl_files(dir_path)?;
         println!("Compiled {} ASL files: {} passed, {} failed.", passed + failed, passed, failed);
     }
