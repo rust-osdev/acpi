@@ -157,6 +157,26 @@ impl Namespace {
         self.add_value(path.resolve(scope)?, value)
     }
 
+    /// Add an alias for an existing name. The alias will refer to the same value as the original,
+    /// and the fact that the alias exists is forgotten.
+    pub fn add_alias_at_resolved_path(
+        &mut self,
+        path: AmlName,
+        scope: &AmlName,
+        target: AmlName
+    ) -> Result<AmlHandle, AmlError> {
+        let path = path.resolve(scope)?;
+        let target = target.resolve(scope)?;
+
+        let handle = self.get_handle(&target)?;
+        
+        let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+        match level.values.insert(last_seg, handle) {
+            None => Ok(handle),
+            Some(_) => Err(AmlError::NameCollision(path)),
+        }
+    }
+
     pub fn get(&self, handle: AmlHandle) -> Result<&AmlValue, AmlError> {
         Ok(self.object_map.get(&handle).unwrap())
     }
@@ -720,6 +740,33 @@ mod tests {
                 .unwrap();
             assert_eq!(name, AmlName::from_str("\\FOO.BAR.A").unwrap());
         }
+    }
+
+    #[test]
+    fn test_alias() {
+        let mut namespace = Namespace::new();
+
+        assert_eq!(namespace.add_level((AmlName::from_str("\\FOO")).unwrap(), LevelType::Scope), Ok(()));
+
+        assert!(
+            namespace.add_value_at_resolved_path(
+            AmlName::from_str("BAR").unwrap(),
+            &AmlName::from_str("\\FOO").unwrap(),
+            AmlValue::Integer(100))
+            .is_ok()
+        );
+        assert!(
+            namespace.add_alias_at_resolved_path(
+                AmlName::from_str("BARA").unwrap(),
+                &AmlName::from_str("\\FOO").unwrap(),
+                AmlName::from_str("BAR").unwrap())
+                .is_ok()
+        );
+        assert!(namespace.get_by_path(&AmlName::from_str("\\FOO.BARA").unwrap()).is_ok());
+        assert_eq!(
+            namespace.get_handle(&AmlName::from_str("\\FOO.BARA").unwrap()),
+            namespace.get_handle(&AmlName::from_str("\\FOO.BAR").unwrap())
+        );
     }
 
     #[test]
