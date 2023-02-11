@@ -388,14 +388,14 @@ impl AmlContext {
 
     /// Read from an operation-region, performing only standard-sized reads (supported powers-of-2 only. If a field
     /// is not one of these sizes, it may need to be masked, or multiple reads may need to be performed).
-    pub(crate) fn read_region(&self, region_handle: AmlHandle, offset: u64, length: u64) -> Result<u64, AmlError> {
+    pub(crate) fn read_region(&mut self, region_handle: AmlHandle, offset: u64, length: u64) -> Result<u64, AmlError> {
         use bit_field::BitField;
         use core::convert::TryInto;
         use value::RegionSpace;
 
         let (region_space, region_base, region_length, parent_device) = {
             if let AmlValue::OpRegion { region, offset, length, parent_device } =
-                self.namespace.get(region_handle)?
+                self.namespace.get(region_handle)?.clone()
             {
                 (region, offset, length, parent_device)
             } else {
@@ -432,20 +432,24 @@ impl AmlContext {
                  * (e.g. systems with a single segment group and a single root, respectively).
                  */
                 let parent_device = parent_device.as_ref().unwrap();
-                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
+                let seg = match self.invoke_method(
+                    &AmlName::from_str("_SEG").unwrap()
+                    .resolve(parent_device).unwrap(),
+                    Args::EMPTY
+                ) {
+                    Ok(seg) => seg
                         .as_integer(self)?
                         .try_into()
                         .map_err(|_| AmlError::FieldInvalidAddress)?,
                     Err(AmlError::ValueDoesNotExist(_)) => 0,
                     Err(err) => return Err(err),
                 };
-                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
+                let bbn = match self.invoke_method(
+                    &AmlName::from_str("_BBN").unwrap()
+                    .resolve(parent_device).unwrap(), 
+                    Args::EMPTY
+                ) {
+                    Ok(bbn) => bbn
                         .as_integer(self)?
                         .try_into()
                         .map_err(|_| AmlError::FieldInvalidAddress)?,
@@ -453,8 +457,12 @@ impl AmlContext {
                     Err(err) => return Err(err),
                 };
                 let adr = {
-                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
-                    self.namespace.get(handle)?.as_integer(self)?
+                    let adr = self.invoke_method(
+                        &AmlName::from_str("_ADR").unwrap()
+                        .resolve(parent_device).unwrap(), 
+                        Args::EMPTY
+                    )?;
+                    adr.as_integer(self)?
                 };
 
                 let device = adr.get_bits(16..24) as u8;
@@ -487,7 +495,7 @@ impl AmlContext {
 
         let (region_space, region_base, region_length, parent_device) = {
             if let AmlValue::OpRegion { region, offset, length, parent_device } =
-                self.namespace.get(region_handle)?
+                self.namespace.get(region_handle)?.clone()
             {
                 (region, offset, length, parent_device)
             } else {
@@ -524,20 +532,24 @@ impl AmlContext {
                  * (e.g. systems with a single segment group and a single root, respectively).
                  */
                 let parent_device = parent_device.as_ref().unwrap();
-                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
+                let seg = match self.invoke_method(
+                    &AmlName::from_str("_SEG").unwrap()
+                    .resolve(parent_device).unwrap(), 
+                    Args::EMPTY
+                ) {
+                    Ok(seg) => seg
                         .as_integer(self)?
                         .try_into()
                         .map_err(|_| AmlError::FieldInvalidAddress)?,
                     Err(AmlError::ValueDoesNotExist(_)) => 0,
                     Err(err) => return Err(err),
                 };
-                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
+                let bbn = match self.invoke_method(
+                    &AmlName::from_str("_BBN").unwrap()
+                    .resolve(parent_device).unwrap(),
+                    Args::EMPTY
+                ) {
+                    Ok(bbn) => bbn
                         .as_integer(self)?
                         .try_into()
                         .map_err(|_| AmlError::FieldInvalidAddress)?,
@@ -545,8 +557,11 @@ impl AmlContext {
                     Err(err) => return Err(err),
                 };
                 let adr = {
-                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
-                    self.namespace.get(handle)?.as_integer(self)?
+                    let adr = self.invoke_method(
+                        &AmlName::from_str("_ADR").unwrap()
+                        .resolve(parent_device).unwrap(),
+                        Args::EMPTY)?;
+                    adr.as_integer(self)?
                 };
 
                 let device = adr.get_bits(16..24) as u8;
@@ -604,7 +619,8 @@ impl AmlContext {
             .add_value(
                 AmlName::from_str("\\_OSI").unwrap(),
                 AmlValue::native_method(1, false, 0, |context| {
-                    Ok(match context.current_arg(0)?.as_string(context)?.as_str() {
+                    let value = context.current_arg(0)?.clone();
+                    Ok(match value.as_string(context)?.as_str() {
                         "Windows 2000" => true,       // 2000
                         "Windows 2001" => true,       // XP
                         "Windows 2001 SP1" => true,   // XP SP1
