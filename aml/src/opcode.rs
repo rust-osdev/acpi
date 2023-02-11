@@ -20,6 +20,7 @@ pub const DWORD_CONST: u8 = 0x0c;
 pub const STRING_PREFIX: u8 = 0x0d;
 pub const QWORD_CONST: u8 = 0x0e;
 
+pub const DEF_ALIAS_OP: u8 = 0x06;
 pub const DEF_NAME_OP: u8 = 0x08;
 pub const DEF_SCOPE_OP: u8 = 0x10;
 pub const DEF_BUFFER_OP: u8 = 0x11;

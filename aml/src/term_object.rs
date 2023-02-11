@@ -77,7 +77,7 @@ where
     /*
      * NamespaceModifierObj := DefAlias | DefName | DefScope
      */
-    choice!(def_name(), def_scope())
+    choice!(def_alias(), def_name(), def_scope())
 }
 
 pub fn named_obj<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -113,6 +113,22 @@ where
             def_mutex()
         ),
     )
+}
+
+pub fn def_alias<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefAlias := 0x06 NameString NameString
+     */
+    opcode(opcode::DEF_ALIAS_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefAlias",
+            name_string().then(name_string())
+        ))
+        .discard_result()
 }
 
 pub fn def_name<'a, 'c>() -> impl Parser<'a, 'c, ()>
