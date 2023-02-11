@@ -77,7 +77,7 @@ where
     /*
      * NamespaceModifierObj := DefAlias | DefName | DefScope
      */
-    choice!(def_name(), def_scope())
+    choice!(def_alias(), def_name(), def_scope())
 }
 
 pub fn named_obj<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -130,6 +130,29 @@ where
                 try_with_context!(
                     context,
                     context.namespace.add_value_at_resolved_path(name, &context.current_scope, data_ref_object)
+                );
+                (Ok(()), context)
+            }),
+        ))
+        .discard_result()
+}
+
+pub fn def_alias<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefAlias := 0x06 NameString NameString
+     * The second name refers to the same object as the first
+     */
+    opcode(opcode::DEF_ALIAS_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefAlias",
+            name_string().then(name_string()).map_with_context(|(target, alias), context| {
+                try_with_context!(
+                    context,
+                    context.namespace.add_alias_at_resolved_path(alias, &context.current_scope, target)
                 );
                 (Ok(()), context)
             }),
