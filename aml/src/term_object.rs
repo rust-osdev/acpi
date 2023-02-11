@@ -148,7 +148,7 @@ where
     opcode(opcode::DEF_ALIAS_OP)
         .then(comment_scope(
             DebugVerbosity::Scopes,
-            "DefName",
+            "DefAlias",
             name_string().then(name_string()).map_with_context(|(target, alias), context| {
                 try_with_context!(
                     context,
