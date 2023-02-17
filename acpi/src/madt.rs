@@ -1,5 +1,5 @@
 use crate::{
-    sdt::{SdtHeader, Signature},
+    sdt::{ExtendedField, SdtHeader, Signature},
     AcpiTable,
 };
 use bit_field::BitField;
@@ -551,12 +551,19 @@ pub struct GiccEntry {
     performance_interrupt_gsiv: u32,
     parked_address: u64,
     gic_registers_address: u64,
-    gic_control_block_address: u64,
+    gic_virtual_registers_address: u64,
+    gic_hypervisor_registers_address: u64,
     vgic_maintenance_interrupt: u32,
     gicr_base_address: u64,
     mpidr: u64,
     processor_power_efficiency_class: u8,
-    _reserved2: [u8; 3],
+    _reserved2: u8,
+    /// SPE overflow Interrupt.
+    ///
+    /// ACPI 6.3 defined this field. It is zero in prior versions or
+    /// if this processor does not support SPE.
+    spe_overflow_interrupt: u16,
+    trbe_interrupt: ExtendedField<u16, 6>,
 }
 
 #[derive(Clone, Copy, Debug)]
