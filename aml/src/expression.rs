@@ -49,6 +49,7 @@ where
             def_l_less(),
             def_l_less_equal(),
             def_l_not_equal(),
+            def_l_and(),
             def_l_or(),
             def_mid(),
             def_object_type(),
@@ -300,6 +301,27 @@ where
                 let new_value = AmlValue::Integer(value - 1);
                 try_with_context!(context, context.store(minuend, new_value.clone()));
                 (Ok(new_value), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
+}
+
+fn def_l_and<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLAnd := 0x90 Operand Operand
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_L_AND_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefLOr",
+            term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
+                let left = try_with_context!(context, left_arg.as_bool());
+                let right = try_with_context!(context, right_arg.as_bool());
+                (Ok(AmlValue::Boolean(left && right)), context)
             }),
         ))
         .map(|((), result)| Ok(result))
