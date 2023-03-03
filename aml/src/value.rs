@@ -516,14 +516,29 @@ impl AmlValue {
 
             let bitslice = inner_data.view_bits::<bitvec::order::Lsb0>();
             let bits = &bitslice[offset..(offset + length)];
+
             if length > 64 {
                 let mut bitvec = bits.to_bitvec();
                 bitvec.set_uninitialized(false);
                 Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(bitvec.into_vec()))))
+            } else if length > 32 {
+                /*
+                 * TODO: this is a pretty gross hack to work around a weird limitation with the `bitvec` crate on
+                 * 32-bit platforms. For reasons beyond me right now, it can't operate on a `u64` on a 32-bit
+                 * platform, so we manually extract two `u32`s and stick them together. In the future, we should
+                 * definitely have a closer look at what `bitvec` is doing and see if we can fix this code, or
+                 * replace it with a different crate. This should hold everything vaguely together until we have
+                 * time to do that.
+                 */
+                let mut upper = 0u32;
+                let mut lower = 0u32;
+                lower.view_bits_mut::<bitvec::order::Lsb0>()[0..32].clone_from_bitslice(bits);
+                upper.view_bits_mut::<bitvec::order::Lsb0>()[0..(length - 32)].clone_from_bitslice(&bits[32..]);
+                Ok(AmlValue::Integer((upper as u64) << 32 + (lower as u64)))
             } else {
-                let mut value = 0u64;
+                let mut value = 0u32;
                 value.view_bits_mut::<bitvec::order::Lsb0>()[0..length].clone_from_bitslice(bits);
-                Ok(AmlValue::Integer(value))
+                Ok(AmlValue::Integer(value as u64))
             }
         } else {
             Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::BufferField })
