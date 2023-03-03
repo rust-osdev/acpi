@@ -1,6 +1,6 @@
 [package]
 name = "aml"
-version = "0.16.2"
+version = "0.16.3"
 authors = ["Isaac Woods"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "Library for parsing AML"
