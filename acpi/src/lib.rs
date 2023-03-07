@@ -73,7 +73,11 @@ pub use crate::platform::{interrupt::InterruptModel, PlatformInfo};
 #[cfg(feature = "allocator_api")]
 pub mod platform;
 
-pub use crate::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError, mcfg::PciConfigRegions};
+#[cfg(feature = "allocator_api")]
+pub use crate::mcfg::PciConfigRegions;
+
+pub use crate::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
+
 pub use rsdp::{
     handler::{AcpiHandler, PhysicalMapping},
     RsdpError,
