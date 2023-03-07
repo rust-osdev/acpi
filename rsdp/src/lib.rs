@@ -91,15 +91,8 @@ impl Rsdp {
                 handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_V2_EXT_LENGTH)
             };
 
-            // SAFETY: The entirety of `mapping` maps the search area and an additional `RSDP_V2_EXT_LENGTH` bytes
-            // that are assumed to be safe to read while `extended_area_bytes` lives. (Ideally, an assumption about
-            // the memory following the search area would not be made.)
-            let extended_area_bytes = unsafe {
-                slice::from_raw_parts(
-                    mapping.virtual_start().as_ptr(),
-                    mapping.region_length() + RSDP_V2_EXT_LENGTH,
-                )
-            };
+            let extended_area_bytes =
+                unsafe { slice::from_raw_parts(mapping.virtual_start().as_ptr(), mapping.mapped_length()) };
 
             // Search `Rsdp`-sized windows at 16-byte boundaries relative to the base of the area (which is also
             // aligned to 16 bytes due to the implementation of `find_search_areas`)
