@@ -34,9 +34,9 @@ pub enum MadtError {
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Madt {
-    header: SdtHeader,
-    local_apic_address: u32,
-    flags: u32,
+    pub header: SdtHeader,
+    pub local_apic_address: u32,
+    pub flags: u32,
 }
 
 /// ### Safety: Implementation properly represents a valid MADT.
@@ -415,62 +415,62 @@ impl<'a> Iterator for MadtEntryIter<'a> {
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct EntryHeader {
-    entry_type: u8,
-    length: u8,
+    pub entry_type: u8,
+    pub length: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalApicEntry {
-    header: EntryHeader,
-    processor_id: u8,
-    apic_id: u8,
-    flags: u32,
+    pub header: EntryHeader,
+    pub processor_id: u8,
+    pub apic_id: u8,
+    pub flags: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct IoApicEntry {
-    header: EntryHeader,
-    io_apic_id: u8,
+    pub header: EntryHeader,
+    pub io_apic_id: u8,
     _reserved: u8,
-    io_apic_address: u32,
-    global_system_interrupt_base: u32,
+    pub io_apic_address: u32,
+    pub global_system_interrupt_base: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct InterruptSourceOverrideEntry {
-    header: EntryHeader,
-    bus: u8, // 0 - ISA bus
-    irq: u8, // This is bus-relative
-    global_system_interrupt: u32,
-    flags: u16,
+    pub header: EntryHeader,
+    pub bus: u8, // 0 - ISA bus
+    pub irq: u8, // This is bus-relative
+    pub global_system_interrupt: u32,
+    pub flags: u16,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct NmiSourceEntry {
-    header: EntryHeader,
-    flags: u16,
-    global_system_interrupt: u32,
+    pub header: EntryHeader,
+    pub flags: u16,
+    pub global_system_interrupt: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalApicNmiEntry {
-    header: EntryHeader,
-    processor_id: u8,
-    flags: u16,
-    nmi_line: u8, // Describes which LINTn is the NMI connected to
+    pub header: EntryHeader,
+    pub processor_id: u8,
+    pub flags: u16,
+    pub nmi_line: u8, // Describes which LINTn is the NMI connected to
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalApicAddressOverrideEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved: u16,
-    local_apic_address: u64,
+    pub local_apic_address: u64,
 }
 
 /// If this entry is present, the system has an I/O SAPIC, which must be used instead of the I/O
@@ -478,23 +478,23 @@ pub struct LocalApicAddressOverrideEntry {
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct IoSapicEntry {
-    header: EntryHeader,
-    io_apic_id: u8,
+    pub header: EntryHeader,
+    pub io_apic_id: u8,
     _reserved: u8,
-    global_system_interrupt_base: u32,
-    io_sapic_address: u64,
+    pub global_system_interrupt_base: u32,
+    pub io_sapic_address: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalSapicEntry {
-    header: EntryHeader,
-    processor_id: u8,
-    local_sapic_id: u8,
-    local_sapic_eid: u8,
+    pub header: EntryHeader,
+    pub processor_id: u8,
+    pub local_sapic_id: u8,
+    pub local_sapic_eid: u8,
     _reserved: [u8; 3],
-    flags: u32,
-    processor_uid: u32,
+    pub flags: u32,
+    pub processor_uid: u32,
 
     /// This string can be used to associate this local SAPIC to a processor defined in the
     /// namespace when the `_UID` object is a string. It is a null-terminated ASCII string, and so
@@ -506,33 +506,33 @@ pub struct LocalSapicEntry {
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct PlatformInterruptSourceEntry {
-    header: EntryHeader,
-    flags: u16,
-    interrupt_type: u8,
-    processor_id: u8,
-    processor_eid: u8,
-    io_sapic_vector: u8,
-    global_system_interrupt: u32,
-    platform_interrupt_source_flags: u32,
+    pub header: EntryHeader,
+    pub flags: u16,
+    pub interrupt_type: u8,
+    pub processor_id: u8,
+    pub processor_eid: u8,
+    pub io_sapic_vector: u8,
+    pub global_system_interrupt: u32,
+    pub platform_interrupt_source_flags: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct LocalX2ApicEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved: u16,
-    x2apic_id: u32,
-    flags: u32,
-    processor_uid: u32,
+    pub x2apic_id: u32,
+    pub flags: u32,
+    pub processor_uid: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct X2ApicNmiEntry {
-    header: EntryHeader,
-    flags: u16,
-    processor_uid: u32,
-    nmi_line: u8,
+    pub header: EntryHeader,
+    pub flags: u16,
+    pub processor_uid: u32,
+    pub nmi_line: u8,
     _reserved: [u8; 3],
 }
 
@@ -542,38 +542,38 @@ pub struct X2ApicNmiEntry {
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GiccEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved1: u16,
-    cpu_interface_number: u32,
-    processor_uid: u32,
-    flags: u32,
-    parking_protocol_version: u32,
-    performance_interrupt_gsiv: u32,
-    parked_address: u64,
-    gic_registers_address: u64,
-    gic_virtual_registers_address: u64,
-    gic_hypervisor_registers_address: u64,
-    vgic_maintenance_interrupt: u32,
-    gicr_base_address: u64,
-    mpidr: u64,
-    processor_power_efficiency_class: u8,
+    pub cpu_interface_number: u32,
+    pub processor_uid: u32,
+    pub flags: u32,
+    pub parking_protocol_version: u32,
+    pub performance_interrupt_gsiv: u32,
+    pub parked_address: u64,
+    pub gic_registers_address: u64,
+    pub gic_virtual_registers_address: u64,
+    pub gic_hypervisor_registers_address: u64,
+    pub vgic_maintenance_interrupt: u32,
+    pub gicr_base_address: u64,
+    pub mpidr: u64,
+    pub processor_power_efficiency_class: u8,
     _reserved2: u8,
     /// SPE overflow Interrupt.
     ///
     /// ACPI 6.3 defined this field. It is zero in prior versions or
     /// if this processor does not support SPE.
-    spe_overflow_interrupt: u16,
-    trbe_interrupt: ExtendedField<u16, 6>,
+    pub spe_overflow_interrupt: u16,
+    pub trbe_interrupt: ExtendedField<u16, 6>,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicdEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved1: u16,
-    gic_id: u32,
-    physical_base_address: u64,
-    system_vector_base: u32,
+    pub gic_id: u32,
+    pub physical_base_address: u64,
+    pub system_vector_base: u32,
 
     /// The GIC version
     ///     0x00: Fall back to hardware discovery
@@ -582,48 +582,48 @@ pub struct GicdEntry {
     ///     0x03: GICv3
     ///     0x04: GICv4
     ///     0x05-0xff: Reserved for future use
-    gic_version: u8,
+    pub gic_version: u8,
     _reserved2: [u8; 3],
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicMsiFrameEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved: u16,
-    frame_id: u32,
-    physical_base_address: u64,
-    flags: u32,
-    spi_count: u16,
-    spi_base: u16,
+    pub frame_id: u32,
+    pub physical_base_address: u64,
+    pub flags: u32,
+    pub spi_count: u16,
+    pub spi_base: u16,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicRedistributorEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved: u16,
-    discovery_range_base_address: u64,
-    discovery_range_length: u32,
+    pub discovery_range_base_address: u64,
+    pub discovery_range_length: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct GicInterruptTranslationServiceEntry {
-    header: EntryHeader,
+    pub header: EntryHeader,
     _reserved1: u16,
-    id: u32,
-    physical_base_address: u64,
+    pub id: u32,
+    pub physical_base_address: u64,
     _reserved2: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct MultiprocessorWakeupEntry {
-    header: EntryHeader,
-    mailbox_version: u16,
+    pub header: EntryHeader,
+    pub mailbox_version: u16,
     _reserved: u32,
-    mailbox_address: u64,
+    pub mailbox_address: u64,
 }
 
 #[cfg(feature = "allocator_api")]
