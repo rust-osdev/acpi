@@ -240,7 +240,7 @@ where
     fn tables_phys_ptrs(&self) -> TablesPhysPtrsIter<'_> {
         // SAFETY: The virtual address of the array of pointers follows the virtual address of the table in memory.
         let ptrs_virt_start = unsafe { self.mapping.virtual_start().as_ptr().add(1).cast::<u8>() };
-        let ptrs_bytes_len = self.mapping.region_length() - mem::size_of::<SdtHeader>();
+        let ptrs_bytes_len = self.mapping.length as usize - mem::size_of::<SdtHeader>();
         // SAFETY: `ptrs_virt_start` points to an array of `ptrs_bytes_len` bytes that lives as long as `self`.
         let ptrs_bytes = unsafe { core::slice::from_raw_parts(ptrs_virt_start, ptrs_bytes_len) };
         let ptr_size = if self.revision == 0 {
