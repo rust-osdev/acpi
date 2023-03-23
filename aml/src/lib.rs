@@ -150,8 +150,9 @@ impl AmlContext {
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32).unwrap();
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
-            Err((_, _, Propagate::Err(err))) => {
-                error!("Failed to parse AML stream. Err = {:?}", err);
+            Err((buf, _, Propagate::Err(err))) => {
+                error!("Failed to parse AML stream. Err = {:?}, possibly near byte {:#x}",
+                    err, 36 + buf.as_ptr() as usize - stream.as_ptr() as usize);
                 Err(err)
             }
             Err((_, _, other)) => {
