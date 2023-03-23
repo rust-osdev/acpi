@@ -4,7 +4,7 @@ use crate::{
     opcode::{self, opcode},
     parser::{choice, comment_scope, n_of, take, take_to_end_of_pkglength, try_with_context, Parser, Propagate},
     pkg_length::pkg_length,
-    term_object::{data_ref_object, term_arg},
+    term_object::{data_ref_object, term_arg, def_cond_ref_of},
     value::{AmlType, AmlValue, Args},
     AmlError,
     DebugVerbosity,
@@ -58,6 +58,7 @@ where
             def_shift_right(),
             def_store(),
             def_to_integer(),
+            def_cond_ref_of(),
             method_invocation() // XXX: this must always appear last. See how we have to parse it to see why.
         ),
     )
