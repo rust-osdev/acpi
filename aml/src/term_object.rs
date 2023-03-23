@@ -865,7 +865,6 @@ where
             name_string().then(target()).map_with_context(|(source, target), context| {
                 let handle = context.namespace.search(&source, &context.current_scope);
                 let result = AmlValue::Boolean(handle.is_ok());
-                log::error!("{:?} was {}found", &source, if handle.is_ok() { "" } else { "not " });
                 if let Ok((_name, _handle)) = handle {
                     match target {
                         Target::Null => { /* just return the result of the check */ }
