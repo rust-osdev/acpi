@@ -1,7 +1,7 @@
 use crate::{
     expression::{def_buffer, def_package, expression_opcode},
     misc::{arg_obj, local_obj},
-    name_object::{name_seg, name_string},
+    name_object::{name_seg, name_string, target, Target},
     namespace::{AmlName, LevelType},
     opcode::{self, ext_opcode, opcode},
     parser::{
@@ -849,6 +849,34 @@ where
             }),
         ))
         .discard_result()
+}
+
+pub fn def_cond_ref_of<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefCondRefOf := ExtOpPrefix 0x12 NameString Target => boolean
+     */
+    ext_opcode(opcode::EXT_DEF_COND_REF_OF_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefCondRefOf",
+            name_string().then(target()).map_with_context(|(source, target), context| {
+                let handle = context.namespace.search(&source, &context.current_scope);
+                let result = AmlValue::Boolean(handle.is_ok());
+                log::error!("{:?} was {}found", &source, if handle.is_ok() { "" } else { "not " });
+                if let Ok((_name, _handle)) = handle {
+                    match target {
+                        Target::Null => { /* just return the result of the check */ }
+                        _ => todo!(),
+                    }
+                    
+                }
+                (Ok(result), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
 }
 
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
