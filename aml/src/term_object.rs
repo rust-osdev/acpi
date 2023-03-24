@@ -868,9 +868,8 @@ where
                 if let Ok((_name, _handle)) = handle {
                     match target {
                         Target::Null => { /* just return the result of the check */ }
-                        _ => todo!(),
+                        _ => {return (Err(Propagate::Err(AmlError::Unimplemented)), context) },
                     }
-                    
                 }
                 (Ok(result), context)
             }),

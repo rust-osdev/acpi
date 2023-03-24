@@ -796,6 +796,9 @@ pub enum AmlError {
     TypeCannotBeSliced(AmlType),
     TypeCannotBeWrittenToBufferField(AmlType),
     BufferFieldIndexesOutOfBounds,
+
+    /// Unimplemented functionality - return error rather than abort
+    Unimplemented,
 }
 
 #[cfg(test)]
