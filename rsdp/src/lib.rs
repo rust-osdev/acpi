@@ -169,6 +169,14 @@ impl Rsdp {
         Ok(())
     }
 
+    pub fn signature(&self) -> [u8; 8] {
+        self.signature
+    }
+
+    pub fn checksum(&self) -> u8 {
+        self.checksum
+    }
+
     pub fn oem_id(&self) -> &str {
         str::from_utf8(&self.oem_id).unwrap()
     }
@@ -181,9 +189,19 @@ impl Rsdp {
         self.rsdt_address
     }
 
+    pub fn length(&self) -> u32 {
+        assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
+        self.length
+    }
+
     pub fn xsdt_address(&self) -> u64 {
         assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
         self.xsdt_address
+    }
+
+    pub fn ext_checksum(&self) -> u8 {
+        assert!(self.revision > 0, "Tried to read extended RSDP field with ACPI Version 1.0");
+        self.ext_checksum
     }
 }
 
