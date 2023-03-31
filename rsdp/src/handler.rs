@@ -10,8 +10,8 @@ where
 {
     physical_start: usize,
     virtual_start: NonNull<T>,
-    region_length: usize, // Can be equal or larger than size_of::<T>()
-    mapped_length: usize, // Differs from `region_length` if padding is added for alignment
+    region_length: usize, // Desired physical memory span, can be equal or larger than size_of::<T>()
+    mapped_length: usize, // Usuable mapped length starting from `virtual_start`
     handler: H,
 }
 
@@ -20,14 +20,14 @@ where
     H: AcpiHandler,
 {
     /// Construct a new `PhysicalMapping`.
-    /// `mapped_length` may differ from `region_length` if padding is added for alignment.
+    /// `mapped_length` describes usable span from `virtual_start` to end of last mapped page (for paging), and thus may exceed `physical_length`.
     ///
     /// ## Safety
     ///
     /// This function must only be called by an `AcpiHandler` of type `H` to make sure that it's safe to unmap the mapping.
     ///
     /// - `virtual_start` must be a valid pointer.
-    /// - `region_length` must be equal to or larger than `size_of::<T>()`.
+    /// - `region_length` is the desired physical memory span, must be equal to or larger than `size_of::<T>()`.
     /// - `handler` must be the same `AcpiHandler` that created the mapping.
     pub unsafe fn new(
         physical_start: usize,
