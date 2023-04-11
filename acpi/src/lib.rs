@@ -49,7 +49,7 @@
 
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
-#![cfg_attr(feature = "allocator_api", feature(allocator_api, ptr_as_uninit))]
+#![cfg_attr(feature = "allocator_api", feature(allocator_api))]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -69,15 +69,16 @@ mod managed_slice;
 pub use managed_slice::*;
 
 #[cfg(feature = "allocator_api")]
-pub use crate::platform::{interrupt::InterruptModel, PlatformInfo};
-#[cfg(feature = "allocator_api")]
 pub mod platform;
+#[cfg(feature = "allocator_api")]
+pub use crate::platform::{interrupt::InterruptModel, PlatformInfo};
 
 #[cfg(feature = "allocator_api")]
 pub use crate::mcfg::PciConfigRegions;
 
-pub use crate::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
-
+pub use fadt::PowerProfile;
+pub use hpet::HpetInfo;
+pub use madt::MadtError;
 pub use rsdp::{
     handler::{AcpiHandler, PhysicalMapping},
     RsdpError,
@@ -321,9 +322,9 @@ where
     /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
     /// the platform from the ACPI tables.
     #[cfg(feature = "allocator_api")]
-    pub fn platform_info_in<'a, A>(&'a self, allocator: &'a A) -> AcpiResult<PlatformInfo<A>>
+    pub fn platform_info_in<A>(&self, allocator: A) -> AcpiResult<PlatformInfo<A>>
     where
-        A: core::alloc::Allocator,
+        A: core::alloc::Allocator + Clone,
     {
         PlatformInfo::new_in(self, allocator)
     }

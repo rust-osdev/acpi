@@ -8,7 +8,7 @@ where
     A: alloc::Allocator,
 {
     slice: &'a mut [T],
-    allocator: &'a A,
+    allocator: A,
 }
 
 impl<'a, T, A> ManagedSlice<'a, T, A>
@@ -16,14 +16,16 @@ where
     A: alloc::Allocator,
 {
     /// Attempts to allocate a new `&mut [T]` in the given allocator.
-    pub fn new_in(len: usize, allocator: &'a A) -> crate::AcpiResult<Self> {
-        // Safety: Struct layouts are required to be valid.
-        let layout =
-            unsafe { alloc::Layout::from_size_align_unchecked(mem::size_of::<T>() * len, mem::align_of::<T>()) };
-
-        unsafe { allocator.allocate(layout).map(|ptr| ptr.as_uninit_slice_mut().align_to_mut::<T>().1) }
-            .map(|slice| Self { slice, allocator })
-            .map_err(|_| crate::AcpiError::AllocError)
+    pub fn new_in(len: usize, allocator: A) -> crate::AcpiResult<Self> {
+        // Safety: Type automatically deallocated memory on `Drop` and;
+        //         Constructed slice is from valid, aligned, allocated memory.
+        unsafe {
+            allocator
+                .allocate(alloc::Layout::array::<T>(len).map_err(|_| crate::AcpiError::AllocError)?)
+                .map(|mut ptr| core::slice::from_raw_parts_mut(ptr.as_mut().as_mut_ptr().cast(), len))
+                .map(|slice| Self { slice, allocator })
+                .map_err(|_| crate::AcpiError::AllocError)
+        }
     }
 }
 

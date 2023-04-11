@@ -19,7 +19,7 @@ impl<'a, A> PciConfigRegions<'a, A>
 where
     A: core::alloc::Allocator,
 {
-    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: &'a A) -> crate::AcpiResult<PciConfigRegions<'a, A>>
+    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: A) -> crate::AcpiResult<PciConfigRegions<'a, A>>
     where
         H: crate::AcpiHandler,
     {

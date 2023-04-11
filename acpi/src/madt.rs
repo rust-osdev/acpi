@@ -52,10 +52,10 @@ impl Madt {
     #[cfg(feature = "allocator_api")]
     pub fn parse_interrupt_model_in<'a, A>(
         &self,
-        allocator: &'a A,
+        allocator: A,
     ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
     where
-        A: core::alloc::Allocator,
+        A: core::alloc::Allocator + Clone,
     {
         /*
          * We first do a pass through the MADT to determine which interrupt model is being used.
@@ -97,10 +97,10 @@ impl Madt {
     #[cfg(feature = "allocator_api")]
     fn parse_apic_model_in<'a, A>(
         &self,
-        allocator: &'a A,
+        allocator: A,
     ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
     where
-        A: core::alloc::Allocator,
+        A: core::alloc::Allocator + Clone,
     {
         use crate::{
             platform::{
@@ -138,10 +138,10 @@ impl Madt {
             }
         }
 
-        let mut io_apics = crate::ManagedSlice::new_in(io_apic_count, allocator)?;
-        let mut interrupt_source_overrides = crate::ManagedSlice::new_in(iso_count, allocator)?;
-        let mut nmi_sources = crate::ManagedSlice::new_in(nmi_source_count, allocator)?;
-        let mut local_apic_nmi_lines = crate::ManagedSlice::new_in(local_nmi_line_count, allocator)?;
+        let mut io_apics = crate::ManagedSlice::new_in(io_apic_count, allocator.clone())?;
+        let mut interrupt_source_overrides = crate::ManagedSlice::new_in(iso_count, allocator.clone())?;
+        let mut nmi_sources = crate::ManagedSlice::new_in(nmi_source_count, allocator.clone())?;
+        let mut local_apic_nmi_lines = crate::ManagedSlice::new_in(local_nmi_line_count, allocator.clone())?;
         let mut application_processors =
             crate::ManagedSlice::new_in(processor_count.saturating_sub(1), allocator)?; // Subtract one for the BSP
         let mut boot_processor = None;
