@@ -10,14 +10,14 @@
  */
 
 use aml::{AmlContext, DebugVerbosity};
-use clap::{Arg, ArgGroup, ArgAction};
+use clap::{Arg, ArgAction, ArgGroup};
 use std::{
+    collections::HashSet,
     ffi::OsStr,
     fs::{self, File},
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
-    collections::HashSet,
 };
 
 enum CompilationOutcome {
@@ -48,17 +48,21 @@ fn main() -> std::io::Result<()> {
     let files: Vec<String> = if matches.contains_id("path") {
         let dir_path = Path::new(matches.get_one::<String>("path").unwrap());
         println!("Running tests in directory: {:?}", dir_path);
-        fs::read_dir(dir_path)?.filter_map(| entry | if entry.is_ok() {
-            Some(entry.unwrap().path().to_string_lossy().to_string())
-        } else {
-            None
-        }).collect()
+        fs::read_dir(dir_path)?
+            .filter_map(|entry| {
+                if entry.is_ok() {
+                    Some(entry.unwrap().path().to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
     } else {
-        matches.get_many::<String>("files").unwrap_or_default().map(| name | name.to_string()).collect()
+        matches.get_many::<String>("files").unwrap_or_default().map(|name| name.to_string()).collect()
     };
 
     // Make sure all files exist, propagate error if it occurs
-    files.iter().fold(Ok(()), | result: std::io::Result<()>, file | {
+    files.iter().fold(Ok(()), |result: std::io::Result<()>, file| {
         let path = Path::new(file);
         if !path.is_file() {
             println!("Not a regular file: {}", file);
@@ -80,22 +84,27 @@ fn main() -> std::io::Result<()> {
             Err(_) => false,
     };
 
-    let compiled_files: Vec<CompilationOutcome> = files.iter().map(| name | resolve_and_compile(name, can_compile).unwrap()).collect();
+    let compiled_files: Vec<CompilationOutcome> =
+        files.iter().map(|name| resolve_and_compile(name, can_compile).unwrap()).collect();
 
     // Check if compilation should have happened but did not
-    if user_wants_compile && compiled_files.iter().any(| outcome | matches!(outcome, CompilationOutcome::NotCompiled(_))) {
-        panic!("`iasl` is not installed, but we want to compile some ASL files! Pass --no-compile, or install `iasl`");
+    if user_wants_compile
+        && compiled_files.iter().any(|outcome| matches!(outcome, CompilationOutcome::NotCompiled(_)))
+    {
+        panic!(
+            "`iasl` is not installed, but we want to compile some ASL files! Pass --no-compile, or install `iasl`"
+        );
     }
     // Report compilation results
     if user_wants_compile {
-        let (passed, failed) = compiled_files.iter()
-            .fold((0, 0), | (passed, failed), outcome | match outcome {
-                CompilationOutcome::Succeeded(_) => (passed + 1, failed),
-                CompilationOutcome::Failed(_) => (passed, failed + 1),
-                _ => (passed, failed),
+        let (passed, failed) = compiled_files.iter().fold((0, 0), |(passed, failed), outcome| match outcome {
+            CompilationOutcome::Succeeded(_) => (passed + 1, failed),
+            CompilationOutcome::Failed(_) => (passed, failed + 1),
+            _ => (passed, failed),
         });
         if passed + failed > 0 {
             println!("Compiled {} ASL files: {} passed, {} failed.", passed + failed, passed, failed);
+            println!();
         }
     }
 
@@ -103,19 +112,24 @@ fn main() -> std::io::Result<()> {
     let mut dedup_list: HashSet<PathBuf> = HashSet::new();
 
     // Filter down to the final list of AML files
-    let aml_files = compiled_files.iter()
-        .filter_map(| outcome | match outcome {
+    let aml_files = compiled_files
+        .iter()
+        .filter_map(|outcome| match outcome {
             CompilationOutcome::IsAml(path) => Some(path.clone()),
             CompilationOutcome::Newer(path) => Some(path.clone()),
             CompilationOutcome::Succeeded(path) => Some(path.clone()),
-            CompilationOutcome::Ignored | CompilationOutcome::Failed(_) | CompilationOutcome::NotCompiled(_) => None,
+            CompilationOutcome::Ignored | CompilationOutcome::Failed(_) | CompilationOutcome::NotCompiled(_) => {
+                None
+            }
         })
-        .filter(| path | if dedup_list.contains(path) {
-            false
-        } else {
-            dedup_list.insert(path.clone());
-            true
-    });
+        .filter(|path| {
+            if dedup_list.contains(path) {
+                false
+            } else {
+                dedup_list.insert(path.clone());
+                true
+            }
+        });
 
     let user_wants_reset = matches.get_flag("reset");
     let mut context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
@@ -129,7 +143,7 @@ fn main() -> std::io::Result<()> {
         file.read_to_end(&mut contents).unwrap();
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
-        
+
         if user_wants_reset {
             context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
         }
@@ -178,14 +192,14 @@ fn resolve_and_compile(name: &str, can_compile: bool) -> std::io::Result<Compila
         // If the aml is more recent than the asl, use the existing aml
         // Otherwise continue to compilation
         if asl_last_modified <= aml_last_modified {
-            return Ok(CompilationOutcome::Newer(aml_path))
+            return Ok(CompilationOutcome::Newer(aml_path));
         }
     }
 
     if !can_compile {
         return Ok(CompilationOutcome::NotCompiled(path));
     }
-    
+
     // Compile the ASL file using `iasl`
     println!("Compiling file: {}", name);
     let output = Command::new("iasl").arg(name).output()?;

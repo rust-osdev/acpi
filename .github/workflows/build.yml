@@ -36,4 +36,4 @@ jobs:
       run: cargo test --all
 
     - name: Run AML test suite
-      run: cargo run --bin aml_tester -- -p tests
+      run: cargo run --bin aml_tester -- -p tests --reset
