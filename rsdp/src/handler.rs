@@ -3,6 +3,8 @@ use core::{ops::Deref, ptr::NonNull};
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
 /// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `size_of::<T>()`
 /// bytes, but may be bigger.
+///
+/// See `PhysicalMapping::new` for the meaning of each field.
 #[derive(Debug)]
 pub struct PhysicalMapping<H, T>
 where
@@ -20,15 +22,17 @@ where
     H: AcpiHandler,
 {
     /// Construct a new `PhysicalMapping`.
-    /// `mapped_length` may differ from `region_length` if padding is added for alignment.
     ///
-    /// ## Safety
-    ///
-    /// This function must only be called by an `AcpiHandler` of type `H` to make sure that it's safe to unmap the mapping.
-    ///
-    /// - `virtual_start` must be a valid pointer.
-    /// - `region_length` must be equal to or larger than `size_of::<T>()`.
-    /// - `handler` must be the same `AcpiHandler` that created the mapping.
+    /// - `physical_start` should be the physical address of the structure to be mapped.
+    /// - `virtual_start` should be the corresponding virtual address of that structure. It may differ from the
+    ///   start of the region mapped due to requirements of the paging system. It must be a valid, non-null
+    ///   pointer.
+    /// - `region_length` should be the number of bytes requested to be mapped. It must be equal to or larger than
+    ///   `size_of::<T>()`.
+    /// - `mapped_length` should be the number of bytes mapped to fulfill the request. It may be equal to or larger
+    ///   than `region_length`, due to requirements of the paging system or other reasoning.
+    /// - `handler` should be the same `AcpiHandler` that created the mapping. When the `PhysicalMapping` is
+    ///   dropped, it will be used to unmap the structure.
     pub unsafe fn new(
         physical_start: usize,
         virtual_start: NonNull<T>,
@@ -92,6 +96,9 @@ pub trait AcpiHandler: Clone {
     /// size may be larger than `size_of::<T>()`). The address is not neccessarily page-aligned, so the
     /// implementation may need to map more than `size` bytes. The virtual address the region is mapped to does not
     /// matter, as long as it is accessible to `acpi`.
+    ///
+    /// See the documentation on `PhysicalMapping::new` for an explanation of each field on the `PhysicalMapping`
+    /// return type.
     ///
     /// ## Safety
     ///
