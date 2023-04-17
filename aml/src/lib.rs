@@ -56,12 +56,14 @@ pub(crate) mod pkg_length;
 pub mod resource;
 pub(crate) mod statement;
 pub(crate) mod term_object;
+pub(crate) mod stream;
 pub mod value;
 
 pub use crate::{namespace::*, value::AmlValue};
 
 use alloc::{boxed::Box, string::ToString};
-use core::mem;
+use stream::AmlStream;
+use core::{mem, usize};
 use log::{error, warn};
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
@@ -73,6 +75,7 @@ use value::{AmlType, Args};
 /// AML has a `RevisionOp` operator that returns the "AML interpreter revision". It's not clear
 /// what this is actually used for, but this is ours.
 pub const AML_INTERPRETER_REVISION: u64 = 0;
+
 
 /// Describes how much debug information the parser should emit. Set the "maximum" expected verbosity in
 /// the context's `debug_verbosity` - everything will be printed that is less or equal in 'verbosity'.
@@ -147,11 +150,11 @@ impl AmlContext {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
-        let table_length = PkgLength::from_raw_length(stream, stream.len() as u32).unwrap();
-        match term_object::term_list(table_length).parse(stream, self) {
+        let table_length = PkgLength::from_raw_length(AmlStream::from_slice(stream), stream.len() as u32).unwrap();
+        match term_object::term_list(table_length).parse(AmlStream::from_slice(stream), self) {
             Ok(_) => Ok(()),
-            Err((_, _, Propagate::Err(err))) => {
-                error!("Failed to parse AML stream. Err = {:?}", err);
+            Err((buf, _, Propagate::Err(err))) => {
+                error!("Failed to parse AML stream. Err = {:?}, buf = {:?}", err, buf);
                 Err(err)
             }
             Err((_, _, other)) => {
@@ -182,8 +185,8 @@ impl AmlContext {
 
                 let return_value = match code {
                     MethodCode::Aml(ref code) => {
-                        match term_list(PkgLength::from_raw_length(code, code.len() as u32).unwrap())
-                            .parse(code, self)
+                        match term_list(PkgLength::from_raw_length(AmlStream::from_slice(code), code.len() as u32).unwrap())
+                            .parse(AmlStream::from_slice(code), self)
                         {
                             // If the method doesn't return a value, we implicitly return `0`
                             Ok(_) => Ok(AmlValue::Integer(0)),

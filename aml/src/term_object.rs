@@ -23,7 +23,7 @@ use crate::{
     AmlContext,
     AmlError,
     AmlHandle,
-    DebugVerbosity,
+    DebugVerbosity, AmlStream,
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 use core::str;
@@ -38,7 +38,7 @@ where
      * TermList := Nothing | <TermObj TermList>
      */
     // TODO: why does this use still_parsing, instead of just taking the whole thing and parsing it til it's empty?
-    move |mut input: &'a [u8], mut context: &'c mut AmlContext| {
+    move |mut input: AmlStream<'a>, mut context: &'c mut AmlContext| {
         while list_length.still_parsing(input) {
             // TODO: currently, we ignore the value of the expression. We may need to propagate
             // this.
@@ -507,7 +507,7 @@ where
             DebugVerbosity::Scopes,
             "DefField",
             pkg_length().then(opregion_as_handle).then(take()).feed(|((list_length, region_handle), flags)| {
-                move |mut input: &'a [u8], mut context: &'c mut AmlContext| -> ParseResult<'a, 'c, ()> {
+                move |mut input: AmlStream<'a>, mut context: &'c mut AmlContext| -> ParseResult<'a, 'c, ()> {
                     /*
                      * FieldList := Nothing | <FieldElement FieldList>
                      */
@@ -619,7 +619,7 @@ where
                             &context.current_scope,
                             AmlValue::Method {
                                 flags: MethodFlags::from(flags),
-                                code: MethodCode::Aml(code.to_vec())
+                                code: MethodCode::Aml(code.content().to_vec())
                             },
                         )
                     );
@@ -939,23 +939,24 @@ where
      * ConstObj := ZeroOp(0x00) | OneOp(0x01) | OnesOp(0xff)
      * RevisionOp := ExtOpPrefix(0x5b) 0x30
      */
-    let const_parser = |input: &'a [u8], context: &'c mut AmlContext| {
-        let string_parser = |input: &'a [u8], context| -> ParseResult<'a, 'c, AmlValue> {
+    let const_parser = |input: AmlStream<'a>, context: &'c mut AmlContext| {
+        let string_parser = |input: AmlStream<'a>, context| -> ParseResult<'a, 'c, AmlValue> {
             /*
              * Using `position` isn't very efficient here, but is probably fine because the
              * strings are usually quite short.
              */
-            let nul_position = match input.iter().position(|&c| c == b'\0') {
+            let nul_position = match input.content().iter().position(|&c| c == b'\0') {
                 Some(position) => position,
                 None => return Err((input, context, Propagate::Err(AmlError::UnterminatedStringConstant))),
             };
 
-            let string = String::from(match str::from_utf8(&input[0..nul_position]) {
+            let (s, remaining) = input.split_at(nul_position);
+            let string = String::from(match str::from_utf8(s.content()) {
                 Ok(string) => string,
                 Err(_) => return Err((input, context, Propagate::Err(AmlError::InvalidStringConstant))),
             });
 
-            Ok((&input[(nul_position + 1)..], context, AmlValue::String(string)))
+            Ok((remaining.slice_to_end(1), context, AmlValue::String(string)))
         };
 
         let (new_input, context, op) = take().parse(input, context)?;
@@ -999,48 +1000,48 @@ mod test {
     fn test_computational_data() {
         let mut context = make_test_context();
         check_ok_value!(
-            computational_data().parse(&[0x00, 0x34, 0x12], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x00, 0x34, 0x12]), &mut context),
             AmlValue::Integer(0),
             &[0x34, 0x12]
         );
         check_ok_value!(
-            computational_data().parse(&[0x01, 0x18, 0xf3], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x01, 0x18, 0xf3]), &mut context),
             AmlValue::Integer(1),
             &[0x18, 0xf3]
         );
         check_ok_value!(
-            computational_data().parse(&[0xff, 0x98, 0xc3], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0xff, 0x98, 0xc3]), &mut context),
             AmlValue::Integer(u64::max_value()),
             &[0x98, 0xc3]
         );
         check_ok_value!(
-            computational_data().parse(&[0x5b, 0x30], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x5b, 0x30]), &mut context),
             AmlValue::Integer(crate::AML_INTERPRETER_REVISION),
             &[]
         );
         check_ok_value!(
-            computational_data().parse(&[0x0a, 0xf3, 0x35], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x0a, 0xf3, 0x35]), &mut context),
             AmlValue::Integer(0xf3),
             &[0x35]
         );
         check_ok_value!(
-            computational_data().parse(&[0x0b, 0xf3, 0x35], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x0b, 0xf3, 0x35]), &mut context),
             AmlValue::Integer(0x35f3),
             &[]
         );
         check_ok_value!(
-            computational_data().parse(&[0x0c, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x0c, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00]), &mut context),
             AmlValue::Integer(0x651235f3),
             &[0xff, 0x00]
         );
         check_ok_value!(
             computational_data()
-                .parse(&[0x0e, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00, 0x67, 0xde, 0x28], &mut context),
+                .parse(AmlStream::from_slice(&[0x0e, 0xf3, 0x35, 0x12, 0x65, 0xff, 0x00, 0x67, 0xde, 0x28]), &mut context),
             AmlValue::Integer(0xde6700ff651235f3),
             &[0x28]
         );
         check_ok_value!(
-            computational_data().parse(&[0x0d, b'A', b'B', b'C', b'D', b'\0', 0xff, 0xf5], &mut context),
+            computational_data().parse(AmlStream::from_slice(&[0x0d, b'A', b'B', b'C', b'D', b'\0', 0xff, 0xf5]), &mut context),
             AmlValue::String(String::from("ABCD")),
             &[0xff, 0xf5]
         );

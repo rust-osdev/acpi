@@ -1,7 +1,7 @@
 use crate::{
     parser::{take, take_n, Parser, Propagate},
     AmlContext,
-    AmlError,
+    AmlError, AmlStream,
 };
 use bit_field::BitField;
 
@@ -15,7 +15,7 @@ pub struct PkgLength {
 }
 
 impl PkgLength {
-    pub fn from_raw_length(stream: &[u8], raw_length: u32) -> Result<PkgLength, AmlError> {
+    pub fn from_raw_length(stream: AmlStream, raw_length: u32) -> Result<PkgLength, AmlError> {
         Ok(PkgLength {
             raw_length,
             end_offset: (stream.len() as u32).checked_sub(raw_length).ok_or(AmlError::InvalidPkgLength)?,
@@ -24,7 +24,7 @@ impl PkgLength {
 
     /// Returns `true` if the given stream is still within the structure this `PkgLength` refers
     /// to.
-    pub fn still_parsing(&self, stream: &[u8]) -> bool {
+    pub fn still_parsing(&self, stream: AmlStream) -> bool {
         stream.len() as u32 > self.end_offset
     }
 }
@@ -33,7 +33,7 @@ pub fn pkg_length<'a, 'c>() -> impl Parser<'a, 'c, PkgLength>
 where
     'c: 'a,
 {
-    move |input: &'a [u8], context: &'c mut AmlContext| -> crate::parser::ParseResult<'a, 'c, PkgLength> {
+    move |input: AmlStream<'a>, context: &'c mut AmlContext| -> crate::parser::ParseResult<'a, 'c, PkgLength> {
         let (new_input, context, raw_length) = raw_pkg_length().parse(input, context)?;
 
         /*
@@ -61,7 +61,7 @@ where
      *
      * The length encoded by the PkgLength includes the number of bytes used to encode it.
      */
-    move |input: &'a [u8], context: &'c mut AmlContext| {
+    move |input: AmlStream<'a>, context: &'c mut AmlContext| {
         let (new_input, context, lead_byte) = take().parse(input, context)?;
         let byte_count = lead_byte.get_bits(6..8);
 
@@ -70,7 +70,7 @@ where
             return Ok((new_input, context, length));
         }
 
-        let (new_input, context, length): (&[u8], &mut AmlContext, u32) = match take_n(byte_count as u32)
+        let (new_input, context, length): (AmlStream<'a>, &mut AmlContext, u32) = match take_n(byte_count as u32)
             .parse(new_input, context)
         {
             Ok((new_input, context, bytes)) => {
@@ -79,6 +79,7 @@ where
                     new_input,
                     context,
                     bytes
+                        .content()
                         .iter()
                         .enumerate()
                         .fold(initial_length, |length, (i, &byte)| length + (u32::from(byte) << (4 + i * 8))),
@@ -101,34 +102,34 @@ mod tests {
     use super::*;
     use crate::{test_utils::*, AmlError};
 
-    fn test_correct_pkglength(stream: &[u8], expected_raw_length: u32, expected_leftover: &[u8]) {
+    fn test_correct_pkglength(stream: AmlStream, expected_raw_length: u32, expected_leftover: &[u8]) {
         let mut context = make_test_context();
         check_ok!(
             pkg_length().parse(stream, &mut context),
             PkgLength::from_raw_length(stream, expected_raw_length).unwrap(),
-            &expected_leftover
+            expected_leftover
         );
     }
 
     #[test]
     fn test_raw_pkg_length() {
         let mut context = make_test_context();
-        check_ok!(raw_pkg_length().parse(&[0b01000101, 0x14], &mut context), 325, &[]);
-        check_ok!(raw_pkg_length().parse(&[0b01000111, 0x14, 0x46], &mut context), 327, &[0x46]);
-        check_ok!(raw_pkg_length().parse(&[0b10000111, 0x14, 0x46], &mut context), 287047, &[]);
+        check_ok!(raw_pkg_length().parse(AmlStream::from_slice(&[0b01000101, 0x14]), &mut context), 325, &[]);
+        check_ok!(raw_pkg_length().parse(AmlStream::from_slice(&[0b01000111, 0x14, 0x46]), &mut context), 327, &[0x46]);
+        check_ok!(raw_pkg_length().parse(AmlStream::from_slice(&[0b10000111, 0x14, 0x46]), &mut context), 287047, &[]);
     }
 
     #[test]
     fn test_pkg_length() {
         let mut context = make_test_context();
-        check_err!(pkg_length().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
-        test_correct_pkglength(&[0x00], 0, &[]);
-        test_correct_pkglength(&[0x05, 0xf5, 0x7f, 0x3e, 0x54, 0x03], 5, &[0xf5, 0x7f, 0x3e, 0x54, 0x03]);
+        check_err!(pkg_length().parse(AmlStream::empty(), &mut context), AmlError::UnexpectedEndOfStream, &[]);
+        test_correct_pkglength(AmlStream::from_slice(&[0x00]), 0, &[]);
+        test_correct_pkglength(AmlStream::from_slice(&[0x05, 0xf5, 0x7f, 0x3e, 0x54, 0x03]), 5, &[0xf5, 0x7f, 0x3e, 0x54, 0x03]);
 
         check_ok!(
             pkg_length()
                 .feed(|length| crate::parser::take_to_end_of_pkglength(length))
-                .parse(&[0x05, 0x01, 0x02, 0x03, 0x04, 0xff, 0xff, 0xff], &mut context),
+                .parse(AmlStream::from_slice(&[0x05, 0x01, 0x02, 0x03, 0x04, 0xff, 0xff, 0xff]), &mut context),
             &[0x01, 0x02, 0x03, 0x04],
             &[0xff, 0xff, 0xff]
         );
@@ -138,7 +139,7 @@ mod tests {
     fn not_enough_pkglength() {
         let mut context = make_test_context();
         check_err!(
-            pkg_length().parse(&[0b11000000, 0xff, 0x4f], &mut context),
+            pkg_length().parse(AmlStream::from_slice(&[0b11000000, 0xff, 0x4f]), &mut context),
             AmlError::UnexpectedEndOfStream,
             &[0b11000000, 0xff, 0x4f]
         );
@@ -147,6 +148,6 @@ mod tests {
     #[test]
     fn not_enough_stream() {
         let mut context = make_test_context();
-        check_err!(pkg_length().parse(&[0x05, 0xf5], &mut context), AmlError::InvalidPkgLength, &[0x05, 0xf5]);
+        check_err!(pkg_length().parse(AmlStream::from_slice(&[0x05, 0xf5]), &mut context), AmlError::InvalidPkgLength, &[0x05, 0xf5]);
     }
 }

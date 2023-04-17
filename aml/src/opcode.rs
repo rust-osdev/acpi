@@ -1,4 +1,4 @@
-use crate::{parser::*, AmlContext, AmlError};
+use crate::{parser::*, AmlContext, AmlError, AmlStream};
 
 pub const NULL_NAME: u8 = 0x00;
 pub const DUAL_NAME_PREFIX: u8 = 0x2E;
@@ -104,9 +104,9 @@ pub(crate) fn opcode<'a, 'c>(opcode: u8) -> impl Parser<'a, 'c, ()>
 where
     'c: 'a,
 {
-    move |input: &'a [u8], context: &'c mut AmlContext| match input.first() {
+    move |input: AmlStream<'a>, context: &'c mut AmlContext| match input.first() {
         None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
-        Some(&byte) if byte == opcode => Ok((&input[1..], context, ())),
+        Some(&byte) if byte == opcode => Ok((input.slice_to_end(1), context, ())),
         Some(_) => Err((input, context, Propagate::Err(AmlError::WrongParser))),
     }
 }
@@ -126,16 +126,16 @@ mod tests {
     #[test]
     fn empty() {
         let mut context = crate::test_utils::make_test_context();
-        check_err!(opcode(NULL_NAME).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
-        check_err!(ext_opcode(EXT_DEF_FIELD_OP).parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
+        check_err!(opcode(NULL_NAME).parse(AmlStream::empty(), &mut context), AmlError::UnexpectedEndOfStream, &[]);
+        check_err!(ext_opcode(EXT_DEF_FIELD_OP).parse(AmlStream::empty(), &mut context), AmlError::UnexpectedEndOfStream, &[]);
     }
 
     #[test]
     fn simple_opcodes() {
         let mut context = crate::test_utils::make_test_context();
-        check_ok!(opcode(DEF_SCOPE_OP).parse(&[DEF_SCOPE_OP], &mut context), (), &[]);
+        check_ok!(opcode(DEF_SCOPE_OP).parse(AmlStream::from_slice(&[DEF_SCOPE_OP]), &mut context), (), &[]);
         check_ok!(
-            opcode(DEF_NAME_OP).parse(&[DEF_NAME_OP, 0x31, 0x55, 0xf3], &mut context),
+            opcode(DEF_NAME_OP).parse(AmlStream::from_slice(&[DEF_NAME_OP, 0x31, 0x55, 0xf3]), &mut context),
             (),
             &[0x31, 0x55, 0xf3]
         );
@@ -145,12 +145,12 @@ mod tests {
     fn extended_opcodes() {
         let mut context = crate::test_utils::make_test_context();
         check_err!(
-            ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP], &mut context),
+            ext_opcode(EXT_DEF_FIELD_OP).parse(AmlStream::from_slice(&[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP]), &mut context),
             AmlError::WrongParser,
             &[EXT_DEF_FIELD_OP, EXT_DEF_FIELD_OP]
         );
         check_ok!(
-            ext_opcode(EXT_DEF_FIELD_OP).parse(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP], &mut context),
+            ext_opcode(EXT_DEF_FIELD_OP).parse(AmlStream::from_slice(&[EXT_OPCODE_PREFIX, EXT_DEF_FIELD_OP]), &mut context),
             (),
             &[]
         );

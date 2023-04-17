@@ -77,7 +77,7 @@ pub(crate) fn make_test_context() -> AmlContext {
 pub(crate) macro check_err($parse: expr, $error: pat, $remains: expr) {
     match $parse {
         Ok((remains, _, result)) => panic!("Expected Err, got {:#?}. Remaining = {:#x?}", result, remains),
-        Err((remains, _, Propagate::Err($error))) if *remains == *$remains => (),
+        Err((remains, _, Propagate::Err($error))) if remains == $remains => (),
         Err((remains, _, Propagate::Err($error))) => {
             panic!("Correct error, incorrect stream returned: {:#x?}", remains)
         }
@@ -87,7 +87,7 @@ pub(crate) macro check_err($parse: expr, $error: pat, $remains: expr) {
 
 pub(crate) macro check_ok($parse: expr, $expected: expr, $remains: expr) {
     match $parse {
-        Ok((remains, _, ref result)) if remains == *$remains && result == &$expected => (),
+        Ok((remains, _, ref result)) if remains == $remains && result == &$expected => (),
         Ok((remains, _, ref result)) if result == &$expected => {
             panic!("Correct result, incorrect slice returned: {:x?}", remains)
         }
@@ -98,7 +98,7 @@ pub(crate) macro check_ok($parse: expr, $expected: expr, $remains: expr) {
 
 pub(crate) macro check_ok_value($parse: expr, $expected: expr, $remains: expr) {
     match $parse {
-        Ok((remains, _, ref result)) if remains == *$remains && crudely_cmp_values(result, &$expected) => (),
+        Ok((remains, _, ref result)) if remains == $remains && crudely_cmp_values(result, &$expected) => (),
         Ok((remains, _, ref result)) if crudely_cmp_values(result, &$expected) => {
             panic!("Correct result, incorrect slice returned: {:x?}", remains)
         }

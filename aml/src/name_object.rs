@@ -5,7 +5,7 @@ use crate::{
     parser::{choice, comment_scope, consume, n_of, take, take_while, Parser, Propagate},
     AmlContext,
     AmlError,
-    DebugVerbosity,
+    DebugVerbosity, AmlStream,
 };
 use alloc::vec::Vec;
 use core::{fmt, str};
@@ -90,7 +90,7 @@ where
         });
 
     // TODO: combinator to select a parser based on a peeked byte?
-    comment_scope(DebugVerbosity::AllScopes, "NameString", move |input: &'a [u8], context| {
+    comment_scope(DebugVerbosity::AllScopes, "NameString", move |input: AmlStream<'a>, context| {
         let first_char = match input.first() {
             Some(&c) => c,
             None => return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
@@ -255,33 +255,33 @@ mod tests {
         let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
-            name_seg().parse(&[b'A', b'F', b'3', b'Z'], &mut context),
+            name_seg().parse(AmlStream::from_slice(&[b'A', b'F', b'3', b'Z']), &mut context),
             NameSeg([b'A', b'F', b'3', b'Z']),
             &[]
         );
         check_ok!(
-            name_seg().parse(&[b'A', b'F', b'3', b'Z', 0xff], &mut context),
+            name_seg().parse(AmlStream::from_slice(&[b'A', b'F', b'3', b'Z', 0xff]), &mut context),
             NameSeg([b'A', b'F', b'3', b'Z']),
             &[0xff]
         );
         check_err!(
-            name_seg().parse(&[0xff, b'E', b'A', b'7'], &mut context),
+            name_seg().parse(AmlStream::from_slice(&[0xff, b'E', b'A', b'7']), &mut context),
             AmlError::UnexpectedByte(0xff),
             &[0xff, b'E', b'A', b'7']
         );
-        check_err!(name_seg().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
+        check_err!(name_seg().parse(AmlStream::empty(), &mut context), AmlError::UnexpectedEndOfStream, &[]);
     }
 
     #[test]
     fn test_name_path() {
         let mut context = crate::test_utils::make_test_context();
 
-        check_err!(name_path().parse(&[], &mut context), AmlError::UnexpectedEndOfStream, &[]);
-        check_ok!(name_path().parse(&[0x00], &mut context), alloc::vec![], &[]);
-        check_ok!(name_path().parse(&[0x00, 0x00], &mut context), alloc::vec![], &[0x00]);
-        check_err!(name_path().parse(&[0x2e, b'A'], &mut context), AmlError::UnexpectedEndOfStream, &[0x2e, b'A']);
+        check_err!(name_path().parse(AmlStream::empty(), &mut context), AmlError::UnexpectedEndOfStream, &[]);
+        check_ok!(name_path().parse(AmlStream::from_slice(&[0x00]), &mut context), alloc::vec![], &[]);
+        check_ok!(name_path().parse(AmlStream::from_slice(&[0x00, 0x00]), &mut context), alloc::vec![], &[0x00]);
+        check_err!(name_path().parse(AmlStream::from_slice(&[0x2e, b'A']), &mut context), AmlError::UnexpectedEndOfStream, &[0x2e, b'A']);
         check_ok!(
-            name_path().parse(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G'], &mut context),
+            name_path().parse(AmlStream::from_slice(&[0x2e, b'A', b'B', b'C', b'D', b'E', b'_', b'F', b'G']), &mut context),
             alloc::vec![
                 NameComponent::Segment(NameSeg([b'A', b'B', b'C', b'D'])),
                 NameComponent::Segment(NameSeg([b'E', b'_', b'F', b'G']))
@@ -295,12 +295,12 @@ mod tests {
         let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
-            name_string().parse(&[b'^', b'A', b'B', b'C', b'D'], &mut context),
+            name_string().parse(AmlStream::from_slice(&[b'^', b'A', b'B', b'C', b'D']), &mut context),
             AmlName::from_str("^ABCD").unwrap(),
             &[]
         );
         check_ok!(
-            name_string().parse(&[b'^', b'^', b'^', b'A', b'B', b'C', b'D'], &mut context),
+            name_string().parse(AmlStream::from_slice(&[b'^', b'^', b'^', b'A', b'B', b'C', b'D']), &mut context),
             AmlName::from_str("^^^ABCD").unwrap(),
             &[]
         );

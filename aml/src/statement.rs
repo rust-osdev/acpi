@@ -17,7 +17,7 @@ use crate::{
     term_object::{term_arg, term_list},
     AmlContext,
     AmlError,
-    DebugVerbosity,
+    DebugVerbosity, AmlStream,
 };
 
 pub fn statement_opcode<'a, 'c>() -> impl Parser<'a, 'c, ()>
@@ -141,15 +141,15 @@ where
                             "DefElse",
                             pkg_length().feed(|length| take_to_end_of_pkglength(length))
                         ))
-                        .map(|((), else_branch): ((), &[u8])| Ok(else_branch)),
+                        .map(|((), else_branch): ((), AmlStream<'a>)| Ok(else_branch)),
                     // TODO: can this be `id().map(&[])`?
-                    |input, context| -> ParseResult<'a, 'c, &[u8]> {
+                    |input, context| -> ParseResult<'a, 'c, AmlStream<'a>> {
                         /*
                          * This path parses an DefIfElse that doesn't have an else branch. We simply
                          * return an empty slice, so if the predicate is false, we don't execute
                          * anything.
                          */
-                        Ok((input, context, &[]))
+                        Ok((input, context, AmlStream::empty()))
                     }
                 ))
                 .map_with_context(|((predicate, then_branch), else_branch), context| {
