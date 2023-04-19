@@ -225,6 +225,18 @@ mod tests {
         assert_eq!(len_four.take_to_end(3), AmlStream::from_slice(&[3]));
         assert_eq!(len_four.take_to_end(4), AmlStream::empty());
         assert_eq!(len_four.take_to_end(5), AmlStream::empty());
+
+        // Test split_at
+        assert_eq!(len_zero.split_at(0), (AmlStream::empty(), AmlStream::empty()));
+        assert_eq!(len_zero.split_at(1), (AmlStream::empty(), AmlStream::empty()));
+        assert_eq!(len_one.split_at(0), (AmlStream::empty(), AmlStream::from_slice(&[0])));
+        assert_eq!(len_one.split_at(1), (AmlStream::from_slice(&[0]), AmlStream::empty()));
+        assert_eq!(len_four.split_at(0), (AmlStream::empty(), AmlStream::from_slice(&[0, 1, 2, 3])));
+        assert_eq!(len_four.split_at(1), (AmlStream::from_slice(&[0]), AmlStream::from_slice(&[1, 2, 3])));
+        assert_eq!(len_four.split_at(2), (AmlStream::from_slice(&[0, 1]), AmlStream::from_slice(&[2, 3])));
+        assert_eq!(len_four.split_at(3), (AmlStream::from_slice(&[0, 1, 2]), AmlStream::from_slice(&[3])));
+        assert_eq!(len_four.split_at(4), (AmlStream::from_slice(&[0, 1, 2, 3]), AmlStream::empty()));
+        assert_eq!(len_four.split_at(5), (AmlStream::empty(), AmlStream::empty()));
     }
 
     #[test]
