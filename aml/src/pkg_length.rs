@@ -79,7 +79,7 @@ where
                     new_input,
                     context,
                     bytes
-                        .content()
+                        .data()
                         .iter()
                         .enumerate()
                         .fold(initial_length, |length, (i, &byte)| length + (u32::from(byte) << (4 + i * 8))),

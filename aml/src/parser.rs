@@ -114,7 +114,7 @@ where
     'c: 'a,
 {
     move |input: AmlStream<'a>, context: &'c mut AmlContext| match input.first() {
-        Some(&byte) => Ok((input.slice_to_end(1), context, byte)),
+        Some(&byte) => Ok((input.take_to_end(1), context, byte)),
         None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
     }
 }
@@ -128,7 +128,7 @@ where
             return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
-        Ok((input.slice_to_end(2), context, input.get_u16(0).unwrap()))
+        Ok((input.take_to_end(2), context, input.get_u16().unwrap()))
     }
 }
 
@@ -141,7 +141,7 @@ where
             return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
-        Ok((input.slice_to_end(4), context, input.get_u32(0).unwrap()))
+        Ok((input.take_to_end(4), context, input.get_u32().unwrap()))
     }
 }
 
@@ -154,7 +154,7 @@ where
             return Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream)));
         }
 
-        Ok((input.slice_to_end(8), context, input.get_u64(0).unwrap()))
+        Ok((input.take_to_end(8), context, input.get_u64().unwrap()))
     }
 }
 
@@ -241,7 +241,7 @@ where
     F: Fn(u8) -> bool,
 {
     move |input: AmlStream<'a>, context: &'c mut AmlContext| match input.first() {
-        Some(&byte) if condition(byte) => Ok((input.slice_to_end(1), context, byte)),
+        Some(&byte) if condition(byte) => Ok((input.take_to_end(1), context, byte)),
         Some(&byte) => Err((input, context, Propagate::Err(AmlError::UnexpectedByte(byte)))),
         None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
     }
@@ -289,7 +289,7 @@ where
         let before = input;
         let (after, context, result) = parser.parse(input, context)?;
         let bytes_parsed = before.len() - after.len();
-        let parsed = before.slice_from_start(bytes_parsed);
+        let parsed = before.take_n(bytes_parsed);
 
         Ok((after, context, (result, parsed)))
     }

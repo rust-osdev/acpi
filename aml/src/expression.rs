@@ -143,7 +143,7 @@ where
                     }
 
                     let mut buffer = vec![0; buffer_size];
-                    (&mut buffer[0..bytes.len()]).copy_from_slice(bytes.content());
+                    (&mut buffer[0..bytes.len()]).copy_from_slice(bytes.data());
                     (Ok(buffer), context)
                 })
             }),

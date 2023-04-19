@@ -619,7 +619,7 @@ where
                             &context.current_scope,
                             AmlValue::Method {
                                 flags: MethodFlags::from(flags),
-                                code: MethodCode::Aml(code.content().to_vec())
+                                code: MethodCode::Aml(code.data().to_vec())
                             },
                         )
                     );
@@ -945,18 +945,18 @@ where
              * Using `position` isn't very efficient here, but is probably fine because the
              * strings are usually quite short.
              */
-            let nul_position = match input.content().iter().position(|&c| c == b'\0') {
+            let nul_position = match input.data().iter().position(|&c| c == b'\0') {
                 Some(position) => position,
                 None => return Err((input, context, Propagate::Err(AmlError::UnterminatedStringConstant))),
             };
 
             let (s, remaining) = input.split_at(nul_position);
-            let string = String::from(match str::from_utf8(s.content()) {
+            let string = String::from(match str::from_utf8(s.data()) {
                 Ok(string) => string,
                 Err(_) => return Err((input, context, Propagate::Err(AmlError::InvalidStringConstant))),
             });
 
-            Ok((remaining.slice_to_end(1), context, AmlValue::String(string)))
+            Ok((remaining.take_to_end(1), context, AmlValue::String(string)))
         };
 
         let (new_input, context, op) = take().parse(input, context)?;

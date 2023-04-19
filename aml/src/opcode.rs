@@ -106,7 +106,7 @@ where
 {
     move |input: AmlStream<'a>, context: &'c mut AmlContext| match input.first() {
         None => Err((input, context, Propagate::Err(AmlError::UnexpectedEndOfStream))),
-        Some(&byte) if byte == opcode => Ok((input.slice_to_end(1), context, ())),
+        Some(&byte) if byte == opcode => Ok((input.take_to_end(1), context, ())),
         Some(_) => Err((input, context, Propagate::Err(AmlError::WrongParser))),
     }
 }
