@@ -359,6 +359,105 @@ impl Namespace {
 
         Ok(())
     }
+
+    /// Traverse the namespace, calling `f` on each namespace level, to calculate a result of type T.
+    /// `f` returns a `Result<(bool, T), AmlError>`
+    /// Errors terminate the traversal on the path and are propagated.
+    /// The boolean part of the result indicates if this branch should recurse, and is
+    /// independent of the result.
+    /// It's assumed that T will be an Option or Result type, but it's left to the
+    /// caller to decide.
+    pub fn level_fold<F, T>(&mut self, init: T, mut f: F) -> Result<T, AmlError>
+    where
+        F: FnMut((bool, T), &AmlName, &NamespaceLevel) -> Result<(bool, T), AmlError>,
+    {
+        fn fold_levels<F, T>(l_init: (bool, T), scope: &AmlName, level: &NamespaceLevel, func: &mut F) -> Result<(bool, T), AmlError> 
+        where
+            F: FnMut((bool, T), &AmlName, &NamespaceLevel) -> Result<(bool, T), AmlError>,
+        {
+            level.children.iter().fold(Ok(l_init), |accum, (name, child)| {
+                let name = AmlName::from_name_seg(*name).resolve(scope)?;
+
+                match func(accum?, &name, child)? {
+                    (true, a) => {
+                        fold_levels((true, a), &name, child, func)
+                    }
+                    (false, a) => {
+                        Ok((false, a))
+                    }
+                }
+            })
+        }
+
+        match f((true, init), &AmlName::root(), & self.root)? {
+            (true, accum) => {
+                let (_, folded) = fold_levels((true, accum), &AmlName::root(), &self.root, &mut f)?;
+                Ok(folded)
+            }
+            (false, accum) => {
+                Ok(accum)
+            }
+        }
+    }
+
+    /// Traverse the namespace, calling `f` on each namespace entry,
+    /// to calculate a cumulative result of type T.
+    /// `f` returns a `Result<T, AmlError>`
+    /// Errors terminate the traversal on the path and are propagated.
+    /// It's assumed that T will be an Option or Result type, but it's left to the
+    /// caller to decide.
+    pub fn fold<F, T>(&mut self, init: T, mut f: F) -> Result<T, AmlError>
+    where
+        F: FnMut(T, &AmlName, &AmlHandle) -> Result<T, AmlError>,
+    {
+        let folded = self.level_fold(init, |l_accum, scope, level| {
+            let (_, v_accum) = l_accum;
+            let folded = level.values.iter().fold(Ok(v_accum), |accum, (seg, handle)| {
+                f(accum?, &AmlName::from_name_seg(*seg).resolve(scope)?, handle)
+            })?;
+            Ok((!level.children.is_empty(), folded))
+        })?;
+        Ok(folded)
+    }
+
+    /// Traverse the namespace, calling 'f' on each namespace entry,
+    /// and return the first non-None result.
+    pub fn find_map<F, T>(&mut self, mut f: F) -> Result<Option<T>, AmlError>
+    where
+        F: FnMut(&AmlName, &AmlHandle) -> Result<Option<T>, AmlError>,
+    {
+        self.level_fold(None, |l_accum, scope, level| {
+            let (_, v_accum) = l_accum;
+            if v_accum.is_some() {
+                return Ok((false, v_accum));
+            }
+            let folded = level.values.iter().fold(Ok(v_accum), |accum, (seg, handle)| {
+                if let Ok(Some(t)) = accum {
+                    Ok(Some(t))
+                } else {
+                    f(&AmlName::from_name_seg(*seg).resolve(scope)?, handle)
+                }
+            })?;
+            Ok((!level.children.is_empty(), folded))
+        })
+    }
+
+    /// Find the name for a given handle.
+    /// The first name found is returned. This may be an alias.
+    pub fn lookup(&mut self, handle: &AmlHandle) -> Result<AmlName, AmlError> {
+        let folded = self.find_map(|name, h| {
+            if h == handle {
+                Ok(Some(name.clone()))
+            } else {
+                Ok(None)
+            }
+        })?;
+        if folded.is_some() {
+            Ok(folded.unwrap())
+        } else {
+            Err(AmlError::HandleDoesNotExist(*handle))
+        }
+    }
 }
 
 impl fmt::Debug for Namespace {
@@ -789,5 +888,48 @@ mod tests {
             let (_, last_seg) = namespace.get_level_for_path(&AmlName::from_str("\\FOO").unwrap()).unwrap();
             assert_eq!(last_seg, NameSeg::from_str("FOO").unwrap());
         }
+    }
+
+    #[test]
+    fn test_lookup() {
+        let mut namespace = Namespace::new();
+
+        let _ = namespace.add_value(AmlName::from_str("\\FOO").unwrap(), AmlValue::Integer(1));
+        let h1 = namespace.get_handle(&AmlName::from_str("\\FOO", ).unwrap()).unwrap();
+        assert_eq!(namespace.lookup(&h1), AmlName::from_str("\\FOO"));
+        let _ = namespace.add_level(AmlName::from_str("\\L1").unwrap(), LevelType::Scope);
+        let _ = namespace.add_value(AmlName::from_str("\\L1.BAR").unwrap(), AmlValue::Integer(2));
+        let h2 = namespace.get_handle(&AmlName::from_str("\\L1.BAR").unwrap()).unwrap();
+        assert_eq!(namespace.lookup(&h2), AmlName::from_str("\\L1.BAR"));
+        assert_eq!(namespace.lookup(&AmlHandle(100)), Err(AmlError::HandleDoesNotExist(AmlHandle(100))));
+    }
+
+    #[test]
+    fn test_fold() {
+        fn fold_lookup(namespace: &mut Namespace, handle: &AmlHandle) -> Result<AmlName, AmlError> {
+            let folded = namespace.fold(None, |accum, name, h| {
+                if accum.is_none() && h == handle {
+                    Ok(Some(name.clone()))
+                } else {
+                    Ok(accum)
+                }
+            })?;
+            if folded.is_some() {
+                Ok(folded.unwrap())
+            } else {
+                Err(AmlError::HandleDoesNotExist(*handle))
+            }
+        }
+
+        let mut namespace = Namespace::new();
+
+        let _ = namespace.add_value(AmlName::from_str("\\FOO").unwrap(), AmlValue::Integer(1));
+        let h1 = namespace.get_handle(&AmlName::from_str("\\FOO", ).unwrap()).unwrap();
+        assert_eq!(fold_lookup(&mut namespace, &h1), AmlName::from_str("\\FOO"));
+        let _ = namespace.add_level(AmlName::from_str("\\L1").unwrap(), LevelType::Scope);
+        let _ = namespace.add_value(AmlName::from_str("\\L1.BAR").unwrap(), AmlValue::Integer(2));
+        let h2 = namespace.get_handle(&AmlName::from_str("\\L1.BAR").unwrap()).unwrap();
+        assert_eq!(fold_lookup(&mut namespace, &h2), AmlName::from_str("\\L1.BAR"));
+        assert_eq!(fold_lookup(&mut namespace, &AmlHandle(100)), Err(AmlError::HandleDoesNotExist(AmlHandle(100))));
     }
 }
