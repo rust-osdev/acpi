@@ -434,15 +434,12 @@ impl AmlValue {
         }
     }
 
-    /// Stores an IndexField's index (as specified by its offset) and returns the bit offset within
-    /// the Data part of the field
-    fn write_index(
-        &mut self,
+    fn index_field_access<F: FnMut(u64, usize, usize, usize) -> Result<(), AmlError>>(
         index_flags: &FieldFlags,
         offset: u64,
         length: u64,
-        context: &mut AmlContext,
-    ) -> Result<usize, AmlError> {
+        mut access: F,
+    ) -> Result<(), AmlError> {
         let index_align = match index_flags.access_type()? {
             FieldAccessType::Any => 8,
             FieldAccessType::Byte => 8,
@@ -452,31 +449,37 @@ impl AmlValue {
             FieldAccessType::Buffer => 8,
         };
 
-        // Value to write to the Index part of the field
-        let length = length as usize;
-        let index_value = (offset / 8) & !((index_align >> 3) - 1);
-        let bit_offset = (offset - index_value * 8) as usize;
+        let mut length = length as usize;
+        let mut index = (offset / 8) & !((index_align >> 3) - 1);
 
-        // TODO handle cases when access_type/offset/length combinations lead to crossing of index
-        // boundary
-        if (bit_offset + length - 1) / index_align as usize != 0 {
-            todo!(
-                "IndexField access crosses the index boundary (range: {:#x?}, access type: {} bits)",
-                bit_offset..(bit_offset + length),
-                index_align
-            );
+        // Bit offset in the target Data field
+        let mut bit_offset = (offset - index * 8) as usize;
+        // Bit offset in the source value
+        let mut pos = 0;
+
+        while length != 0 {
+            // Bit offset within a single value
+            let value_pos = bit_offset % index_align as usize;
+            // Number of bits until the end of the value
+            let value_limit = index_align as usize - value_pos;
+            // Number of bits to access
+            let len = cmp::min(length, value_limit);
+
+            access(index, pos, value_pos, len)?;
+
+            // Advance the bit position
+            bit_offset += len;
+            pos += len;
+            length -= len;
+
+            // Move to the next index
+            index += index_align >> 3;
         }
 
-        // Write the desired index
-        // NOTE not sure if the spec says the index field can only be an integer one, but I can't
-        //      think of any reason for it to be anything else
-        self.write_field(AmlValue::Integer(index_value), context)?;
-
-        Ok(bit_offset)
+        Ok(())
     }
 
-    /// Reads from an IndexField, returning either an `Integer` or a `Buffer` depending on the
-    /// field size
+    /// Reads from an IndexField, returning either an `Integer`
     pub fn read_index_field(&self, context: &mut AmlContext) -> Result<AmlValue, AmlError> {
         let AmlValue::IndexField { index, data, flags, offset, length } = self else {
             return Err(AmlError::IncompatibleValueConversion {
@@ -488,14 +491,22 @@ impl AmlValue {
         let mut index_field = context.namespace.get_mut(*index)?.clone();
         let data_field = context.namespace.get_mut(*data)?.clone();
 
-        // Write the Index part of the field
-        let bit_offset = index_field.write_index(flags, *offset, *length, context)?;
-
         // TODO buffer field accesses
+        let mut value = 0u64;
 
-        // Read the value of the Data field
-        let field_value = data_field.read_field(context)?.as_integer(context)?;
-        let value = field_value.get_bits(bit_offset..(bit_offset + *length as usize));
+        Self::index_field_access(flags, *offset, *length, |index, value_offset, field_offset, length| {
+            // Store the bit range index to the Index field
+            index_field.write_field(AmlValue::Integer(index), context)?;
+
+            // Read the bit range from the Data field
+            let data = data_field.read_field(context)?.as_integer(context)?;
+            let bits = data.get_bits(field_offset..field_offset + length);
+
+            // Copy the bit range to the value
+            value.set_bits(value_offset..value_offset + length, bits);
+
+            Ok(())
+        })?;
 
         Ok(AmlValue::Integer(value))
     }
@@ -511,22 +522,24 @@ impl AmlValue {
         let mut index_field = context.namespace.get_mut(*index)?.clone();
         let mut data_field = context.namespace.get_mut(*data)?.clone();
 
-        // Write the Index part of the field
-        let bit_offset = index_field.write_index(flags, *offset, *length, context)?;
+        let value = value.as_integer(context)?;
 
-        // TODO handle field update rule properly
-        // TODO buffer field accesses
+        Self::index_field_access(flags, *offset, *length, |index, value_offset, field_offset, length| {
+            // TODO handle the UpdateRule flag
 
-        // Read the old value of the Data field (to preserve bits we're not interested in)
-        let mut field_value = data_field.read_field(context)?.as_integer(context)?;
+            // Store the bit range index to the Index field
+            index_field.write_field(AmlValue::Integer(index), context)?;
 
-        // Modify the bits
-        field_value.set_bits(bit_offset..(bit_offset + *length as usize), value.as_integer(context)?);
+            // Extract the bits going to this specific part of the field
+            let bits = value.get_bits(value_offset..value_offset + length);
 
-        // Write the Data field back
-        data_field.write_field(AmlValue::Integer(field_value), context)?;
+            // Read/modify/store the data field
+            let mut data = data_field.read_field(context)?.as_integer(context)?;
+            data.set_bits(field_offset..field_offset + length, bits);
+            data_field.write_field(AmlValue::Integer(data), context)?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Reads from a field of an opregion, returning either a `AmlValue::Integer` or an `AmlValue::Buffer`,
