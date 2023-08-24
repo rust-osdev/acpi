@@ -4,7 +4,7 @@ use crate::{
     opcode::{self, opcode},
     parser::{choice, comment_scope, n_of, take, take_to_end_of_pkglength, try_with_context, Parser, Propagate},
     pkg_length::pkg_length,
-    term_object::{data_ref_object, term_arg, def_cond_ref_of},
+    term_object::{data_ref_object, def_cond_ref_of, term_arg},
     value::{AmlType, AmlValue, Args},
     AmlError,
     DebugVerbosity,
@@ -59,6 +59,7 @@ where
             def_store(),
             def_to_integer(),
             def_cond_ref_of(),
+            def_size_of(),
             method_invocation() // XXX: this must always appear last. See how we have to parse it to see why.
         ),
     )
@@ -756,6 +757,26 @@ where
             try_with_context!(context, context.store(target, result.clone()));
             (Ok(result), context)
         })
+}
+
+fn def_size_of<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * SizeOf := 0x87 SuperName
+     */
+    opcode(opcode::DEF_SIZE_OF_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefSizeOf",
+            super_name().map_with_context(|target, context| {
+                let value = try_with_context!(context, context.read_target(&target));
+                let size_of = try_with_context!(context, value.size_of());
+                (Ok(AmlValue::Integer(size_of)), context)
+            }),
+        ))
+        .map(|((), value)| Ok(value))
 }
 
 fn method_invocation<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

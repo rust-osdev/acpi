@@ -263,6 +263,21 @@ impl AmlValue {
         }
     }
 
+    /// Returns the `SizeOf (x)` application result as specified in ACPI 6.2 §19.6.125
+    pub fn size_of(&self) -> Result<u64, AmlError> {
+        match self {
+            // For a buffer, returns the size in bytes of the data
+            AmlValue::Buffer(value) => Ok(value.lock().len() as u64),
+            // For a string, returns the size in bytes (without NULL)
+            AmlValue::String(value) => Ok(value.len() as u64),
+            // For a package, returns the number of elements
+            AmlValue::Package(value) => Ok(value.len() as u64),
+            // TODO: For an Object Reference, the size of the object is returned
+            // Other data types cause a fatal run-time error
+            _ => Err(AmlError::InvalidSizeOfApplication(self.type_of())),
+        }
+    }
+
     pub fn as_bool(&self) -> Result<bool, AmlError> {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
