@@ -796,6 +796,7 @@ pub enum AmlError {
     TypeCannotBeSliced(AmlType),
     TypeCannotBeWrittenToBufferField(AmlType),
     BufferFieldIndexesOutOfBounds,
+    InvalidSizeOfApplication(AmlType),
 
     /// Unimplemented functionality - return error rather than abort
     Unimplemented,
