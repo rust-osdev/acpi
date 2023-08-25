@@ -124,6 +124,14 @@ where
      * Predicate := TermArg => Integer (0 = false, >0 = true)
      * DefElse := Nothing | <0xa1 PkgLength TermList>
      */
+
+    let maybe_else_opcode = |input, context| match opcode(opcode::DEF_ELSE_OP).parse(input, context) {
+        Err((x, y, Propagate::Err(AmlError::UnexpectedEndOfStream))) => {
+            Err((x, y, Propagate::Err(AmlError::WrongParser)))
+        }
+        r => r,
+    };
+
     opcode(opcode::DEF_IF_ELSE_OP)
         .then(comment_scope(
             DebugVerbosity::Scopes,
@@ -135,11 +143,11 @@ where
                         .map(move |then_branch| Ok((predicate_arg.as_bool()?, then_branch)))
                 })
                 .then(choice!(
-                    opcode(opcode::DEF_ELSE_OP)
+                    maybe_else_opcode
                         .then(comment_scope(
                             DebugVerbosity::AllScopes,
                             "DefElse",
-                            pkg_length().feed(|length| take_to_end_of_pkglength(length))
+                            pkg_length().feed(|length| take_to_end_of_pkglength(length)),
                         ))
                         .map(|((), else_branch): ((), &[u8])| Ok(else_branch)),
                     // TODO: can this be `id().map(&[])`?
