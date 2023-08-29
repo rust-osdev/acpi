@@ -706,6 +706,11 @@ pub enum AmlError {
     MalformedStream,
     InvalidNameSeg,
     InvalidPkgLength,
+    /// Invalid PkgLength relative to an OperationRegion
+    InvalidRegionPkgLength {
+        region_bit_length: u64,
+        raw_length: u32,
+    },
     InvalidFieldFlags,
     UnterminatedStringConstant,
     InvalidStringConstant,
