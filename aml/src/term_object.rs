@@ -17,7 +17,7 @@ use crate::{
         Parser,
         Propagate,
     },
-    pkg_length::{pkg_length, PkgLength},
+    pkg_length::{pkg_length, region_pkg_length, PkgLength},
     statement::statement_opcode,
     value::{AmlValue, FieldFlags, MethodCode, MethodFlags, RegionSpace},
     AmlContext,
@@ -561,8 +561,9 @@ where
      * Reserved fields shouldn't actually be added to the namespace; they seem to show gaps in
      * the operation region that aren't used for anything.
      */
-    let reserved_field =
-        opcode(opcode::RESERVED_FIELD).then(pkg_length()).map(|((), length)| Ok(length.raw_length as u64));
+    let reserved_field = opcode(opcode::RESERVED_FIELD)
+        .then(region_pkg_length(region_handle))
+        .map(|((), length)| Ok(length.raw_length as u64));
 
     // TODO: work out what to do with an access field
     // let access_field = opcode(opcode::ACCESS_FIELD)
@@ -570,23 +571,29 @@ where
     //     .then(take())
     //     .map_with_context(|(((), access_type), access_attrib), context| (Ok(    , context));
 
-    let named_field = name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
-        try_with_context!(
-            context,
-            context.namespace.add_value_at_resolved_path(
-                AmlName::from_name_seg(name_seg),
-                &context.current_scope,
-                AmlValue::Field {
-                    region: region_handle,
-                    flags,
-                    offset: current_offset,
-                    length: length.raw_length as u64,
-                },
-            )
-        );
+    // TODO: fields' start and end offsets need to be checked against their enclosing
+    //       OperationRegions to make sure they don't sit outside or cross the boundary.
+    //       This might not be a problem if a sane ASL compiler is used (which should check this
+    //       at compile-time), but it's better to be safe and validate that as well.
 
-        (Ok(length.raw_length as u64), context)
-    });
+    let named_field =
+        name_seg().then(region_pkg_length(region_handle)).map_with_context(move |(name_seg, length), context| {
+            try_with_context!(
+                context,
+                context.namespace.add_value_at_resolved_path(
+                    AmlName::from_name_seg(name_seg),
+                    &context.current_scope,
+                    AmlValue::Field {
+                        region: region_handle,
+                        flags,
+                        offset: current_offset,
+                        length: length.raw_length as u64,
+                    },
+                )
+            );
+
+            (Ok(length.raw_length as u64), context)
+        });
 
     choice!(reserved_field, named_field)
 }
@@ -868,7 +875,7 @@ where
                 if let Ok((_name, _handle)) = handle {
                     match target {
                         Target::Null => { /* just return the result of the check */ }
-                        _ => {return (Err(Propagate::Err(AmlError::Unimplemented)), context) },
+                        _ => return (Err(Propagate::Err(AmlError::Unimplemented)), context),
                     }
                 }
                 (Ok(result), context)

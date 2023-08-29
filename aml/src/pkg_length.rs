@@ -2,8 +2,22 @@ use crate::{
     parser::{take, take_n, Parser, Propagate},
     AmlContext,
     AmlError,
+    AmlHandle,
+    AmlValue,
 };
 use bit_field::BitField;
+
+/*
+ * There are two types of PkgLength implemented: PkgLength and RegionPkgLength. The reason for this
+ * is that while both are parsed as PkgLength op, they might have different meanings in different
+ * contexts:
+ *
+ * - PkgLength refers to an offset within the AML input slice
+ * - RegionPkgLength refers to an offset within an operation region (and is used this way in parsers
+ *      like def_field())
+ *
+ * They both have identical fields, but the fields themselves have an entirely different meaning.
+ */
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct PkgLength {
@@ -11,6 +25,12 @@ pub struct PkgLength {
     /// The offset in the structure's stream to stop parsing at - the "end" of the PkgLength. We need to track this
     /// instead of the actual length encoded in the PkgLength as we often need to parse some stuff between the
     /// PkgLength and the explicit-length structure.
+    pub end_offset: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegionPkgLength {
+    pub raw_length: u32,
     pub end_offset: u32,
 }
 
@@ -26,6 +46,48 @@ impl PkgLength {
     /// to.
     pub fn still_parsing(&self, stream: &[u8]) -> bool {
         stream.len() as u32 > self.end_offset
+    }
+}
+
+impl RegionPkgLength {
+    pub fn from_raw_length(region_bit_length: u64, raw_length: u32) -> Result<RegionPkgLength, AmlError> {
+        Ok(RegionPkgLength {
+            raw_length,
+            end_offset: (region_bit_length as u32)
+                .checked_sub(raw_length)
+                .ok_or(AmlError::InvalidRegionPkgLength { region_bit_length, raw_length })?,
+        })
+    }
+}
+
+pub fn region_pkg_length<'a, 'c>(region_handle: AmlHandle) -> impl Parser<'a, 'c, RegionPkgLength>
+where
+    'c: 'a,
+{
+    move |input: &'a [u8], context: &'c mut AmlContext| -> crate::parser::ParseResult<'a, 'c, RegionPkgLength> {
+        let region_value = match context.namespace.get(region_handle) {
+            Ok(value) => value,
+            Err(err) => return Err((input, context, Propagate::Err(err))),
+        };
+
+        /*
+         * OperationRegion length is in bytes, PkgLength is in bits, so conversion is needed
+         */
+        let region_bit_length = match region_value {
+            AmlValue::OpRegion { length, .. } => *length * 8,
+            _ => return Err((input, context, Propagate::Err(AmlError::FieldRegionIsNotOpRegion))),
+        };
+
+        let (new_input, context, raw_length) = raw_pkg_length().parse(input, context)?;
+
+        /*
+         * NOTE: we use the original input here, because `raw_length` includes the length of the
+         * `PkgLength`.
+         */
+        match RegionPkgLength::from_raw_length(region_bit_length, raw_length) {
+            Ok(pkg_length) => Ok((new_input, context, pkg_length)),
+            Err(err) => Err((input, context, Propagate::Err(err))),
+        }
     }
 }
 
