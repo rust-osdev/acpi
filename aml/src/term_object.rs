@@ -868,7 +868,7 @@ where
                 if let Ok((_name, _handle)) = handle {
                     match target {
                         Target::Null => { /* just return the result of the check */ }
-                        _ => {return (Err(Propagate::Err(AmlError::Unimplemented)), context) },
+                        _ => return (Err(Propagate::Err(AmlError::Unimplemented)), context),
                     }
                 }
                 (Ok(result), context)
@@ -994,6 +994,44 @@ where
 mod test {
     use super::*;
     use crate::test_utils::*;
+
+    #[test]
+    fn test_package() {
+        let mut context = make_test_context();
+
+        // The tests also check that DefPackage consumes no more input than required
+        // Empty DefPackage
+        check_ok_value!(
+            def_package().parse(&[0x12, 0x02, 0x00, 0x12, 0x34], &mut context),
+            AmlValue::Package(Vec::new()),
+            &[0x12, 0x34]
+        );
+
+        // DefPackage where NumElements == package_content.len()
+        check_ok_value!(
+            def_package()
+                .parse(&[0x12, 0x09, 0x04, 0x01, 0x0A, 0x02, 0x0A, 0x03, 0x0A, 0x04, 0x12, 0x34], &mut context),
+            AmlValue::Package(alloc::vec![
+                AmlValue::Integer(1),
+                AmlValue::Integer(2),
+                AmlValue::Integer(3),
+                AmlValue::Integer(4)
+            ]),
+            &[0x12, 0x34]
+        );
+
+        // DefPackage where NumElements > package_content.len()
+        check_ok_value!(
+            def_package().parse(&[0x012, 0x05, 0x04, 0x01, 0x0A, 0x02, 0x12, 0x34], &mut context),
+            AmlValue::Package(alloc::vec![
+                AmlValue::Integer(1),
+                AmlValue::Integer(2),
+                AmlValue::Uninitialized,
+                AmlValue::Uninitialized,
+            ]),
+            &[0x12, 0x34]
+        );
+    }
 
     #[test]
     fn test_computational_data() {

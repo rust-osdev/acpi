@@ -119,6 +119,10 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
     use crate::value::MethodCode;
 
     match a {
+        AmlValue::Uninitialized => match b {
+            AmlValue::Uninitialized => true,
+            _ => false,
+        },
         AmlValue::Boolean(a) => match b {
             AmlValue::Boolean(b) => a == b,
             _ => false,
