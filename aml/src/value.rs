@@ -174,6 +174,7 @@ impl fmt::Debug for MethodCode {
 
 #[derive(Clone, Debug)]
 pub enum AmlValue {
+    Uninitialized,
     Boolean(bool),
     Integer(u64),
     String(String),
@@ -246,6 +247,7 @@ impl AmlValue {
 
     pub fn type_of(&self) -> AmlType {
         match self {
+            AmlValue::Uninitialized => AmlType::Uninitialized,
             AmlValue::Boolean(_) => AmlType::Integer,
             AmlValue::Integer(_) => AmlType::Integer,
             AmlValue::String(_) => AmlType::String,

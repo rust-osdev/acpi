@@ -624,9 +624,14 @@ where
                         package_contents.push(value);
                     }
 
-                    if package_contents.len() != num_elements as usize {
+                    // ACPI6.2, §19.6.101 specifies that if NumElements is present and is greater
+                    // than the number of entries in the PackageList, the default entry of type
+                    // Uninitialized is used
+                    if package_contents.len() > num_elements as usize {
                         return Err((input, context, Propagate::Err(AmlError::MalformedPackage)));
                     }
+
+                    package_contents.resize(num_elements as usize, AmlValue::Uninitialized);
 
                     Ok((input, context, AmlValue::Package(package_contents)))
                 }
