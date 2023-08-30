@@ -105,16 +105,9 @@ impl Madt {
         use crate::{
             platform::{
                 interrupt::{
-                    Apic,
-                    InterruptSourceOverride,
-                    IoApic,
-                    LocalInterruptLine,
-                    NmiLine,
-                    NmiProcessor,
-                    NmiSource,
+                    Apic, InterruptSourceOverride, IoApic, LocalInterruptLine, NmiLine, NmiProcessor, NmiSource,
                 },
-                Processor,
-                ProcessorState,
+                Processor, ProcessorState,
             },
             AcpiError,
         };

@@ -1,13 +1,7 @@
 pub mod interrupt;
 
 use crate::{
-    address::GenericAddress,
-    fadt::Fadt,
-    madt::Madt,
-    AcpiError,
-    AcpiHandler,
-    AcpiTables,
-    ManagedSlice,
+    address::GenericAddress, fadt::Fadt, madt::Madt, AcpiError, AcpiHandler, AcpiTables, ManagedSlice,
     PowerProfile,
 };
 use core::alloc::Allocator;

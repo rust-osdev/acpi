@@ -3,9 +3,7 @@ use crate::{
     namespace::{AmlName, NameComponent},
     opcode::{opcode, DUAL_NAME_PREFIX, MULTI_NAME_PREFIX, NULL_NAME, PREFIX_CHAR, ROOT_CHAR},
     parser::{choice, comment_scope, consume, n_of, take, take_while, Parser, Propagate},
-    AmlContext,
-    AmlError,
-    DebugVerbosity,
+    AmlContext, AmlError, DebugVerbosity,
 };
 use alloc::vec::Vec;
 use core::{fmt, str};

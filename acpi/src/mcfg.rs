@@ -1,4 +1,7 @@
-use crate::{sdt::{SdtHeader, Signature}, AcpiTable};
+use crate::{
+    sdt::{SdtHeader, Signature},
+    AcpiTable,
+};
 use core::{mem, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
@@ -58,8 +61,6 @@ where
     }
 }
 
-
-
 /// Configuration entry describing a valid bus range for the given PCI segment group.
 pub struct PciConfigEntry {
     pub segment_group: u16,
@@ -103,7 +104,6 @@ unsafe impl AcpiTable for Mcfg {
         &self.header
     }
 }
-
 
 impl Mcfg {
     /// Returns a slice containing each of the entries in the MCFG table. Where possible, `PlatformInfo.interrupt_model` should

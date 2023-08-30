@@ -1,7 +1,6 @@
 use crate::{
     parser::{take, take_n, Parser, Propagate},
-    AmlContext,
-    AmlError,
+    AmlContext, AmlError,
 };
 use bit_field::BitField;
 

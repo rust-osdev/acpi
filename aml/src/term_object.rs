@@ -5,25 +5,13 @@ use crate::{
     namespace::{AmlName, LevelType},
     opcode::{self, ext_opcode, opcode},
     parser::{
-        choice,
-        comment_scope,
-        take,
-        take_to_end_of_pkglength,
-        take_u16,
-        take_u32,
-        take_u64,
-        try_with_context,
-        ParseResult,
-        Parser,
-        Propagate,
+        choice, comment_scope, take, take_to_end_of_pkglength, take_u16, take_u32, take_u64, try_with_context,
+        ParseResult, Parser, Propagate,
     },
     pkg_length::{pkg_length, PkgLength},
     statement::statement_opcode,
     value::{AmlValue, FieldFlags, MethodCode, MethodFlags, RegionSpace},
-    AmlContext,
-    AmlError,
-    AmlHandle,
-    DebugVerbosity,
+    AmlContext, AmlError, AmlHandle, DebugVerbosity,
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 use core::str;
@@ -868,7 +856,7 @@ where
                 if let Ok((_name, _handle)) = handle {
                     match target {
                         Target::Null => { /* just return the result of the check */ }
-                        _ => {return (Err(Propagate::Err(AmlError::Unimplemented)), context) },
+                        _ => return (Err(Propagate::Err(AmlError::Unimplemented)), context),
                     }
                 }
                 (Ok(result), context)

@@ -2,10 +2,7 @@ use crate::{
     namespace::AmlName,
     resource::{self, InterruptPolarity, InterruptTrigger, Resource},
     value::Args,
-    AmlContext,
-    AmlError,
-    AmlType,
-    AmlValue,
+    AmlContext, AmlError, AmlType, AmlValue,
 };
 use alloc::vec::Vec;
 use bit_field::BitField;

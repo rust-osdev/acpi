@@ -287,6 +287,11 @@ impl Signature {
     pub fn as_str(&self) -> &str {
         str::from_utf8(&self.0).unwrap()
     }
+
+    /// Construct a signature from raw bytes.
+    pub fn from_raw(value: [u8; 4]) -> Signature {
+        Signature(value)
+    }
 }
 
 impl fmt::Display for Signature {

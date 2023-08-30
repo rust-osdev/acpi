@@ -1,23 +1,12 @@
 use crate::{
     opcode::{self, ext_opcode, opcode},
     parser::{
-        choice,
-        comment_scope,
-        extract,
-        id,
-        take,
-        take_to_end_of_pkglength,
-        take_u32,
-        try_with_context,
-        ParseResult,
-        Parser,
-        Propagate,
+        choice, comment_scope, extract, id, take, take_to_end_of_pkglength, take_u32, try_with_context,
+        ParseResult, Parser, Propagate,
     },
     pkg_length::{pkg_length, PkgLength},
     term_object::{term_arg, term_list},
-    AmlContext,
-    AmlError,
-    DebugVerbosity,
+    AmlContext, AmlError, DebugVerbosity,
 };
 
 pub fn statement_opcode<'a, 'c>() -> impl Parser<'a, 'c, ()>

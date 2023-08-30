@@ -6,8 +6,7 @@ use crate::{
     pkg_length::pkg_length,
     term_object::{data_ref_object, def_cond_ref_of, term_arg},
     value::{AmlType, AmlValue, Args},
-    AmlError,
-    DebugVerbosity,
+    AmlError, DebugVerbosity,
 };
 use alloc::{
     string::{String, ToString},
