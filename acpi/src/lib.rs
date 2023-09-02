@@ -336,7 +336,7 @@ where
     /// Like `platform_info_in`, but uses the global allocator.
     #[cfg(feature = "alloc")]
     pub fn platform_info(&self) -> AcpiResult<PlatformInfo<alloc::alloc::Global>> {
-        PlatformInfo::new_in(self, alloc::alloc::Global)
+        PlatformInfo::new(self)
     }
 
     /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the

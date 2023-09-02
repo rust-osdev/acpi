@@ -6,6 +6,7 @@ use crate::{
     madt::Madt,
     AcpiError,
     AcpiHandler,
+    AcpiResult,
     AcpiTables,
     ManagedSlice,
     PowerProfile,
@@ -100,11 +101,21 @@ where
      */
 }
 
+#[cfg(feature = "alloc")]
+impl<'a> PlatformInfo<'a, alloc::alloc::Global> {
+    pub fn new<H>(tables: &AcpiTables<H>) -> AcpiResult<Self>
+    where
+        H: AcpiHandler,
+    {
+        Self::new_in(tables, alloc::alloc::Global)
+    }
+}
+
 impl<'a, A> PlatformInfo<'a, A>
 where
     A: Allocator + Clone,
 {
-    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> crate::AcpiResult<Self>
+    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> AcpiResult<Self>
     where
         H: AcpiHandler,
     {
