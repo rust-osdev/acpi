@@ -7,10 +7,17 @@
 //! the `aml` crate, which is the (much less complete) AML parser used to parse the DSDT and SSDTs. These crates
 //! are separate because some kernels may want to detect the static tables, but delay AML parsing to a later stage.
 //!
-//! TODO: make this correct re alloc features
-//! This crate requires `alloc` to make heap allocations. If you are trying to find the RSDP in an environment that
-//! does not have a heap (e.g. a bootloader), you can use the `rsdp` crate. The types from that crate are
-//! compatible with `acpi`.
+//! This crate can be used in three configurations, depending on the environment it's being used from:
+//!    - **Without allocator support** - this can be achieved by disabling the `allocator_api` and `alloc`
+//!      features. The core parts of the library will still be usable, but with generally reduced functionality
+//!      and ease-of-use.
+//!    - **With a custom allocator** - by disabling just the `alloc` feature, you can use the `new_in` functions to
+//!      access increased functionality with your own allocator. This allows `acpi` to be integrated more closely
+//!      with environments that already provide a custom allocator, for example to gracefully handle allocation
+//!      errors.
+//!    - **With the globally-set allocator** - the `alloc` feature provides `new` functions that simply use the
+//!      global allocator. This is the easiest option, and the one the majority of users will want. It is the
+//!      default configuration of the crate.
 //!
 //! ### Usage
 //! To use the library, you will need to provide an implementation of the `AcpiHandler` trait, which allows the
