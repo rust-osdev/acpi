@@ -15,5 +15,6 @@ log = "0.4"
 rsdp = { version = "2", path = "../rsdp" }
 
 [features]
-default = ["allocator_api"]
+default = ["allocator_api", "alloc"]
 allocator_api = []
+alloc = ["allocator_api"]
