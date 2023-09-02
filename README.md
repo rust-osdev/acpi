@@ -11,8 +11,8 @@
 A library to parse ACPI tables and AML, written in pure Rust. Designed to be easy to use from Rust bootloaders and kernels. The library is split into three crates:
 - `rsdp` parses the RSDP and can locate it on BIOS platforms. It does not depend on `alloc`, so is suitable to use from bootloaders without heap alloctors. All of its
   functionality is reexported by `acpi`.
-- `acpi` parses the static tables (useful but not feature-complete)
-- `aml` parses the AML tables (can be useful, far from feature-complete)
+- `acpi` parses the static tables (useful but not feature-complete). It can be used from environments that have allocators, and ones that don't (but with reduced functionality).
+- `aml` parses the AML tables (can be useful, far from feature-complete).
 
 There is also the `acpi-dumper` utility to easily dump a platform's ACPI tables (this currently only works on Linux).
 
@@ -30,7 +30,7 @@ You can run the AML test suite with `cargo run --bin aml_tester -- -p tests`.
 You can run fuzz the AML parser with `cd aml && cargo fuzz run fuzz_target_1` (you may need to `cargo install cargo-fuzz`).
 
 ## Licence
-Acpi is dual-licenced under:
+This project is dual-licenced under:
 - Apache Licence, Version 2.0 ([LICENCE-APACHE](LICENCE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
 - MIT license ([LICENCE-MIT](LICENCE-MIT) or http://opensource.org/licenses/MIT)
 
