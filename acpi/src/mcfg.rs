@@ -17,6 +17,16 @@ where
     regions: crate::ManagedSlice<'a, McfgEntry, A>,
 }
 
+#[cfg(feature = "alloc")]
+impl<'a> PciConfigRegions<'a, alloc::alloc::Global> {
+    pub fn new<H>(tables: &crate::AcpiTables<H>) -> crate::AcpiResult<PciConfigRegions<'a, alloc::alloc::Global>>
+    where
+        H: crate::AcpiHandler,
+    {
+        Self::new_in(tables, alloc::alloc::Global)
+    }
+}
+
 #[cfg(feature = "allocator_api")]
 impl<'a, A> PciConfigRegions<'a, A>
 where

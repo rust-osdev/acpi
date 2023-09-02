@@ -7,6 +7,7 @@
 //! the `aml` crate, which is the (much less complete) AML parser used to parse the DSDT and SSDTs. These crates
 //! are separate because some kernels may want to detect the static tables, but delay AML parsing to a later stage.
 //!
+//! TODO: make this correct re alloc features
 //! This crate requires `alloc` to make heap allocations. If you are trying to find the RSDP in an environment that
 //! does not have a heap (e.g. a bootloader), you can use the `rsdp` crate. The types from that crate are
 //! compatible with `acpi`.
@@ -54,6 +55,9 @@
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
 
 pub mod address;
 pub mod bgrt;
@@ -316,6 +320,16 @@ where
     /// Iterates through all of the SSDT tables.
     pub fn ssdts(&self) -> SsdtIterator<H> {
         SsdtIterator { tables_phys_ptrs: self.tables_phys_ptrs(), handler: self.handler.clone() }
+    }
+
+    /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
+    /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
+    /// the platform from the ACPI tables.
+    ///
+    /// Like `platform_info_in`, but uses the global allocator.
+    #[cfg(feature = "alloc")]
+    pub fn platform_info(&self) -> AcpiResult<PlatformInfo<alloc::alloc::Global>> {
+        PlatformInfo::new_in(self, alloc::alloc::Global)
     }
 
     /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the

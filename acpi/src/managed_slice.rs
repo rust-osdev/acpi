@@ -33,6 +33,13 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
+impl<'a, T> ManagedSlice<'a, T, alloc::alloc::Global> {
+    pub fn new(len: usize) -> AcpiResult<Self> {
+        Self::new_in(len, alloc::alloc::Global)
+    }
+}
+
 impl<'a, T, A> Drop for ManagedSlice<'a, T, A>
 where
     A: Allocator,
