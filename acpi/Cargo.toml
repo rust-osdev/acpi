@@ -7,7 +7,7 @@ description = "Library for parsing ACPI tables"
 categories = ["hardware-support", "no-std"]
 readme = "../README.md"
 license = "MIT/Apache-2.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 bit_field = "0.10.2"
