@@ -69,9 +69,11 @@ extern crate alloc;
 pub mod address;
 pub mod bgrt;
 pub mod fadt;
+pub mod handler;
 pub mod hpet;
 pub mod madt;
 pub mod mcfg;
+pub mod rsdp;
 pub mod sdt;
 
 #[cfg(feature = "allocator_api")]
@@ -88,12 +90,9 @@ pub use crate::platform::{interrupt::InterruptModel, PlatformInfo};
 pub use crate::mcfg::PciConfigRegions;
 
 pub use fadt::PowerProfile;
+pub use handler::{AcpiHandler, PhysicalMapping};
 pub use hpet::HpetInfo;
 pub use madt::MadtError;
-pub use rsdp::{
-    handler::{AcpiHandler, PhysicalMapping},
-    RsdpError,
-};
 
 use crate::sdt::{SdtHeader, Signature};
 use core::mem;
@@ -126,7 +125,10 @@ pub unsafe trait AcpiTable {
 /// Error type used by functions that return an `AcpiResult<T>`.
 #[derive(Debug)]
 pub enum AcpiError {
-    Rsdp(RsdpError),
+    NoValidRsdp,
+    RsdpIncorrectSignature,
+    RsdpInvalidOemId,
+    RsdpInvalidChecksum,
 
     SdtInvalidSignature(Signature),
     SdtInvalidOemId(Signature),
@@ -147,8 +149,8 @@ pub enum AcpiError {
 ///
 /// ### Implementation Note
 ///
-/// When using the `allocator_api` feature, [`PlatformInfo::new()`] provides a much cleaner
-/// API for enumerating ACPI structures once an `AcpiTables` has been constructed.
+/// When using the `allocator_api`±`alloc` features, [`PlatformInfo::new()`] or [`PlatformInfo::new_in()`] provide
+/// a much cleaner API for enumerating ACPI structures once an `AcpiTables` has been constructed.
 #[derive(Debug)]
 pub struct AcpiTables<H: AcpiHandler> {
     mapping: PhysicalMapping<H, SdtHeader>,
@@ -165,9 +167,9 @@ where
     /// ### Safety: Caller must ensure the provided address is valid to read as an RSDP.
     pub unsafe fn from_rsdp(handler: H, address: usize) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
-        rsdp_mapping.validate().map_err(AcpiError::Rsdp)?;
+        rsdp_mapping.validate()?;
 
-        // Safety: `RSDP` has been validated.
+        // Safety: RSDP has been validated.
         unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
 
@@ -175,7 +177,7 @@ where
     /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
     /// details.
     pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
-        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone()) }.map_err(AcpiError::Rsdp)?;
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone())? };
         // Safety: RSDP has been validated from `Rsdp::search_for_on_bios`
         unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
@@ -206,7 +208,7 @@ where
                 drop(rsdp_mapping);
 
                 // Map and validate root table
-                // SAFETY: Addresses from a validated `RSDP` are also guaranteed to be valid.
+                // SAFETY: Addresses from a validated RSDP are also guaranteed to be valid.
                 let table_mapping = unsafe { read_table::<_, RootTable>(handler.clone(), table_phys_start) }?;
 
                 // Convert `table_mapping` to header mapping for storage
