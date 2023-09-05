@@ -12,7 +12,6 @@ edition = "2021"
 [dependencies]
 bit_field = "0.10.2"
 log = "0.4.20"
-rsdp = { version = "2", path = "../rsdp" }
 
 [features]
 default = ["allocator_api", "alloc"]
