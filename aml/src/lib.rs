@@ -166,7 +166,8 @@ impl AmlContext {
         use value::MethodCode;
 
         match self.namespace.get_by_path(path)?.clone() {
-            AmlValue::Method { flags, code } => {
+            // TODO: respect the method's flags
+            AmlValue::Method { flags: _, code } => {
                 /*
                  * First, set up the state we expect to enter the method with, but clearing local
                  * variables to "null" and setting the arguments. Save the current method state and scope, so if we're
@@ -393,7 +394,7 @@ impl AmlContext {
         use core::convert::TryInto;
         use value::RegionSpace;
 
-        let (region_space, region_base, region_length, parent_device) = {
+        let (region_space, region_base, _region_length, parent_device) = {
             if let AmlValue::OpRegion { region, offset, length, parent_device } =
                 self.namespace.get(region_handle)?
             {
@@ -485,7 +486,7 @@ impl AmlContext {
         use core::convert::TryInto;
         use value::RegionSpace;
 
-        let (region_space, region_base, region_length, parent_device) = {
+        let (region_space, region_base, _region_length, parent_device) = {
             if let AmlValue::OpRegion { region, offset, length, parent_device } =
                 self.namespace.get(region_handle)?
             {

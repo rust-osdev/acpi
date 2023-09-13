@@ -7,9 +7,9 @@ pub const ROOT_CHAR: u8 = b'\\';
 pub const PREFIX_CHAR: u8 = b'^';
 
 pub const RESERVED_FIELD: u8 = 0x00;
-pub const ACCESS_FIELD: u8 = 0x01;
-pub const CONNECT_FIELD: u8 = 0x02;
-pub const EXTENDED_ACCESS_FIELD: u8 = 0x03;
+// pub const ACCESS_FIELD: u8 = 0x01;
+// pub const CONNECT_FIELD: u8 = 0x02;
+// pub const EXTENDED_ACCESS_FIELD: u8 = 0x03;
 
 pub const ZERO_OP: u8 = 0x00;
 pub const ONE_OP: u8 = 0x01;

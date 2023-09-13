@@ -284,7 +284,7 @@ where
                         match term_list(PkgLength::from_raw_length(body, body.len() as u32).unwrap())
                             .parse(body, context)
                         {
-                            Ok((_, new_context, result)) => {
+                            Ok((_, new_context, _result)) => {
                                 context = new_context;
                             }
                             Err((_, new_context, Propagate::Break)) => {

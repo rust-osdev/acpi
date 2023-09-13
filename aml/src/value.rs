@@ -425,7 +425,7 @@ impl AmlValue {
     /// depending on the size of the field.
     pub fn read_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
         if let AmlValue::Field { region, flags, offset, length } = self {
-            let maximum_access_size = {
+            let _maximum_access_size = {
                 if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {
                     match region {
                         RegionSpace::SystemMemory => 64,
@@ -471,7 +471,7 @@ impl AmlValue {
          * overwrite the correct bits. We destructure the field to do the actual write, so we read from it if
          * needed here, otherwise the borrow-checker doesn't understand.
          */
-        let field_update_rule = if let AmlValue::Field { region, flags, offset, length } = self {
+        let field_update_rule = if let AmlValue::Field { flags, .. } = self {
             flags.field_update_rule()?
         } else {
             return Err(AmlError::IncompatibleValueConversion {
@@ -486,7 +486,7 @@ impl AmlValue {
         };
 
         if let AmlValue::Field { region, flags, offset, length } = self {
-            let maximum_access_size = {
+            let _maximum_access_size = {
                 if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {
                     match region {
                         RegionSpace::SystemMemory => 64,
@@ -519,7 +519,7 @@ impl AmlValue {
         }
     }
 
-    pub fn read_buffer_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
+    pub fn read_buffer_field(&self, _context: &AmlContext) -> Result<AmlValue, AmlError> {
         use bitvec::view::BitView;
 
         if let AmlValue::BufferField { buffer_data, offset, length } = self {
@@ -562,7 +562,7 @@ impl AmlValue {
         }
     }
 
-    pub fn write_buffer_field(&mut self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
+    pub fn write_buffer_field(&mut self, value: AmlValue, _context: &mut AmlContext) -> Result<(), AmlError> {
         use bitvec::view::BitView;
 
         if let AmlValue::BufferField { buffer_data, offset, length } = self {
