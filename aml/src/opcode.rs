@@ -56,6 +56,7 @@ pub const DEF_RETURN_OP: u8 = 0xa4;
 pub const DEF_BREAK_OP: u8 = 0xa5;
 pub const DEF_BREAKPOINT_OP: u8 = 0xcc;
 pub const EXT_DEF_STALL_OP: u8 = 0x21;
+pub const EXT_DEF_SLEEP_OP: u8 = 0x22;
 
 /*
  * Expression opcodes
