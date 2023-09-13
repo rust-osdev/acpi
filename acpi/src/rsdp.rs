@@ -170,7 +170,7 @@ impl Rsdp {
 }
 
 /// Find the areas we should search for the RSDP in.
-pub fn find_search_areas<H>(handler: H) -> [Range<usize>; 2]
+fn find_search_areas<H>(handler: H) -> [Range<usize>; 2]
 where
     H: AcpiHandler,
 {
