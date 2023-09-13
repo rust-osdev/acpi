@@ -1,11 +1,10 @@
 [package]
 name = "rsdp"
-version = "2.0.0"
+version = "2.0.1"
 authors = ["Isaac Woods", "Restioson"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "Zero-allocation library for locating and parsing the RSDP, the first ACPI table"
 categories = ["hardware-support", "no-std"]
-readme = "../README.md"
 license = "MIT/Apache-2.0"
 edition = "2021"
 
