@@ -689,6 +689,11 @@ pub trait Handler: Send + Sync {
     fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16);
     fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
 
+    /// Stall for at least the given number of **microseconds**. An implementation should not relinquish control of
+    /// the processor during the stall, and for this reason, firmwares should not stall for periods of more than
+    /// 100 microseconds.
+    fn stall(&self, microseconds: u64);
+
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
         panic!("Fatal error while executing AML (encountered DefFatal op). fatal_type = {:?}, fatal_code = {:?}, fatal_arg = {:?}", fatal_type, fatal_code, fatal_arg);
     }

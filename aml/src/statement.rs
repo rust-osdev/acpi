@@ -39,6 +39,7 @@ where
             def_if_else(),
             def_noop(),
             def_return(),
+            def_stall(),
             def_while()
         ),
     )
@@ -204,6 +205,27 @@ where
                  * into a valid result.
                  */
                 Err(Propagate::Return(return_arg))
+            }),
+        ))
+        .discard_result()
+}
+
+fn def_stall<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefStall := ExtOpPrefix 0x21 USecTime
+     * USecTime := TermArg => Integer
+     */
+    ext_opcode(opcode::EXT_DEF_STALL_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefStall",
+            term_arg().map_with_context(|microseconds, context| {
+                let microseconds = try_with_context!(context, microseconds.as_integer(&context));
+                context.handler.stall(microseconds);
+                (Ok(()), context)
             }),
         ))
         .discard_result()

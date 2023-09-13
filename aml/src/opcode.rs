@@ -45,7 +45,7 @@ pub const EXT_DEF_POWER_RES_OP: u8 = 0x84;
 pub const EXT_DEF_THERMAL_ZONE_OP: u8 = 0x85;
 
 /*
- * Type 1 opcodes
+ * Statement opcodes
  */
 pub const DEF_CONTINUE_OP: u8 = 0x9f;
 pub const DEF_IF_ELSE_OP: u8 = 0xa0;
@@ -55,9 +55,10 @@ pub const DEF_NOOP_OP: u8 = 0xa3;
 pub const DEF_RETURN_OP: u8 = 0xa4;
 pub const DEF_BREAK_OP: u8 = 0xa5;
 pub const DEF_BREAKPOINT_OP: u8 = 0xcc;
+pub const EXT_DEF_STALL_OP: u8 = 0x21;
 
 /*
- * Type 2 opcodes
+ * Expression opcodes
  */
 pub const DEF_STORE_OP: u8 = 0x70;
 pub const DEF_ADD_OP: u8 = 0x72;
