@@ -695,8 +695,8 @@ pub trait Handler: Send + Sync {
     /// 100 microseconds.
     fn stall(&self, microseconds: u64);
 
-    /// Sleep for at least the given number of **milliseconds**. An implementation may round to the closest sleep time
-    /// supported, and should relinquish the processor.
+    /// Sleep for at least the given number of **milliseconds**. An implementation may round to the closest sleep
+    /// time supported, and should relinquish the processor.
     fn sleep(&self, milliseconds: u64);
 
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {

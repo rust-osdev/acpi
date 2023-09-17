@@ -310,4 +310,11 @@ impl aml::Handler for Handler {
     fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16, value: u32) {
         println!("write_pci_u32 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})<-{value:#x}");
     }
+
+    fn stall(&self, microseconds: u64) {
+        println!("Stalling for {}us", microseconds);
+    }
+    fn sleep(&self, milliseconds: u64) {
+        println!("Sleeping for {}ms", milliseconds);
+    }
 }

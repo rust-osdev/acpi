@@ -68,6 +68,12 @@ impl Handler for TestHandler {
     fn write_pci_u32(&self, _segment: u16, _bus: u8, device: u8, _function: u8, _offset: u16, _value: u32) {
         unimplemented!()
     }
+    fn stall(&self, _microseconds: u64) {
+        unimplemented!()
+    }
+    fn sleep(&self, _milliseconds: u64) {
+        unimplemented!()
+    }
 }
 
 pub(crate) fn make_test_context() -> AmlContext {
