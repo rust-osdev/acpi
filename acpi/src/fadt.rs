@@ -407,6 +407,26 @@ impl Fadt {
 
         Ok(Pm1Registers { x_pm1a_status, x_pm1a_enable, x_pm1b_status, x_pm1b_enable })
     }
+
+    /// Returns the length of General-Purpose Event register block 0 in bytes.
+    ///
+    /// # Note
+    ///
+    /// The GPE blocks are optional, their presence first needs to be checked through gpe0_block().
+    #[inline]
+    pub const fn gpe0_block_length(&self) -> u8 {
+        self.gpe0_block_length
+    }
+
+    /// Returns the length of General-Purpose Event register block 1 in bytes.
+    ///
+    /// # Note
+    ///
+    /// The GPE blocks are optional, their presence first needs to be checked through gpe0_block().
+    #[inline]
+    pub const fn gpe1_block_length(&self) -> u8 {
+        self.gpe1_block_length
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
