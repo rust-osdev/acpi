@@ -64,6 +64,7 @@ pub const EXT_DEF_SLEEP_OP: u8 = 0x22;
 pub const DEF_STORE_OP: u8 = 0x70;
 pub const DEF_ADD_OP: u8 = 0x72;
 pub const DEF_CONCAT_OP: u8 = 0x73;
+pub const DEF_SUBTRACT_OP: u8 = 0x74;
 pub const DEF_INCREMENT_OP: u8 = 0x75;
 pub const DEF_DECREMENT_OP: u8 = 0x76;
 pub const DEF_SHIFT_LEFT: u8 = 0x79;
