@@ -158,6 +158,18 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             }
             _ => false,
         },
+        AmlValue::IndexField { index, data, flags, offset, length } => match b {
+            AmlValue::IndexField {
+                index: b_index,
+                data: b_data,
+                flags: b_flags,
+                offset: b_offset,
+                length: b_length,
+            } => {
+                index == b_index && data == b_data && flags == b_flags && offset == b_offset && length == b_length
+            }
+            _ => false,
+        },
         AmlValue::Device => match b {
             AmlValue::Device => true,
             _ => false,
