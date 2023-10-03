@@ -53,6 +53,7 @@ where
             def_l_not_equal(),
             def_l_and(),
             def_l_or(),
+            def_l_not(),
             def_mid(),
             def_object_type(),
             def_package(),
@@ -399,6 +400,26 @@ where
                 let left = try_with_context!(context, left_arg.as_bool());
                 let right = try_with_context!(context, right_arg.as_bool());
                 (Ok(AmlValue::Boolean(left || right)), context)
+            }),
+        ))
+        .map(|((), result)| Ok(result))
+}
+
+fn def_l_not<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
+where
+    'c: 'a,
+{
+    /*
+     * DefLNot := 0x92 Operand
+     * Operand := TermArg => Integer
+     */
+    opcode(opcode::DEF_L_NOT_OP)
+        .then(comment_scope(
+            DebugVerbosity::AllScopes,
+            "DefLNot",
+            term_arg().map_with_context(|arg, context| {
+                let operand = try_with_context!(context, arg.as_bool());
+                (Ok(AmlValue::Boolean(operand)), context)
             }),
         ))
         .map(|((), result)| Ok(result))
