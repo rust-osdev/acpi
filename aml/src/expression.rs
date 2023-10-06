@@ -105,7 +105,7 @@ where
     opcode(opcode::DEF_SUBTRACT_OP)
         .then(comment_scope(
             DebugVerbosity::AllScopes,
-            "DefAdd",
+            "DefSubtract",
             term_arg().then(term_arg()).then(target()).map_with_context(
                 |((left_arg, right_arg), target), context| {
                     let left = try_with_context!(context, left_arg.as_integer(context));
@@ -419,7 +419,7 @@ where
             "DefLNot",
             term_arg().map_with_context(|arg, context| {
                 let operand = try_with_context!(context, arg.as_bool());
-                (Ok(AmlValue::Boolean(operand)), context)
+                (Ok(AmlValue::Boolean(!operand)), context)
             }),
         ))
         .map(|((), result)| Ok(result))
