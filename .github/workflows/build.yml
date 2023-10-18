@@ -11,7 +11,20 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - TARGET: x86_64-unknown-linux-gnu
+            OS: ubuntu-latest
+          - TARGET: aarch64-unknown-linux-gnu
+            OS: ubuntu-latest
+          - TARGET: i686-unknown-linux-gnu
+            OS: ubuntu-latest
+
+    runs-on: ${{ matrix.OS }}
+    env:
+      TARGET: ${{ matrix.TARGET }}
 
     steps:
     - uses: actions/checkout@v2
@@ -24,14 +37,28 @@ jobs:
         toolchain: nightly
         default: true
         profile: minimal
+        target: ${{ matrix.target }}
+        components: llvm-tools-preview
         
+    - name: Build rsdp, acpi, and aml
+      run: cargo build -p rsdp -p acpi -p aml --target $TARGET
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        default: true
+        profile: minimal
+
     - name: Install dependencies
-      run: |
-        sudo apt-get install -y acpica-tools
-        
-    - name: Build
-      run: cargo build --all
-      
+      run: sudo apt-get install -y acpica-tools
+
     - name: Run tests
       run: cargo test --all
 
