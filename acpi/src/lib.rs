@@ -302,6 +302,11 @@ where
             .ok_or(AcpiError::TableMissing(T::SIGNATURE))
     }
 
+    /// Iterates through all of the table headers.
+    pub fn headers(&self) -> SdtHeaderIterator<'_, H> {
+        SdtHeaderIterator { tables_phys_ptrs: self.tables_phys_ptrs(), handler: self.handler.clone() }
+    }
+
     /// Finds and returns the DSDT AML table, if it exists.
     pub fn dsdt(&self) -> AcpiResult<AmlTable> {
         self.find_table::<fadt::Fadt>().and_then(|fadt| {
@@ -444,5 +449,39 @@ where
                 }
             }
         })
+    }
+}
+
+pub struct SdtHeaderIterator<'t, H>
+where
+    H: AcpiHandler,
+{
+    tables_phys_ptrs: TablesPhysPtrsIter<'t>,
+    handler: H,
+}
+
+impl<'t, H> Iterator for SdtHeaderIterator<'t, H>
+where
+    H: AcpiHandler,
+{
+    type Item = SdtHeader;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let table_phys_ptr = self.tables_phys_ptrs.next()?;
+            // SAFETY: `address` needs to be valid for the size of `SdtHeader`, or the ACPI tables are malformed (not a
+            // software issue).
+            let header_mapping = unsafe {
+                self.handler.map_physical_region::<SdtHeader>(table_phys_ptr as usize, mem::size_of::<SdtHeader>())
+            };
+            let r = header_mapping.validate(header_mapping.signature);
+            if r.is_err() {
+                log::warn!("Found invalid SSDT at physical address {:p}: {:?}", table_phys_ptr, r);
+                continue;
+            }
+            let result = header_mapping.clone();
+            drop(header_mapping);
+            return Some(result);
+        }
     }
 }
