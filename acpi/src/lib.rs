@@ -476,7 +476,7 @@ where
             };
             let r = header_mapping.validate(header_mapping.signature);
             if r.is_err() {
-                log::warn!("Found invalid SSDT at physical address {:p}: {:?}", table_phys_ptr, r);
+                log::warn!("Found invalid SDT at physical address {:p}: {:?}", table_phys_ptr, r);
                 continue;
             }
             let result = header_mapping.clone();
