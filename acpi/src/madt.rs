@@ -133,6 +133,7 @@ impl Madt {
                 MadtEntry::InterruptSourceOverride(_) => iso_count += 1,
                 MadtEntry::NmiSource(_) => nmi_source_count += 1,
                 MadtEntry::LocalApicNmi(_) => local_nmi_line_count += 1,
+                MadtEntry::X2ApicNmi(_) => local_nmi_line_count += 1,
                 MadtEntry::LocalApic(_) => processor_count += 1,
                 MadtEntry::LocalX2Apic(_) => processor_count += 1,
                 _ => (),
