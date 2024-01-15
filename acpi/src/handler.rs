@@ -1,11 +1,10 @@
-use core::{ops::Deref, ptr::NonNull};
+use core::{fmt, ops::Deref, ptr::NonNull};
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
 /// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `size_of::<T>()`
 /// bytes, but may be bigger.
 ///
 /// See `PhysicalMapping::new` for the meaning of each field.
-#[derive(Debug)]
 pub struct PhysicalMapping<H, T>
 where
     H: AcpiHandler,
@@ -15,6 +14,21 @@ where
     region_length: usize, // Can be equal or larger than size_of::<T>()
     mapped_length: usize, // Differs from `region_length` if padding is added for alignment
     handler: H,
+}
+
+impl<H, T> fmt::Debug for PhysicalMapping<H, T>
+where
+    H: AcpiHandler + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PhysicalMapping")
+            .field("physical_start", &self.physical_start)
+            .field("virtual_start", &self.virtual_start)
+            .field("region_length", &self.region_length)
+            .field("mapped_length", &self.mapped_length)
+            .field("handler", &self.handler)
+            .finish()
+    }
 }
 
 impl<H, T> PhysicalMapping<H, T>
