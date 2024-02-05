@@ -335,8 +335,17 @@ impl AmlContext {
                 match self.namespace.get(handle).unwrap().type_of() {
                     AmlType::FieldUnit => {
                         let mut field = self.namespace.get(handle).unwrap().clone();
-                        field.write_field(value, self)?;
-                        field.read_field(self)
+                        match field {
+                            AmlValue::Field { .. } => {
+                                field.write_field(value, self)?;
+                                field.read_field(self)
+                            }
+                            AmlValue::IndexField { .. } => {
+                                field.write_index_field(value, self)?;
+                                field.read_index_field(self)
+                            }
+                            _ => unreachable!(),
+                        }
                     }
                     AmlType::BufferField => {
                         let mut buffer_field = self.namespace.get(handle).unwrap().clone();

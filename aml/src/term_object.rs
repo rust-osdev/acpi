@@ -17,7 +17,7 @@ use crate::{
         Parser,
         Propagate,
     },
-    pkg_length::{pkg_length, region_pkg_length, PkgLength},
+    pkg_length::{pkg_length, raw_pkg_length, region_pkg_length, PkgLength},
     statement::statement_opcode,
     value::{AmlValue, FieldFlags, MethodCode, MethodFlags, RegionSpace},
     AmlContext,
@@ -110,7 +110,8 @@ where
             def_processor(),
             def_power_res(),
             def_thermal_zone(),
-            def_mutex()
+            def_mutex(),
+            def_index_field()
         ),
     )
 }
@@ -882,6 +883,98 @@ where
             }),
         ))
         .map(|((), result)| Ok(result))
+}
+
+fn index_field_element<'a, 'c>(
+    index_handle: AmlHandle,
+    data_handle: AmlHandle,
+    flags: FieldFlags,
+    current_offset: u64,
+) -> impl Parser<'a, 'c, u64>
+where
+    'c: 'a,
+{
+    /*
+     * Reserved fields shouldn't actually be added to the namespace; they seem to show gaps in
+     * the operation region that aren't used for anything.
+     *
+     * NOTE: had to use raw_pkg_length() instead of pkg_length() here because pkg_length() performs
+     *       checks against aml code slice, and in this specific context the check should be
+     *       performed against the parent field's size
+     */
+    let reserved_field =
+        opcode(opcode::RESERVED_FIELD).then(raw_pkg_length()).map(|((), length)| Ok(length as u64));
+
+    let named_field = name_seg().then(pkg_length()).map_with_context(move |(name_seg, length), context| {
+        try_with_context!(
+            context,
+            context.namespace.add_value_at_resolved_path(
+                AmlName::from_name_seg(name_seg),
+                &context.current_scope,
+                AmlValue::IndexField {
+                    index: index_handle,
+                    data: data_handle,
+                    flags,
+                    offset: current_offset,
+                    length: length.raw_length as u64,
+                }
+            )
+        );
+
+        (Ok(length.raw_length as u64), context)
+    });
+
+    choice!(reserved_field, named_field)
+}
+
+pub fn def_index_field<'a, 'c>() -> impl Parser<'a, 'c, ()>
+where
+    'c: 'a,
+{
+    /*
+     * DefIndexField    := IndexFieldOp PkgLength NameString NameString FieldFlags FieldList
+     * IndexFieldOp     := ExtOpPrefix 0x86
+     */
+    // Declare a group of field that must be accessed by writing to an index
+    // register and then reading/writing from a data register.
+    ext_opcode(opcode::EXT_DEF_INDEX_FIELD_OP)
+        .then(comment_scope(
+            DebugVerbosity::Scopes,
+            "DefIndexField",
+            pkg_length()
+                .then(name_string())
+                .then(name_string())
+                .then(take())
+                .map_with_context(|(((list_length, index_name), data_name), flags), context| {
+                    let (_, index_handle) =
+                        try_with_context!(context, context.namespace.search(&index_name, &context.current_scope));
+                    let (_, data_handle) =
+                        try_with_context!(context, context.namespace.search(&data_name, &context.current_scope));
+
+                    (Ok((list_length, index_handle, data_handle, flags)), context)
+                })
+                .feed(|(list_length, index_handle, data_handle, flags)| {
+                    move |mut input: &'a [u8], mut context: &'c mut AmlContext| -> ParseResult<'a, 'c, ()> {
+                        let mut current_offset = 0;
+                        while list_length.still_parsing(input) {
+                            let (new_input, new_context, field_length) = index_field_element(
+                                index_handle,
+                                data_handle,
+                                FieldFlags::new(flags),
+                                current_offset,
+                            )
+                            .parse(input, context)?;
+
+                            input = new_input;
+                            context = new_context;
+                            current_offset += field_length;
+                        }
+
+                        Ok((input, context, ()))
+                    }
+                }),
+        ))
+        .discard_result()
 }
 
 pub fn term_arg<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>

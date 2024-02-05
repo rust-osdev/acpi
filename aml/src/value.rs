@@ -194,6 +194,13 @@ pub enum AmlValue {
         offset: u64,
         length: u64,
     },
+    IndexField {
+        index: AmlHandle,
+        data: AmlHandle,
+        flags: FieldFlags,
+        offset: u64,
+        length: u64,
+    },
     Device,
     Method {
         flags: MethodFlags,
@@ -252,7 +259,7 @@ impl AmlValue {
             AmlValue::Integer(_) => AmlType::Integer,
             AmlValue::String(_) => AmlType::String,
             AmlValue::OpRegion { .. } => AmlType::OpRegion,
-            AmlValue::Field { .. } => AmlType::FieldUnit,
+            AmlValue::Field { .. } | AmlValue::IndexField { .. } => AmlType::FieldUnit,
             AmlValue::Device => AmlType::Device,
             AmlValue::Method { .. } => AmlType::Method,
             AmlValue::Buffer(_) => AmlType::Buffer,
@@ -314,6 +321,8 @@ impl AmlValue {
              * `as_integer` on the result.
              */
             AmlValue::Field { .. } => self.read_field(context)?.as_integer(context),
+            // TODO: IndexField cannot be accessed through an immutable &AmlContext
+            AmlValue::IndexField { .. } => todo!(),
             AmlValue::BufferField { .. } => self.read_buffer_field(context)?.as_integer(context),
 
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
@@ -325,6 +334,8 @@ impl AmlValue {
             AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
             AmlValue::Field { .. } => self.read_field(context)?.as_buffer(context),
+            // TODO: IndexField cannot be accessed through an immutable &AmlContext
+            AmlValue::IndexField { .. } => todo!(),
             AmlValue::BufferField { .. } => self.read_buffer_field(context)?.as_buffer(context),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Buffer }),
         }
@@ -335,6 +346,8 @@ impl AmlValue {
             AmlValue::String(ref string) => Ok(string.clone()),
             // TODO: implement conversion of Buffer to String
             AmlValue::Field { .. } => self.read_field(context)?.as_string(context),
+            // TODO: IndexField cannot be accessed through an immutable &AmlContext
+            AmlValue::IndexField { .. } => todo!(),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::String }),
         }
     }
@@ -419,6 +432,114 @@ impl AmlValue {
             ),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: desired_type }),
         }
+    }
+
+    fn index_field_access<F: FnMut(u64, usize, usize, usize) -> Result<(), AmlError>>(
+        index_flags: &FieldFlags,
+        offset: u64,
+        length: u64,
+        mut access: F,
+    ) -> Result<(), AmlError> {
+        let index_align = match index_flags.access_type()? {
+            FieldAccessType::Any => 8,
+            FieldAccessType::Byte => 8,
+            FieldAccessType::Word => 16,
+            FieldAccessType::DWord => 32,
+            FieldAccessType::QWord => 64,
+            FieldAccessType::Buffer => 8,
+        };
+
+        let mut length = length as usize;
+        let mut index = (offset / 8) & !((index_align >> 3) - 1);
+
+        // Bit offset in the target Data field
+        let mut bit_offset = (offset - index * 8) as usize;
+        // Bit offset in the source value
+        let mut pos = 0;
+
+        while length != 0 {
+            // Bit offset within a single value
+            let value_pos = bit_offset % index_align as usize;
+            // Number of bits until the end of the value
+            let value_limit = index_align as usize - value_pos;
+            // Number of bits to access
+            let len = cmp::min(length, value_limit);
+
+            access(index, pos, value_pos, len)?;
+
+            // Advance the bit position
+            bit_offset += len;
+            pos += len;
+            length -= len;
+
+            // Move to the next index
+            index += index_align >> 3;
+        }
+
+        Ok(())
+    }
+
+    /// Reads from an IndexField, returning either an `Integer`
+    pub fn read_index_field(&self, context: &mut AmlContext) -> Result<AmlValue, AmlError> {
+        let AmlValue::IndexField { index, data, flags, offset, length } = self else {
+            return Err(AmlError::IncompatibleValueConversion {
+                current: self.type_of(),
+                target: AmlType::FieldUnit,
+            });
+        };
+
+        let mut index_field = context.namespace.get_mut(*index)?.clone();
+        let data_field = context.namespace.get_mut(*data)?.clone();
+
+        // TODO buffer field accesses
+        let mut value = 0u64;
+
+        Self::index_field_access(flags, *offset, *length, |index, value_offset, field_offset, length| {
+            // Store the bit range index to the Index field
+            index_field.write_field(AmlValue::Integer(index), context)?;
+
+            // Read the bit range from the Data field
+            let data = data_field.read_field(context)?.as_integer(context)?;
+            let bits = data.get_bits(field_offset..field_offset + length);
+
+            // Copy the bit range to the value
+            value.set_bits(value_offset..value_offset + length, bits);
+
+            Ok(())
+        })?;
+
+        Ok(AmlValue::Integer(value))
+    }
+
+    pub fn write_index_field(&self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
+        let AmlValue::IndexField { index, data, flags, offset, length } = self else {
+            return Err(AmlError::IncompatibleValueConversion {
+                current: self.type_of(),
+                target: AmlType::FieldUnit,
+            });
+        };
+
+        let mut index_field = context.namespace.get_mut(*index)?.clone();
+        let mut data_field = context.namespace.get_mut(*data)?.clone();
+
+        let value = value.as_integer(context)?;
+
+        Self::index_field_access(flags, *offset, *length, |index, value_offset, field_offset, length| {
+            // TODO handle the UpdateRule flag
+
+            // Store the bit range index to the Index field
+            index_field.write_field(AmlValue::Integer(index), context)?;
+
+            // Extract the bits going to this specific part of the field
+            let bits = value.get_bits(value_offset..value_offset + length);
+
+            // Read/modify/store the data field
+            let mut data = data_field.read_field(context)?.as_integer(context)?;
+            data.set_bits(field_offset..field_offset + length, bits);
+            data_field.write_field(AmlValue::Integer(data), context)?;
+
+            Ok(())
+        })
     }
 
     /// Reads from a field of an opregion, returning either a `AmlValue::Integer` or an `AmlValue::Buffer`,

@@ -43,6 +43,7 @@ pub const EXT_DEF_DEVICE_OP: u8 = 0x82;
 pub const EXT_DEF_PROCESSOR_OP: u8 = 0x83;
 pub const EXT_DEF_POWER_RES_OP: u8 = 0x84;
 pub const EXT_DEF_THERMAL_ZONE_OP: u8 = 0x85;
+pub const EXT_DEF_INDEX_FIELD_OP: u8 = 0x86;
 
 /*
  * Statement opcodes
