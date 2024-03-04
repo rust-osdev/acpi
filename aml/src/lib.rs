@@ -61,7 +61,11 @@ pub mod value;
 
 pub use crate::{namespace::*, value::AmlValue};
 
-use alloc::{boxed::Box, string::ToString};
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+};
 use core::mem;
 use log::{error, warn};
 use misc::{ArgNum, LocalNum};
@@ -144,6 +148,29 @@ impl AmlContext {
     }
 
     pub fn parse_table(&mut self, stream: &[u8]) -> Result<(), AmlError> {
+        fn stream_context(stream: &[u8], err_buf: &[u8]) -> String {
+            const BEFORE_LEN: usize = 4;
+            const ABBREV_LEN: usize = 4;
+            let abbreviated = if err_buf.len() >= ABBREV_LEN { &err_buf[..ABBREV_LEN] } else { err_buf };
+
+            if let Some(position) = (err_buf.as_ptr() as usize).checked_sub(stream.as_ptr() as usize) {
+                if position <= stream.len() {
+                    let before = if position > BEFORE_LEN {
+                        &stream[position - BEFORE_LEN..position]
+                    } else {
+                        &stream[..position]
+                    };
+                    return format!(
+                        "position {:#X}: preceding {:X?}, buf {:X?}",
+                        position + 36,
+                        before,
+                        abbreviated
+                    );
+                }
+            }
+            format!("buf {:X?}", abbreviated)
+        }
+
         if stream.len() == 0 {
             return Err(AmlError::UnexpectedEndOfStream);
         }
@@ -151,8 +178,8 @@ impl AmlContext {
         let table_length = PkgLength::from_raw_length(stream, stream.len() as u32).unwrap();
         match term_object::term_list(table_length).parse(stream, self) {
             Ok(_) => Ok(()),
-            Err((_, _, Propagate::Err(err))) => {
-                error!("Failed to parse AML stream. Err = {:?}", err);
+            Err((err_buf, _, Propagate::Err(err))) => {
+                error!("Failed to parse AML stream. Err = {:?}, {}", err, stream_context(stream, err_buf));
                 Err(err)
             }
             Err((_, _, other)) => {
