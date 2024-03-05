@@ -642,8 +642,6 @@ impl Args {
     pub const EMPTY: Self = Self([None, None, None, None, None, None, None]);
 
     pub fn from_list(list: Vec<AmlValue>) -> Result<Args, AmlError> {
-        use core::convert::TryInto;
-
         if list.len() > 7 {
             return Err(AmlError::TooManyArgs);
         }

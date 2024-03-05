@@ -9,7 +9,6 @@ use crate::{
 };
 use alloc::vec::Vec;
 use bit_field::BitField;
-use core::convert::TryInto;
 
 pub use crate::resource::IrqDescriptor;
 
