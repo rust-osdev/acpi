@@ -4,6 +4,7 @@ use crate::{
     name_object::{name_seg, name_string, target, Target},
     namespace::{AmlName, LevelType},
     opcode::{self, ext_opcode, opcode},
+    opregion::{OpRegion, RegionSpace},
     parser::{
         choice,
         comment_scope,
@@ -19,7 +20,7 @@ use crate::{
     },
     pkg_length::{pkg_length, region_pkg_length, PkgLength},
     statement::statement_opcode,
-    value::{AmlValue, FieldFlags, MethodCode, MethodFlags, RegionSpace},
+    value::{AmlValue, FieldFlags, MethodCode, MethodFlags},
     AmlContext,
     AmlError,
     AmlHandle,
@@ -474,7 +475,7 @@ where
                         context.namespace.add_value_at_resolved_path(
                             name,
                             &context.current_scope,
-                            AmlValue::OpRegion { region, offset, length, parent_device }
+                            AmlValue::OpRegion(OpRegion::new(region, offset, length, parent_device))
                         )
                     );
                     (Ok(()), context)
