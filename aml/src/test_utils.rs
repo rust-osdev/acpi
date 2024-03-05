@@ -141,15 +141,8 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             AmlValue::String(ref b) => a == b,
             _ => false,
         },
-        AmlValue::OpRegion { region, offset, length, parent_device } => match b {
-            AmlValue::OpRegion {
-                region: b_region,
-                offset: b_offset,
-                length: b_length,
-                parent_device: b_parent_device,
-            } => {
-                region == b_region && offset == b_offset && length == b_length && parent_device == b_parent_device
-            }
+        AmlValue::OpRegion(_) => match b {
+            AmlValue::OpRegion(_) => panic!("Can't compare two op-regions"),
             _ => false,
         },
         AmlValue::Field { region, flags, offset, length } => match b {
