@@ -438,29 +438,28 @@ impl AmlContext {
                  * (e.g. systems with a single segment group and a single root, respectively).
                  */
                 let parent_device = parent_device.as_ref().unwrap();
-                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
-                        .as_integer(self)?
-                        .try_into()
-                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                let seg = match self.invoke_method(
+                    &AmlName::from_str("_SEG").unwrap().resolve(parent_device).unwrap(),
+                    Args::EMPTY,
+                ) {
+                    Ok(seg) => seg.as_integer(self)?.try_into().map_err(|_| AmlError::FieldInvalidAddress)?,
                     Err(AmlError::ValueDoesNotExist(_)) => 0,
                     Err(err) => return Err(err),
                 };
-                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
-                        .as_integer(self)?
-                        .try_into()
-                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                let bbn = match self.invoke_method(
+                    &AmlName::from_str("_BBN").unwrap().resolve(parent_device).unwrap(),
+                    Args::EMPTY,
+                ) {
+                    Ok(bbn) => bbn.as_integer(self)?.try_into().map_err(|_| AmlError::FieldInvalidAddress)?,
                     Err(AmlError::ValueDoesNotExist(_)) => 0,
                     Err(err) => return Err(err),
                 };
                 let adr = {
-                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
-                    self.namespace.get(handle)?.as_integer(self)?
+                    let adr = self.invoke_method(
+                        &AmlName::from_str("_ADR").unwrap().resolve(parent_device).unwrap(),
+                        Args::EMPTY,
+                    )?;
+                    adr.as_integer(self)?
                 };
 
                 let device = adr.get_bits(16..24) as u8;
@@ -530,29 +529,28 @@ impl AmlContext {
                  * (e.g. systems with a single segment group and a single root, respectively).
                  */
                 let parent_device = parent_device.as_ref().unwrap();
-                let seg = match self.namespace.search(&AmlName::from_str("_SEG").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
-                        .as_integer(self)?
-                        .try_into()
-                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                let seg = match self.invoke_method(
+                    &AmlName::from_str("_SEG").unwrap().resolve(parent_device).unwrap(),
+                    Args::EMPTY,
+                ) {
+                    Ok(seg) => seg.as_integer(self)?.try_into().map_err(|_| AmlError::FieldInvalidAddress)?,
                     Err(AmlError::ValueDoesNotExist(_)) => 0,
                     Err(err) => return Err(err),
                 };
-                let bbn = match self.namespace.search(&AmlName::from_str("_BBN").unwrap(), parent_device) {
-                    Ok((_, handle)) => self
-                        .namespace
-                        .get(handle)?
-                        .as_integer(self)?
-                        .try_into()
-                        .map_err(|_| AmlError::FieldInvalidAddress)?,
+                let bbn = match self.invoke_method(
+                    &AmlName::from_str("_BBN").unwrap().resolve(parent_device).unwrap(),
+                    Args::EMPTY,
+                ) {
+                    Ok(bbn) => bbn.as_integer(self)?.try_into().map_err(|_| AmlError::FieldInvalidAddress)?,
                     Err(AmlError::ValueDoesNotExist(_)) => 0,
                     Err(err) => return Err(err),
                 };
                 let adr = {
-                    let (_, handle) = self.namespace.search(&AmlName::from_str("_ADR").unwrap(), parent_device)?;
-                    self.namespace.get(handle)?.as_integer(self)?
+                    let adr = self.invoke_method(
+                        &AmlName::from_str("_ADR").unwrap().resolve(parent_device).unwrap(),
+                        Args::EMPTY,
+                    )?;
+                    adr.as_integer(self)?
                 };
 
                 let device = adr.get_bits(16..24) as u8;
