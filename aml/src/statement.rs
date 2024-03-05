@@ -224,7 +224,7 @@ where
             DebugVerbosity::Scopes,
             "DefSleep",
             term_arg().map_with_context(|milliseconds, context| {
-                let milliseconds = try_with_context!(context, milliseconds.as_integer(&context));
+                let milliseconds = try_with_context!(context, milliseconds.as_integer(context));
                 context.handler.sleep(milliseconds);
                 (Ok(()), context)
             }),
@@ -245,7 +245,7 @@ where
             DebugVerbosity::Scopes,
             "DefStall",
             term_arg().map_with_context(|microseconds, context| {
-                let microseconds = try_with_context!(context, microseconds.as_integer(&context));
+                let microseconds = try_with_context!(context, microseconds.as_integer(context));
                 context.handler.stall(microseconds);
                 (Ok(()), context)
             }),
