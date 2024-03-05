@@ -74,7 +74,7 @@ where
          * OperationRegion length is in bytes, PkgLength is in bits, so conversion is needed
          */
         let region_bit_length = match region_value {
-            AmlValue::OpRegion { length, .. } => *length * 8,
+            AmlValue::OpRegion(region) => region.length() * 8,
             _ => return Err((input, context, Propagate::Err(AmlError::FieldRegionIsNotOpRegion))),
         };
 
