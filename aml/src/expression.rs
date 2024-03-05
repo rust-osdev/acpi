@@ -15,7 +15,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use core::{cmp::Ordering, convert::TryInto, mem, ops::Deref};
+use core::{cmp::Ordering, mem, ops::Deref};
 
 pub fn expression_opcode<'a, 'c>() -> impl Parser<'a, 'c, AmlValue>
 where

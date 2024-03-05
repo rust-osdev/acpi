@@ -1,6 +1,6 @@
 use crate::{pkg_length::PkgLength, AmlContext, AmlError, AmlValue, DebugVerbosity};
 use alloc::vec::Vec;
-use core::{convert::TryInto, marker::PhantomData};
+use core::marker::PhantomData;
 use log::trace;
 
 /// This is the number of spaces added to indent a scope when printing parser debug messages.
