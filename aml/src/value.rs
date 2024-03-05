@@ -288,7 +288,7 @@ impl AmlValue {
         }
     }
 
-    pub fn as_integer(&self, context: &AmlContext) -> Result<u64, AmlError> {
+    pub fn as_integer(&self, context: &mut AmlContext) -> Result<u64, AmlError> {
         match self {
             AmlValue::Integer(value) => Ok(*value),
             AmlValue::Boolean(value) => Ok(if *value { u64::max_value() } else { 0 }),
@@ -320,7 +320,7 @@ impl AmlValue {
         }
     }
 
-    pub fn as_buffer(&self, context: &AmlContext) -> Result<Arc<Spinlock<Vec<u8>>>, AmlError> {
+    pub fn as_buffer(&self, context: &mut AmlContext) -> Result<Arc<Spinlock<Vec<u8>>>, AmlError> {
         match self {
             AmlValue::Buffer(ref bytes) => Ok(bytes.clone()),
             // TODO: implement conversion of String and Integer to Buffer
@@ -330,7 +330,7 @@ impl AmlValue {
         }
     }
 
-    pub fn as_string(&self, context: &AmlContext) -> Result<String, AmlError> {
+    pub fn as_string(&self, context: &mut AmlContext) -> Result<String, AmlError> {
         match self {
             AmlValue::String(ref string) => Ok(string.clone()),
             // TODO: implement conversion of Buffer to String
@@ -404,7 +404,7 @@ impl AmlValue {
     ///     `Integer` from: `Buffer`, `BufferField`, `DdbHandle`, `FieldUnit`, `String`, `Debug`
     ///     `Package` from: `Debug`
     ///     `String` from: `Integer`, `Buffer`, `Debug`
-    pub fn as_type(&self, desired_type: AmlType, context: &AmlContext) -> Result<AmlValue, AmlError> {
+    pub fn as_type(&self, desired_type: AmlType, context: &mut AmlContext) -> Result<AmlValue, AmlError> {
         // If the value is already of the correct type, just return it as is
         if self.type_of() == desired_type {
             return Ok(self.clone());
@@ -423,7 +423,7 @@ impl AmlValue {
 
     /// Reads from a field of an opregion, returning either a `AmlValue::Integer` or an `AmlValue::Buffer`,
     /// depending on the size of the field.
-    pub fn read_field(&self, context: &AmlContext) -> Result<AmlValue, AmlError> {
+    pub fn read_field(&self, context: &mut AmlContext) -> Result<AmlValue, AmlError> {
         if let AmlValue::Field { region, flags, offset, length } = self {
             let _maximum_access_size = {
                 if let AmlValue::OpRegion { region, .. } = context.namespace.get(*region)? {

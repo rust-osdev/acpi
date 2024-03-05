@@ -331,7 +331,10 @@ where
             DebugVerbosity::AllScopes,
             "DefIncrement",
             super_name().map_with_context(|addend, context| {
-                let value = try_with_context!(context, context.read_target(&addend));
+                let value = {
+                    let value = try_with_context!(context, context.read_target(&addend));
+                    value.clone()
+                };
                 let value = try_with_context!(context, value.as_integer(context));
                 let new_value = AmlValue::Integer(value + 1);
                 try_with_context!(context, context.store(addend, new_value.clone()));
@@ -353,7 +356,10 @@ where
             DebugVerbosity::AllScopes,
             "DefDecrement",
             super_name().map_with_context(|minuend, context| {
-                let value = try_with_context!(context, context.read_target(&minuend));
+                let value = {
+                    let value = try_with_context!(context, context.read_target(&minuend));
+                    value.clone()
+                };
                 let value = try_with_context!(context, value.as_integer(context));
                 let new_value = AmlValue::Integer(value - 1);
                 try_with_context!(context, context.store(minuend, new_value.clone()));

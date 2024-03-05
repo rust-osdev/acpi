@@ -389,14 +389,19 @@ impl AmlContext {
 
     /// Read from an operation-region, performing only standard-sized reads (supported powers-of-2 only. If a field
     /// is not one of these sizes, it may need to be masked, or multiple reads may need to be performed).
-    pub(crate) fn read_region(&self, region_handle: AmlHandle, offset: u64, length: u64) -> Result<u64, AmlError> {
+    pub(crate) fn read_region(
+        &mut self,
+        region_handle: AmlHandle,
+        offset: u64,
+        length: u64,
+    ) -> Result<u64, AmlError> {
         use bit_field::BitField;
         use core::convert::TryInto;
         use value::RegionSpace;
 
         let (region_space, region_base, _region_length, parent_device) = {
             if let AmlValue::OpRegion { region, offset, length, parent_device } =
-                self.namespace.get(region_handle)?
+                self.namespace.get(region_handle)?.clone()
             {
                 (region, offset, length, parent_device)
             } else {
@@ -488,7 +493,7 @@ impl AmlContext {
 
         let (region_space, region_base, _region_length, parent_device) = {
             if let AmlValue::OpRegion { region, offset, length, parent_device } =
-                self.namespace.get(region_handle)?
+                self.namespace.get(region_handle)?.clone()
             {
                 (region, offset, length, parent_device)
             } else {
@@ -605,7 +610,8 @@ impl AmlContext {
             .add_value(
                 AmlName::from_str("\\_OSI").unwrap(),
                 AmlValue::native_method(1, false, 0, |context| {
-                    Ok(match context.current_arg(0)?.as_string(context)?.as_str() {
+                    let value = context.current_arg(0)?.clone();
+                    Ok(match value.as_string(context)?.as_str() {
                         "Windows 2000" => true,       // 2000
                         "Windows 2001" => true,       // XP
                         "Windows 2001 SP1" => true,   // XP SP1
