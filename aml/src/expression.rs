@@ -376,8 +376,8 @@ where
             DebugVerbosity::AllScopes,
             "DefLOr",
             term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
-                let left = try_with_context!(context, left_arg.as_bool());
-                let right = try_with_context!(context, right_arg.as_bool());
+                let left = try_with_context!(context, left_arg.as_bool(context));
+                let right = try_with_context!(context, right_arg.as_bool(context));
                 (Ok(AmlValue::Boolean(left && right)), context)
             }),
         ))
@@ -397,8 +397,8 @@ where
             DebugVerbosity::AllScopes,
             "DefLOr",
             term_arg().then(term_arg()).map_with_context(|(left_arg, right_arg), context| {
-                let left = try_with_context!(context, left_arg.as_bool());
-                let right = try_with_context!(context, right_arg.as_bool());
+                let left = try_with_context!(context, left_arg.as_bool(context));
+                let right = try_with_context!(context, right_arg.as_bool(context));
                 (Ok(AmlValue::Boolean(left || right)), context)
             }),
         ))
@@ -418,7 +418,7 @@ where
             DebugVerbosity::AllScopes,
             "DefLNot",
             term_arg().map_with_context(|arg, context| {
-                let operand = try_with_context!(context, arg.as_bool());
+                let operand = try_with_context!(context, arg.as_bool(context));
                 (Ok(AmlValue::Boolean(!operand)), context)
             }),
         ))

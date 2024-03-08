@@ -260,10 +260,15 @@ impl AmlValue {
         }
     }
 
-    pub fn as_bool(&self) -> Result<bool, AmlError> {
+    pub fn as_bool(&self, context: &mut AmlContext) -> Result<bool, AmlError> {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
             AmlValue::Integer(value) => Ok(*value != 0),
+            AmlValue::Field{ .. } => match self.as_integer(context) {
+                Ok(0) => Ok(false),
+                Ok(_) => Ok(true),
+                Err(e) => Err(e),
+            }
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
         }
     }
