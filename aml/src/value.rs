@@ -264,11 +264,7 @@ impl AmlValue {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
             AmlValue::Integer(value) => Ok(*value != 0),
-            AmlValue::Field{ .. } => match self.as_integer(context) {
-                Ok(0) => Ok(false),
-                Ok(_) => Ok(true),
-                Err(e) => Err(e),
-            }
+            AmlValue::Field{ .. } => Ok(self.as_integer(context)? != 0),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
         }
     }
