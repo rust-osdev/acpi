@@ -141,8 +141,12 @@ where
             pkg_length()
                 .then(term_arg())
                 .feed(|(length, predicate_arg)| {
-                    take_to_end_of_pkglength(length)
-                        .map(move |then_branch| Ok((predicate_arg.as_bool()?, then_branch)))
+                    take_to_end_of_pkglength(length).map_with_context(move |then_branch, context| {
+                        match predicate_arg.as_bool(context) {
+                            Ok(pred_val) => (Ok((pred_val, then_branch)), context),
+                            Err(e) => (Err(Propagate::Err(e)), context),
+                        }
+                    })
                 })
                 .then(choice!(
                     maybe_else_opcode
@@ -276,7 +280,7 @@ where
                         .map(move |body| Ok((first_predicate.clone(), predicate_stream, body)))
                 })
                 .map_with_context(|(first_predicate, predicate_stream, body), mut context| {
-                    if !try_with_context!(context, first_predicate.as_bool()) {
+                    if !try_with_context!(context, first_predicate.as_bool(context)) {
                         return (Ok(()), context);
                     }
 
@@ -307,7 +311,7 @@ where
                             {
                                 Ok((_, new_context, result)) => {
                                     context = new_context;
-                                    try_with_context!(context, result.as_bool())
+                                    try_with_context!(context, result.as_bool(context))
                                 }
                                 Err((_, context, err)) => return (Err(err), context),
                             };
