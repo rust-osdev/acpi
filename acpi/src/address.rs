@@ -16,6 +16,16 @@ pub(crate) struct RawGenericAddress {
     pub address: u64,
 }
 
+impl RawGenericAddress {
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.address_space == 0
+            && self.bit_width == 0
+            && self.bit_offset == 0
+            && self.access_size == 0
+            && self.address == 0
+    }
+}
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum AddressSpace {
     SystemMemory,
