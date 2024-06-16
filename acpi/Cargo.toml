@@ -11,6 +11,7 @@ edition = "2021"
 
 [dependencies]
 bit_field = "0.10.2"
+bitflags = "2.5.0"
 log = "0.4.20"
 
 [features]
