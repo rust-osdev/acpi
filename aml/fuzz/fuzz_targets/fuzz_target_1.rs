@@ -11,7 +11,7 @@ fuzz_target!(|data: &[u8]| {
         simplelog::SimpleLogger::init(simplelog::LevelFilter::Trace, simplelog::Config::default()).unwrap();
     }
 
-    let mut context = aml::AmlContext::new(Box::new(Handler), false, aml::DebugVerbosity::None);
+    let mut context = aml::AmlContext::new(Box::new(Handler), aml::DebugVerbosity::None);
     let _ = context.parse_table(data);
 });
 
@@ -62,4 +62,7 @@ impl aml::Handler for Handler {
     fn write_pci_u8(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u8) {}
     fn write_pci_u16(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u16) {}
     fn write_pci_u32(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u32) {}
+
+    fn stall(&self, _microseconds: u64) {}
+    fn sleep(&self, _milliseconds: u64) {}
 }
