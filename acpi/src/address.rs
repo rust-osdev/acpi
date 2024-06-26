@@ -2,7 +2,6 @@
 //! in a wide range of address spaces.
 
 use crate::AcpiError;
-use core::convert::TryFrom;
 
 /// This is the raw form of a Generic Address Structure, and follows the layout found in the ACPI tables. It does
 /// not form part of the public API, and should be turned into a `GenericAddress` for most use-cases.
