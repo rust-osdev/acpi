@@ -35,7 +35,7 @@
 //! combinator patterns to express the parse.
 
 #![no_std]
-#![feature(decl_macro)]
+#![feature(decl_macro, try_with_capacity)]
 
 extern crate alloc;
 

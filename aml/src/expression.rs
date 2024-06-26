@@ -198,6 +198,14 @@ where
                         return (Err(Propagate::Err(AmlError::MalformedBuffer)), context);
                     }
 
+                    /*
+                     * `Vec` has a maximum capacity of `isize::MAX` **bytes**. If pathological AML
+                     * does try to create a gigantic buffer, we don't want to crash.
+                     */
+                    if buffer_size > (isize::MAX as usize) {
+                        return (Err(Propagate::Err(AmlError::MalformedBuffer)), context);
+                    }
+
                     let mut buffer = vec![0; buffer_size];
                     buffer[0..bytes.len()].copy_from_slice(bytes);
                     (Ok(buffer), context)
