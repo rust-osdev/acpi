@@ -37,6 +37,8 @@ pub enum LevelType {
     /// A level of this type is created at the same path as the name of a method when it is invoked. It can be
     /// used by the method to store local variables.
     MethodLocals,
+    /// A level that is declared as an External object
+    External,
 }
 
 #[derive(Clone, Debug)]
@@ -96,19 +98,41 @@ impl Namespace {
          * try and recreate the root scope. Instead of handling this specially in the parser, we just
          * return nicely here.
          */
-        if path != AmlName::root() {
-            let (level, last_seg) = self.get_level_for_path_mut(&path)?;
-
-            /*
-             * If the level has already been added, we don't need to add it again. The parser can try to add it
-             * multiple times if the ASL contains multiple blocks that add to the same scope/device.
-             */
-            if !level.children.contains_key(&last_seg) {
-                level.children.insert(last_seg, NamespaceLevel::new(typ));
-            }
+        if path == AmlName::root() {
+            return Ok(());
         }
 
-        Ok(())
+        let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+
+        match level.children.get_mut(&last_seg) {
+            Some(child) if typ == LevelType::External || typ == LevelType::Scope => {
+                Ok(())
+            }
+            Some(child) if child.typ == LevelType::External || child.typ == LevelType::Scope => {
+                child.typ = typ;
+                Ok(())
+            }
+            Some(child) => {
+                Err(AmlError::NameCollision(path))
+            }
+            None => {
+                level.children.insert(last_seg, NamespaceLevel::new(typ));
+                Ok(())
+            }
+        }
+    }
+
+    /// Add an External level to the namespace. The parent level may not exist, so recursively
+    /// visit parents first and add as needed.
+    /// Expects that add_level with not error when the level exists.
+    pub fn add_external_levels(&mut self, path: AmlName) -> Result<(), AmlError> {
+        assert!(path.is_absolute());
+        if path == AmlName::root() {
+            return Ok(());
+        }
+
+        self.add_external_levels(path.parent()?)?;
+        self.add_level(path, LevelType::External)
     }
 
     pub fn remove_level(&mut self, path: AmlName) -> Result<(), AmlError> {
@@ -134,14 +158,38 @@ impl Namespace {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
-        let handle = self.next_handle;
-        self.next_handle.increment();
-        self.object_map.insert(handle, value);
-
-        let (level, last_seg) = self.get_level_for_path_mut(&path)?;
-        match level.values.insert(last_seg, handle) {
-            None => Ok(handle),
-            Some(_) => Err(AmlError::NameCollision(path)),
+        // Check if the name already exists in the namespace, and whether it is an External
+        let (level, last_seg) = self.get_level_for_path(&path)?;
+        match level.values.get(&last_seg) {
+            Some(old_handle) if matches!(value, AmlValue::External) => {
+                Ok(old_handle.clone())
+            }
+            Some(old_handle) => {
+                match self.object_map.get(old_handle) {
+                    Some(old_value) if matches!(old_value, AmlValue::External) => {
+                        let handle = old_handle.clone();
+                        let _ = self.object_map.insert(handle, value);
+                        Ok(handle)
+                    }
+                    Some(old_value) => {
+                        Err(AmlError::NameCollision(path))
+                    }
+                    _ => {
+                        Err(AmlError::FatalError)
+                    }
+                }
+            }
+            None => {
+                let handle = self.next_handle;
+                self.next_handle.increment();
+                self.object_map.insert(handle, value);
+                
+                let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+                match level.values.insert(last_seg, handle) {
+                    None => Ok(handle),
+                    Some(_) => Err(AmlError::NameCollision(path)),
+                }
+            }
         }
     }
 
@@ -688,6 +736,33 @@ mod tests {
         assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
         assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
         assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap(), LevelType::Scope), Ok(()));
+
+        /*
+         * Add some Externals, check for type corrections (allowed) and collisions (disallowed).
+         */
+        assert_eq!(namespace.add_external_levels(AmlName::from_str("\\L1.L2.L3").unwrap()), Ok(()));
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::External).is_ok());
+        // Allow attempted adding levels that are already created
+        assert_eq!(namespace.add_external_levels(AmlName::from_str("\\L1.L2").unwrap()), Ok(()));
+        // Created value is still present - levels were not changed
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::External));
+        // Scope and External do not cause a collision
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Scope), Ok(()));
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::External));
+        // Change level.typ to Device
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Device), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Scope), Ok(()));
+        assert_eq!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::External), Ok(()));
+        // Change Device to Processor is not allowed
+        assert!(namespace.add_level(AmlName::from_str("\\L1.L2.L3").unwrap(), LevelType::Processor).is_err());
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::External));
+        // Change value from External to something more specific
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::Integer(6)).is_ok());
+        // External does not cause collision
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::External).is_ok());
+        assert!(crudely_cmp_values(namespace.get_by_path(&AmlName::from_str("\\L1.L2.L3.L4").unwrap()).unwrap(), &AmlValue::Integer(6)));
+        // Change value from Integer to Boolean causes a collision
+        assert!(namespace.add_value(AmlName::from_str("\\L1.L2.L3.L4").unwrap(), AmlValue::Boolean(true)).is_err());
 
         /*
          * Add some things to the scopes to query later.
