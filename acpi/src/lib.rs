@@ -58,6 +58,7 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
+#![feature(ptr_from_ref)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
