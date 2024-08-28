@@ -184,6 +184,12 @@ where
         unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
 
+    pub unsafe fn search_for_rsdp_uefi(handler: H, system_table: usize) -> AcpiResult<Self> {
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_uefi(handler.clone(), system_table)? };
+        // Safety: RSDP has been validated from `Rsdp::search_for_on_uefi`
+        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
+    }
+
     /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
     /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
