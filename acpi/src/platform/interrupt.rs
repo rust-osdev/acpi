@@ -117,6 +117,88 @@ where
 }
 
 #[derive(Debug)]
+pub struct Gicc {
+    pub cpu_interface_number: u32,
+    pub acpi_processor_uid: u32,
+    pub flags: u32,
+
+    pub parking_version: u32,
+    pub performance_interrupt_gsiv: u32,
+    pub parked_address: u64,
+
+    pub physical_base_address: u64,
+    pub gicv: u64,
+    pub gich: u64,
+    pub vgic_maintenance_interrupt: u32,
+    pub gicr_base_address: u64,
+
+    pub mpidr: u64,
+    pub processor_power_efficiency_class: u8,
+    pub spe_overflow_interrupt: u16,
+}
+
+#[derive(Debug)]
+pub struct Gicd {
+    pub id: u32,
+    pub physical_base_address: u64,
+    pub gic_version: u8,
+}
+
+#[derive(Debug)]
+pub struct GicMsiFrame {
+    pub id: u32,
+    pub physical_base_address: u64,
+    pub spi_count_base_select: bool,
+    pub spi_count: u16,
+    pub spi_base: u16,
+}
+
+#[derive(Debug)]
+pub struct Gicr {
+    pub base_address: u64,
+    pub length: u32,
+}
+
+#[derive(Debug)]
+pub struct GicIts {
+    pub id: u32,
+    pub physical_base_address: u64,
+}
+
+#[derive(Debug)]
+pub struct Gic<'a, A>
+where
+    A: Allocator,
+{
+    pub gicc: ManagedSlice<'a, Gicc, A>,
+    pub gicd: ManagedSlice<'a, Gicd, A>,
+    pub gic_msi_frame: ManagedSlice<'a, GicMsiFrame, A>,
+    pub gicr: ManagedSlice<'a, Gicr, A>,
+    pub gic_its: ManagedSlice<'a, GicIts, A>,
+}
+
+impl<'a, A> Gic<'a, A>
+where
+    A: Allocator,
+{
+    pub(crate) fn new(
+        gicc: ManagedSlice<'a, Gicc, A>,
+        gicd: ManagedSlice<'a, Gicd, A>,
+        gic_msi_frame: ManagedSlice<'a, GicMsiFrame, A>,
+        gicr: ManagedSlice<'a, Gicr, A>,
+        gic_its: ManagedSlice<'a, GicIts, A>,
+    ) -> Self {
+        Self {
+            gicc,
+            gicd,
+            gic_msi_frame,
+            gicr,
+            gic_its,
+        }
+    }
+}
+
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum InterruptModel<'a, A>
 where
@@ -130,4 +212,6 @@ where
     /// XAPIC, or X2APIC). These are likely to be found on x86 and x86_64 systems and are made up of a Local APIC
     /// for each core and one or more I/O APICs to handle external interrupts.
     Apic(Apic<'a, A>),
+
+    Gic(Gic<'a, A>),
 }

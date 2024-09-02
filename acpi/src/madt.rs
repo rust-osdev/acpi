@@ -1,6 +1,5 @@
 use crate::{
-    sdt::{ExtendedField, SdtHeader, Signature},
-    AcpiTable,
+    sdt::{ExtendedField, SdtHeader, Signature}, AcpiTable
 };
 use bit_field::BitField;
 use core::{marker::PhantomData, mem};
@@ -9,7 +8,7 @@ use core::{marker::PhantomData, mem};
 use crate::{
     platform::{
         interrupt::{InterruptModel, Polarity, TriggerMode},
-        ProcessorInfo,
+        processor::ProcessorInfo,
     },
     AcpiResult,
 };
@@ -45,6 +44,17 @@ unsafe impl AcpiTable for Madt {
 
     fn header(&self) -> &SdtHeader {
         &self.header
+    }
+}
+
+use core::fmt;
+impl fmt::Display for Madt {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "MADT: {:#x?}", self.header)?;
+        for entry in self.entries() {
+            write!(f, "\n{:#x?}", entry)?
+        }
+        Ok(())
     }
 }
 
@@ -84,7 +94,7 @@ impl Madt {
                 MadtEntry::GicMsiFrame(_) |
                 MadtEntry::GicRedistributor(_) |
                 MadtEntry::GicInterruptTranslationService(_) => {
-                    unimplemented!();
+                    return self.parse_gic_model_in(allocator);
                 }
 
                 MadtEntry::MultiprocessorWakeup(_) => ()
@@ -113,8 +123,10 @@ impl Madt {
                     NmiProcessor,
                     NmiSource,
                 },
-                Processor,
-                ProcessorState,
+                processor::{
+                    X86Processor,
+                    ProcessorState,
+                }, 
             },
             AcpiError,
         };
@@ -145,14 +157,14 @@ impl Madt {
         let mut nmi_sources = crate::ManagedSlice::new_in(nmi_source_count, allocator.clone())?;
         let mut local_apic_nmi_lines = crate::ManagedSlice::new_in(local_nmi_line_count, allocator.clone())?;
         let mut application_processors =
-            crate::ManagedSlice::new_in(processor_count.saturating_sub(1), allocator)?; // Subtract one for the BSP
-        let mut boot_processor = None;
+            crate::ManagedSlice::new_in(processor_count, allocator)?; // Subtract one for the BSP
+        let mut found_bsp = false;
 
         io_apic_count = 0;
         iso_count = 0;
         nmi_source_count = 0;
         local_nmi_line_count = 0;
-        processor_count = 0;
+        processor_count = 1;
 
         for entry in self.entries() {
             match entry {
@@ -161,7 +173,7 @@ impl Madt {
                      * The first processor is the BSP. Subsequent ones are APs. If we haven't found
                      * the BSP yet, this must be it.
                      */
-                    let is_ap = boot_processor.is_some();
+                    let is_ap = found_bsp;
                     let is_disabled = !{ entry.flags }.get_bit(0);
 
                     let state = match (is_ap, is_disabled) {
@@ -170,7 +182,7 @@ impl Madt {
                         (false, false) => ProcessorState::Running,
                     };
 
-                    let processor = Processor {
+                    let processor = X86Processor {
                         processor_uid: entry.processor_id as u32,
                         local_apic_id: entry.apic_id as u32,
                         state,
@@ -181,12 +193,13 @@ impl Madt {
                         application_processors[processor_count] = processor;
                         processor_count += 1;
                     } else {
-                        boot_processor = Some(processor);
+                        application_processors[0] = processor;
+                        found_bsp = true;
                     }
                 }
 
                 MadtEntry::LocalX2Apic(entry) => {
-                    let is_ap = boot_processor.is_some();
+                    let is_ap = found_bsp;
                     let is_disabled = !{ entry.flags }.get_bit(0);
 
                     let state = match (is_ap, is_disabled) {
@@ -195,7 +208,7 @@ impl Madt {
                         (false, false) => ProcessorState::Running,
                     };
 
-                    let processor = Processor {
+                    let processor = X86Processor {
                         processor_uid: entry.processor_uid,
                         local_apic_id: entry.x2apic_id,
                         state,
@@ -206,7 +219,8 @@ impl Madt {
                         application_processors[processor_count] = processor;
                         processor_count += 1;
                     } else {
-                        boot_processor = Some(processor);
+                        application_processors[0] = processor;
+                        found_bsp = true;
                     }
                 }
 
@@ -297,8 +311,141 @@ impl Madt {
                 nmi_sources,
                 self.supports_8259(),
             )),
-            Some(ProcessorInfo::new(boot_processor.unwrap(), application_processors)),
+            Some(ProcessorInfo::new_x86(application_processors)),
         ))
+    }
+
+    fn parse_gic_model_in<'a, A>(
+        &self,
+        allocator: A,
+    ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
+    where
+        A: core::alloc::Allocator + Clone,
+    {
+        use crate::{
+            platform::{
+                interrupt::{
+                    Gic,
+                    Gicd,
+                    Gicc,
+                    GicMsiFrame,
+                    Gicr,
+                    GicIts,
+                },
+                processor::Arm64Processor,
+            },
+            AcpiError,
+        };
+
+        // need to count the number of each type of entry
+
+        let mut gicc_count = 0;
+        let mut gicd_count = 0;
+        let mut gic_msi_frame_count = 0;
+        let mut gicr_count = 0;
+        let mut gic_its_count = 0;
+        let mut processor_count = 0;
+
+        for entry in self.entries() {
+            match entry {
+                MadtEntry::Gicc(_) => {gicc_count += 1; processor_count += 1;},
+                MadtEntry::Gicd(_) => gicd_count += 1,
+                MadtEntry::GicMsiFrame(_) => gic_msi_frame_count += 1,
+                MadtEntry::GicRedistributor(_) => gicr_count += 1,
+                MadtEntry::GicInterruptTranslationService(_) => gic_its_count += 1,
+                _ => (),
+            }
+        }
+
+        let mut gicc: crate::ManagedSlice<Gicc, A> = crate::ManagedSlice::new_in(gicc_count, allocator.clone())?;
+        let mut gicd: crate::ManagedSlice<Gicd, A> = crate::ManagedSlice::new_in(gicd_count, allocator.clone())?;
+        let mut gic_msi_frame: crate::ManagedSlice<GicMsiFrame, A> = crate::ManagedSlice::new_in(gic_msi_frame_count, allocator.clone())?;
+        let mut gicr: crate::ManagedSlice<Gicr, A> = crate::ManagedSlice::new_in(gicr_count, allocator.clone())?;
+        let mut gic_its: crate::ManagedSlice<GicIts, A> = crate::ManagedSlice::new_in(gic_its_count, allocator.clone())?;
+        let mut processors: crate::ManagedSlice<Arm64Processor, A> = crate::ManagedSlice::new_in(processor_count, allocator.clone())?;
+        // let mut boot_processor = None;
+
+        gicc_count = 0;
+        gicd_count = 0;
+        gic_msi_frame_count = 0;
+        gicr_count = 0;
+        gic_its_count = 0;
+        processor_count = 0;
+
+        for entry in self.entries() {
+            match entry {
+                MadtEntry::Gicc(entry) => {
+                    // TODO the ProcessorInfo struct is not implemented for aaarch64 yet.
+                    // TODO need to implement the ProcessorInfo.
+                    gicc[gicc_count] = Gicc {
+                        cpu_interface_number: entry.cpu_interface_number,
+                        acpi_processor_uid: entry.processor_uid,
+                        flags: entry.flags,
+                        parking_version: entry.parking_protocol_version,
+                        performance_interrupt_gsiv: entry.performance_interrupt_gsiv,
+                        parked_address: entry.parked_address,
+                        physical_base_address: entry.gic_registers_address,
+                        gicv: entry.gic_virtual_registers_address,
+                        gich: entry.gic_hypervisor_registers_address,
+                        vgic_maintenance_interrupt: entry.vgic_maintenance_interrupt,
+                        gicr_base_address: entry.gicr_base_address,
+                        mpidr: entry.mpidr,
+                        processor_power_efficiency_class: entry.processor_power_efficiency_class,
+                        spe_overflow_interrupt: entry.spe_overflow_interrupt,
+                    };
+                    processors[processor_count] = Arm64Processor {
+                        processor_uid: entry.processor_uid as u32,
+                        mpidr: entry.mpidr,
+                        gicc_base_address: entry.gic_registers_address,
+                    };
+                    gicc_count += 1;
+                    processor_count += 1;
+                }
+                MadtEntry::Gicd(entry) => {
+                    gicd[gicd_count] = Gicd {
+                        id: entry.gic_id,
+                        physical_base_address: entry.physical_base_address,
+                        gic_version: entry.gic_version,
+                    };
+                    gicd_count += 1;
+                }
+                MadtEntry::GicMsiFrame(entry) => {
+                    gic_msi_frame[gic_msi_frame_count] = GicMsiFrame {
+                        id: entry.frame_id,
+                        physical_base_address: entry.physical_base_address,
+                        spi_count_base_select: { entry.flags }.get_bit(0),
+                        spi_count: entry.spi_count,
+                        spi_base: entry.spi_base,
+                    };
+                    gic_msi_frame_count += 1;
+                }
+                MadtEntry::GicRedistributor(entry) => {
+                    gicr[gicr_count] = Gicr {
+                        base_address: entry.discovery_range_base_address,
+                        length: entry.discovery_range_length,
+                    };
+                    gicr_count += 1;
+                }
+                MadtEntry::GicInterruptTranslationService(entry) => {
+                    gic_its[gic_its_count] = GicIts {
+                        id: entry.id,
+                        physical_base_address: entry.physical_base_address,
+                    };
+                    gic_its_count += 1;
+                }
+                _ => {
+                    return Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry));
+                },
+            }
+        }
+
+        Ok((InterruptModel::Gic(Gic::new(
+            gicc,
+            gicd,
+            gic_msi_frame,
+            gicr,
+            gic_its,
+        )), Some(ProcessorInfo::new_arm64(processors))))
     }
 
     pub fn entries(&self) -> MadtEntryIter {
