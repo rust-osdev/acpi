@@ -113,14 +113,35 @@ fn main() -> std::io::Result<()> {
             _ => (passed, failed),
         });
         if passed + failed > 0 {
-            println!("Compiled {} ASL files: {} passed, {} failed.", passed + failed, passed, failed);
+            println!(
+                "Compiled {} ASL files: {}{} passed{}, {}{} failed{}",
+                passed + failed,
+                termion::color::Fg(termion::color::Green),
+                passed,
+                termion::style::Reset,
+                termion::color::Fg(termion::color::Red),
+                failed,
+                termion::style::Reset
+            );
             println!();
         }
     }
 
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+    enum TestResult {
+        /// The test passed.
+        Pass,
+        /// The test ASL failed compilation by `iasl`.
+        CompileFail,
+        /// Our interpreter failed to parse the resulting AML.
+        ParseFail,
+        // TODO: should we do this??
+        NotCompiled,
+    }
+
     // Make a list of the files we have processed, and skip them if we see them again
     let mut dedup_list: HashSet<PathBuf> = HashSet::new();
-    let summaries: RefCell<HashSet<(PathBuf, &str)>> = RefCell::new(HashSet::new());
+    let mut summaries: HashSet<(PathBuf, TestResult)> = HashSet::new();
     // Filter down to the final list of AML files
     let aml_files = compiled_files
         .iter()
@@ -129,11 +150,11 @@ fn main() -> std::io::Result<()> {
             CompilationOutcome::Newer(path) => Some(path.clone()),
             CompilationOutcome::Succeeded(path) => Some(path.clone()),
             CompilationOutcome::Failed(path) => {
-                summaries.borrow_mut().insert((path.clone(), "COMPILE FAILED"));
+                summaries.insert((path.clone(), TestResult::CompileFail));
                 None
             }
             CompilationOutcome::NotCompiled(path) => {
-                summaries.borrow_mut().insert((path.clone(), "NotCompiled"));
+                summaries.insert((path.clone(), TestResult::NotCompiled));
                 None
             }
             CompilationOutcome::Ignored => None,
@@ -145,16 +166,20 @@ fn main() -> std::io::Result<()> {
                 dedup_list.insert(path.clone());
                 true
             }
-        });
+        })
+        .collect::<Vec<_>>();
 
     let combined_test = matches.get_flag("combined");
     let mut context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
 
-    let (passed, failed) = aml_files.fold((0, 0), |(passed, failed), file_entry| {
+    let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry);
         std::io::stdout().flush().unwrap();
 
-        let mut file = File::open(&file_entry).unwrap();
+        let Ok(mut file) = File::open(&file_entry) else {
+            summaries.insert((file_entry, TestResult::CompileFail));
+            return (passed, failed + 1);
+        };
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
@@ -168,14 +193,14 @@ fn main() -> std::io::Result<()> {
             Ok(()) => {
                 println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
                 println!("Namespace: {:#?}", context.namespace);
-                summaries.borrow_mut().insert((file_entry, "PASS"));
+                summaries.insert((file_entry, TestResult::Pass));
                 (passed + 1, failed)
             }
 
             Err(err) => {
                 println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
                 println!("Namespace: {:#?}", context.namespace);
-                summaries.borrow_mut().insert((file_entry, "PARSE FAIL"));
+                summaries.insert((file_entry, TestResult::ParseFail));
                 (passed, failed + 1)
             }
         }
@@ -183,10 +208,32 @@ fn main() -> std::io::Result<()> {
 
     // Print summaries
     println!("Summary:");
-    for (file, status) in summaries.borrow().iter() {
-        println!("{:<50}: {}", file.to_str().unwrap(), status);
+    for (file, status) in summaries.iter() {
+        let status = match status {
+            TestResult::Pass => {
+                format!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset)
+            }
+            TestResult::CompileFail => {
+                format!("{}COMPILE FAIL{}", termion::color::Fg(termion::color::Red), termion::style::Reset)
+            }
+            TestResult::ParseFail => {
+                format!("{}PARSE FAIL{}", termion::color::Fg(termion::color::Red), termion::style::Reset)
+            }
+            TestResult::NotCompiled => {
+                format!("{}NOT COMPILED{}", termion::color::Fg(termion::color::Red), termion::style::Reset)
+            }
+        };
+        println!("\t{:<50}: {}", file.to_str().unwrap(), status);
     }
-    println!("\nTest results:\n\tpassed:{}\n\tfailed:{}", passed, failed);
+    println!(
+        "\nTest results: {}{} passed{}, {}{} failed{}",
+        termion::color::Fg(termion::color::Green),
+        passed,
+        termion::style::Reset,
+        termion::color::Fg(termion::color::Red),
+        failed,
+        termion::style::Reset
+    );
     Ok(())
 }
 
