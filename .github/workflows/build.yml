@@ -40,8 +40,8 @@ jobs:
         target: ${{ matrix.target }}
         components: llvm-tools-preview
         
-    - name: Build rsdp, acpi, and aml
-      run: cargo build -p rsdp -p acpi -p aml --target $TARGET
+    - name: Build crates
+      run: cargo build -p acpi -p aml --target $TARGET
 
   test:
     runs-on: ubuntu-latest
