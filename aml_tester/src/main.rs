@@ -12,7 +12,8 @@
 use aml::{AmlContext, DebugVerbosity};
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
-    collections::HashSet,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
     ffi::OsStr,
     fs::{self, File},
     io::{Read, Write},
@@ -30,10 +31,7 @@ enum CompilationOutcome {
 }
 
 fn main() -> std::io::Result<()> {
-    log::set_logger(&Logger).unwrap();
-    log::set_max_level(log::LevelFilter::Trace);
-
-    let matches = clap::Command::new("aml_tester")
+    let mut cmd = clap::Command::new("aml_tester")
         .version("v0.1.0")
         .author("Isaac Woods")
         .about("Compiles and tests ASL files")
@@ -41,8 +39,15 @@ fn main() -> std::io::Result<()> {
         .arg(Arg::new("reset").long("reset").action(ArgAction::SetTrue).help("Clear namespace after each file"))
         .arg(Arg::new("path").short('p').long("path").required(false).action(ArgAction::Set).value_name("DIR"))
         .arg(Arg::new("files").action(ArgAction::Append).value_name("FILE.{asl,aml}"))
-        .group(ArgGroup::new("files_list").args(["path", "files"]).required(true))
-        .get_matches();
+        .group(ArgGroup::new("files_list").args(["path", "files"]).required(true));
+    if std::env::args().count() <= 1 {
+        cmd.print_help()?;
+        return Ok(());
+    }
+    log::set_logger(&Logger).unwrap();
+    log::set_max_level(log::LevelFilter::Trace);
+
+    let matches = cmd.get_matches();
 
     // Get an initial list of files - may not work correctly on non-UTF8 OsString
     let files: Vec<String> = if matches.contains_id("path") {
@@ -110,7 +115,7 @@ fn main() -> std::io::Result<()> {
 
     // Make a list of the files we have processed, and skip them if we see them again
     let mut dedup_list: HashSet<PathBuf> = HashSet::new();
-
+    let summaries: RefCell<HashSet<(PathBuf, &str)>> = RefCell::new(HashSet::new());
     // Filter down to the final list of AML files
     let aml_files = compiled_files
         .iter()
@@ -118,9 +123,15 @@ fn main() -> std::io::Result<()> {
             CompilationOutcome::IsAml(path) => Some(path.clone()),
             CompilationOutcome::Newer(path) => Some(path.clone()),
             CompilationOutcome::Succeeded(path) => Some(path.clone()),
-            CompilationOutcome::Ignored | CompilationOutcome::Failed(_) | CompilationOutcome::NotCompiled(_) => {
+            CompilationOutcome::Failed(path) => {
+                summaries.borrow_mut().insert((path.clone(), "COMPILE FAILED"));
                 None
             }
+            CompilationOutcome::NotCompiled(path) => {
+                summaries.borrow_mut().insert((path.clone(), "NotCompiled"));
+                None
+            }
+            CompilationOutcome::Ignored => None,
         })
         .filter(|path| {
             if dedup_list.contains(path) {
@@ -138,7 +149,7 @@ fn main() -> std::io::Result<()> {
         print!("Testing AML file: {:?}... ", file_entry);
         std::io::stdout().flush().unwrap();
 
-        let mut file = File::open(file_entry).unwrap();
+        let mut file = File::open(&file_entry).unwrap();
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
@@ -152,18 +163,25 @@ fn main() -> std::io::Result<()> {
             Ok(()) => {
                 println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
                 println!("Namespace: {:#?}", context.namespace);
+                summaries.borrow_mut().insert((file_entry, "PASS"));
                 (passed + 1, failed)
             }
 
             Err(err) => {
                 println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
                 println!("Namespace: {:#?}", context.namespace);
+                summaries.borrow_mut().insert((file_entry, "PARSE FAIL"));
                 (passed, failed + 1)
             }
         }
     });
 
-    println!("Test results: {} passed, {} failed", passed, failed);
+    // Print summaries
+    println!("Summary:");
+    for (file, status) in summaries.borrow().iter() {
+        println!("{:<50}: {}", file.to_str().unwrap(), status);
+    }
+    println!("\nTest results:\n\tpassed:{}\n\tfailed:{}", passed, failed);
     Ok(())
 }
 
