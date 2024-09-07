@@ -35,8 +35,13 @@ fn main() -> std::io::Result<()> {
         .version("v0.1.0")
         .author("Isaac Woods")
         .about("Compiles and tests ASL files")
-        .arg(Arg::new("no_compile").long("no-compile").action(ArgAction::SetTrue).help("Don't compile asl to aml"))
-        .arg(Arg::new("reset").long("reset").action(ArgAction::SetTrue).help("Clear namespace after each file"))
+        .arg(Arg::new("no_compile").long("no-compile").action(ArgAction::SetTrue).help("Don't compile ASL to AML"))
+        .arg(
+            Arg::new("combined")
+                .long("combined")
+                .action(ArgAction::SetTrue)
+                .help("Don't clear the namespace between tests"),
+        )
         .arg(Arg::new("path").short('p').long("path").required(false).action(ArgAction::Set).value_name("DIR"))
         .arg(Arg::new("files").action(ArgAction::Append).value_name("FILE.{asl,aml}"))
         .group(ArgGroup::new("files_list").args(["path", "files"]).required(true));
@@ -142,7 +147,7 @@ fn main() -> std::io::Result<()> {
             }
         });
 
-    let user_wants_reset = matches.get_flag("reset");
+    let combined_test = matches.get_flag("combined");
     let mut context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
 
     let (passed, failed) = aml_files.fold((0, 0), |(passed, failed), file_entry| {
@@ -155,7 +160,7 @@ fn main() -> std::io::Result<()> {
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
 
-        if user_wants_reset {
+        if !combined_test {
             context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
         }
 
