@@ -8,4 +8,4 @@ edition = "2018"
 clap = "4"
 termion = "1"
 log = "0.4"
-aml = { path = "../aml" }
+aml = { path = "../../aml" }

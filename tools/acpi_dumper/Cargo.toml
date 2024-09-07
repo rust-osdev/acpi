@@ -1,5 +1,5 @@
 [package]
-name = "acpi-dumper"
+name = "acpi_dumper"
 version = "0.0.0"
 publish = false
 authors = ["Isaac Woods", "Matt Taylor"]
