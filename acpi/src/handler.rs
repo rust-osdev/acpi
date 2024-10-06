@@ -1,4 +1,4 @@
-use core::{fmt, ops::Deref, ptr::NonNull};
+use core::{fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
 /// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `size_of::<T>()`
@@ -65,6 +65,10 @@ where
         self.virtual_start
     }
 
+    pub fn get(&self) -> Pin<&T> {
+        unsafe { Pin::new_unchecked(self.virtual_start.as_ref()) }
+    }
+
     pub fn region_length(&self) -> usize {
         self.region_length
     }
@@ -82,6 +86,7 @@ unsafe impl<H: AcpiHandler + Send, T: Send> Send for PhysicalMapping<H, T> {}
 
 impl<H, T> Deref for PhysicalMapping<H, T>
 where
+    T: Unpin,
     H: AcpiHandler,
 {
     type Target = T;
