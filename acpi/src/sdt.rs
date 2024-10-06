@@ -197,7 +197,7 @@ impl SdtHeader {
 
         // This is usually redundant compared to simply calling `validate_checksum` but respects custom
         // `AcpiTable::validate` implementations.
-        table_mapping.validate()?;
+        table_mapping.get().validate()?;
 
         Ok(table_mapping)
     }
