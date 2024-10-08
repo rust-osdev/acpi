@@ -375,8 +375,6 @@ impl Madt {
         for entry in self.entries() {
             match entry {
                 MadtEntry::Gicc(entry) => {
-                    // TODO the ProcessorInfo struct is not implemented for aaarch64 yet.
-                    // TODO need to implement the ProcessorInfo.
                     gicc[gicc_count] = Gicc {
                         cpu_interface_number: entry.cpu_interface_number,
                         acpi_processor_uid: entry.processor_uid,
@@ -394,7 +392,7 @@ impl Madt {
                         spe_overflow_interrupt: entry.spe_overflow_interrupt,
                     };
                     processors[processor_count] = Arm64Processor {
-                        processor_uid: entry.processor_uid as u32,
+                        processor_uid: entry.processor_uid,
                         mpidr: entry.mpidr,
                         gicc_base_address: entry.gic_registers_address,
                     };
