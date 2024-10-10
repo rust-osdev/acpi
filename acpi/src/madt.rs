@@ -1,9 +1,10 @@
 use crate::{
     sdt::{ExtendedField, SdtHeader, Signature},
+    AcpiError,
     AcpiTable,
 };
 use bit_field::BitField;
-use core::{marker::PhantomData, mem};
+use core::{marker::PhantomData, mem, time::Duration};
 
 #[cfg(feature = "allocator_api")]
 use crate::{
@@ -21,6 +22,7 @@ pub enum MadtError {
     InvalidLocalNmiLine,
     MpsIntiInvalidPolarity,
     MpsIntiInvalidTriggerMode,
+    WakeupApsTimeout,
 }
 
 /// Represents the MADT - this contains the MADT header fields. You can then iterate over a `Madt`
@@ -48,7 +50,55 @@ unsafe impl AcpiTable for Madt {
     }
 }
 
+pub type PhysToVirtFn = fn(u64) -> u64;
+
 impl Madt {
+    pub fn wakeup_aps(
+        &self,
+        apic_id: u32,
+        wakeup_vector: u64,
+        phys_to_virt: PhysToVirtFn,
+    ) -> Result<(), AcpiError> {
+        let mailbox_addr = self.get_mpwk_mailbox_addr()?;
+        unsafe {
+            let mailbox = &mut *((phys_to_virt(mailbox_addr)) as *mut MultiprocessorWakeupMailbox);
+
+            mailbox.command = MpProtectedModeWakeupCommand::Noop as u16;
+
+            // Fill the mailbox
+            mailbox.apic_id = apic_id;
+            mailbox.wakeup_vector = wakeup_vector;
+            mailbox.command = MpProtectedModeWakeupCommand::Wakeup as u16;
+
+            // Wait to join
+            let timeout_loops = timeout_to_loops(Duration::from_secs(1));
+            let mut loops = 0;
+            let mut command = MpProtectedModeWakeupCommand::Wakeup;
+            while command != MpProtectedModeWakeupCommand::Noop {
+                if loops >= timeout_loops {
+                    return Err(AcpiError::InvalidMadt(MadtError::WakeupApsTimeout));
+                }
+                // Wait for the command to be processed
+                command = mailbox.command.into();
+                core::hint::spin_loop();
+                loops += 1;
+            }
+            Ok(())
+        }
+    }
+
+    pub fn get_mpwk_mailbox_addr(&self) -> Result<u64, AcpiError> {
+        for entry in self.entries() {
+            match entry {
+                MadtEntry::MultiprocessorWakeup(entry) => {
+                    return Ok(entry.mailbox_address);
+                }
+                _ => {}
+            }
+        }
+        Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry))
+    }
+
     #[cfg(feature = "allocator_api")]
     pub fn parse_interrupt_model_in<'a, A>(
         &self,
@@ -630,6 +680,36 @@ pub struct MultiprocessorWakeupEntry {
     pub mailbox_address: u64,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum MpProtectedModeWakeupCommand {
+    Noop = 0,
+    Wakeup = 1,
+    Sleep = 2,
+    AcceptPages = 3,
+}
+
+impl From<u16> for MpProtectedModeWakeupCommand {
+    fn from(value: u16) -> Self {
+        match value {
+            0 => MpProtectedModeWakeupCommand::Noop,
+            1 => MpProtectedModeWakeupCommand::Wakeup,
+            2 => MpProtectedModeWakeupCommand::Sleep,
+            3 => MpProtectedModeWakeupCommand::AcceptPages,
+            _ => panic!("Invalid value for MpProtectedModeWakeupCommand"),
+        }
+    }
+}
+
+#[repr(C, packed)]
+pub struct MultiprocessorWakeupMailbox {
+    command: u16,
+    _reserved: u16,
+    apic_id: u32,
+    wakeup_vector: u64,
+    reserved_for_os: [u64; 254],
+    reserved_for_firmware: [u64; 256],
+}
+
 #[cfg(feature = "allocator_api")]
 fn parse_mps_inti_flags(flags: u16) -> crate::AcpiResult<(Polarity, TriggerMode)> {
     let polarity = match flags.get_bits(0..2) {
@@ -647,4 +727,8 @@ fn parse_mps_inti_flags(flags: u16) -> crate::AcpiResult<(Polarity, TriggerMode)
     };
 
     Ok((polarity, trigger_mode))
+}
+
+fn timeout_to_loops(timeout: Duration) -> u64 {
+    timeout.as_micros() as u64
 }
