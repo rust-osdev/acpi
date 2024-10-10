@@ -3,7 +3,7 @@ pub mod interrupt;
 use crate::{
     address::GenericAddress,
     fadt::Fadt,
-    madt::Madt,
+    madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
     AcpiError,
     AcpiHandler,
     AcpiResult,
@@ -11,7 +11,7 @@ use crate::{
     ManagedSlice,
     PowerProfile,
 };
-use core::alloc::Allocator;
+use core::{alloc::Allocator, mem, ptr};
 use interrupt::InterruptModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,4 +131,56 @@ where
 
         Ok(PlatformInfo { power_profile, interrupt_model, processor_info, pm_timer })
     }
+}
+
+/// Wakes up Application Processors (APs) using the Multiprocessor Wakeup Mailbox mechanism.
+///
+/// This function writes to a specific memory-mapped mailbox to signal APs to wake up and start
+/// executing from a given wakeup vector. It waits for the APs to acknowledge the wakeup command
+/// by monitoring the mailbox command field until it is reset to `Noop`.
+pub fn wakeup_aps<H>(
+    tables: &AcpiTables<H>,
+    handler: H,
+    apic_id: u32,
+    wakeup_vector: u64,
+    timeout_loops: u64,
+) -> Result<(), AcpiError>
+where
+    H: AcpiHandler,
+{
+    let madt = tables.find_table::<Madt>()?;
+    let mailbox_addr = madt.get_mpwk_mailbox_addr()?;
+    let mut mpwk_mapping = unsafe {
+        handler.map_physical_region::<MultiprocessorWakeupMailbox>(
+            mailbox_addr as usize,
+            mem::size_of::<MultiprocessorWakeupMailbox>(),
+        )
+    };
+
+    // Reset command
+    mpwk_mapping.command = MpProtectedModeWakeupCommand::Noop as u16;
+
+    // Fill the mailbox
+    mpwk_mapping.apic_id = apic_id;
+    mpwk_mapping.wakeup_vector = wakeup_vector;
+    mpwk_mapping.command = MpProtectedModeWakeupCommand::Wakeup as u16;
+
+    // Wait to join
+    let mut loops = 0;
+    let mut command = MpProtectedModeWakeupCommand::Wakeup;
+    while command != MpProtectedModeWakeupCommand::Noop {
+        if loops >= timeout_loops {
+            return Err(AcpiError::InvalidMadt(MadtError::WakeupApsTimeout));
+        }
+        // SAFETY: The caller must ensure that the provided `handler` correctly handles these
+        // operations and that the specified `mailbox_addr` is valid.
+        unsafe {
+            command = ptr::read_volatile(&mpwk_mapping.command).into();
+        }
+        core::hint::spin_loop();
+        loops += 1;
+    }
+    drop(mpwk_mapping);
+
+    Ok(())
 }
