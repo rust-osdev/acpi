@@ -45,7 +45,7 @@ impl fmt::Display for Iort {
 impl Iort {
     pub fn nodes(&self) -> IortNodeIter {
         let pointer = unsafe { (self as *const Iort).add(1) as *const u8 };
-        let remaining_length = self.header.length as u32 - size_of::<Iort>() as u32;
+        let remaining_length = self.header.length as u32 - core::mem::size_of::<Iort>() as u32;
 
         IortNodeIter {
             pointer,
@@ -79,10 +79,11 @@ pub enum IortNode<'a> {
     MemoryRange(&'a MemoryRangeNode),
 }
 
-impl IortNode {
+impl IortNode<'_> {
     pub fn id_mapping_array(&self) -> Option<&[IortIdMapping]> {
-        let id_mapping_num = unsafe {*(self as *const IortNode as *const IortNodeHeader).id_mapping_num};
-        let id_mapping_array_offset = unsafe {*(self as *const IortNode as *const IortNodeHeader).id_mapping_array_offset};
+        let node_header = unsafe{ *(self as *const IortNode as *const IortNodeHeader) };
+        let id_mapping_num = node_header.id_mapping_num;
+        let id_mapping_array_offset = node_header.id_mapping_array_offset;
         
         if id_mapping_num == 0 {
             return None;
@@ -123,7 +124,7 @@ impl<'a> Iterator for IortNodeIter<'a> {
             _ => return None,
         };
 
-        self.pointer = unsafe { self.pointer.add(node_length) };
+        self.pointer = unsafe { self.pointer.add(node_length as usize) };
         self.remaining_length -= node_length as u32;
 
         Some(node)
