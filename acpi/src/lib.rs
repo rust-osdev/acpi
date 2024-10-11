@@ -79,6 +79,7 @@ pub mod sdt;
 pub mod spcr;
 pub mod srat;
 pub mod mpam;
+pub mod iort;
 
 #[cfg(feature = "allocator_api")]
 mod managed_slice;

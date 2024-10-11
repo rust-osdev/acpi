@@ -28,7 +28,8 @@ pub struct Arm64Processor {
     pub processor_uid: u32,
     /// This fields follows the MPIDR formatting of ARM architecture.
     pub mpidr: u64,
-    /// On GICv1/v2 systems and GICv3/4 systems in GICv2 compatibility mode, this field holds the 64-bit physical address at which the processor can access this GIC CPU Interface.
+    /// On GICv1/v2 systems and GICv3/4 systems in GICv2 compatibility mode,
+    /// this field holds the 64-bit physical address at which the processor can access this GIC CPU Interface.
     /// If provided here, the “Local Interrupt Controller Address” field in the MADT must be ignored by the OSPM.
     pub gicc_base_address: u64,
 }

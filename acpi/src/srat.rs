@@ -42,6 +42,22 @@ impl fmt::Display for Srat {
 }
 
 impl Srat {
+    /// Returns an iterator over the memory ranges specified in the System Resource Affinity Table (SRAT).
+    ///
+    /// The iterator yields tuples of `(base_address, length)`, where `base_address` is the starting address of a memory range
+    /// and `length` is the size of the memory range.
+    pub fn memory_ranges(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.entries().filter_map(|entry| {
+            match entry {
+                AffinityStruct::MemoryAffinity(memory_affinity) => {
+                    Some((memory_affinity.base_address_lo as u64 | ((memory_affinity.base_address_hi as u64) << 32), 
+                          memory_affinity.length_lo as u64 | ((memory_affinity.length_hi as u64) << 32)))
+                }
+                _ => None,
+            }
+        })
+    }
+
     pub fn entries(&self) -> AffinityStructIter {
         let pointer = unsafe { (self as *const Srat).add(1) as *const u8 };
         let remaining_length = self.header.length as u32 - core::mem::size_of::<Srat>() as u32;
@@ -57,7 +73,6 @@ impl Srat {
 #[derive(Debug)]
 pub struct AffinityStructIter<'a> {
     pointer: *const u8,
-    
     remaining_length: u32,
     _phantom: PhantomData<&'a ()>
 }
@@ -110,18 +125,6 @@ pub struct StructHeader {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
-pub struct LocalApicAffinity {
-    pub struct_header: StructHeader,
-    pub proximity_domain_lo: u8,
-    pub apic_id: u8,
-    pub flags: u32,
-    pub local_sapic_eid: u8,
-    pub proximity_domain_hi: [u8; 3],
-    pub clock_domain: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C, packed)]
 pub struct MemoryAffinity {
     pub struct_header: StructHeader,
     pub proximity_domain: u32,
@@ -137,6 +140,28 @@ pub struct MemoryAffinity {
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
+pub struct GiccAffinity {
+    pub struct_header: StructHeader,
+    pub proximity_domain: u32,
+    pub acpi_processor_uid: u32,
+    pub flags: u32,
+    pub clock_domain: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct LocalApicAffinity {
+    pub struct_header: StructHeader,
+    pub proximity_domain_lo: u8,
+    pub apic_id: u8,
+    pub flags: u32,
+    pub local_sapic_eid: u8,
+    pub proximity_domain_hi: [u8; 3],
+    pub clock_domain: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
 pub struct LocalX2ApicAffinity {
     pub struct_header: StructHeader,
     pub _reserved: u16,
@@ -145,16 +170,6 @@ pub struct LocalX2ApicAffinity {
     pub flags: u32,
     pub clock_domain: u32,
     pub _reserved2: u32,
-}
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C, packed)]
-pub struct GiccAffinity {
-    pub struct_header: StructHeader,
-    pub proximity_domain: u32,
-    pub acpi_processor_uid: u32,
-    pub flags: u32,
-    pub clock_domain: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
