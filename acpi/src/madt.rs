@@ -1,5 +1,6 @@
 use crate::{
-    sdt::{ExtendedField, SdtHeader, Signature}, AcpiTable
+    sdt::{ExtendedField, SdtHeader, Signature},
+    AcpiTable,
 };
 use bit_field::BitField;
 use core::{marker::PhantomData, mem};
@@ -123,10 +124,7 @@ impl Madt {
                     NmiProcessor,
                     NmiSource,
                 },
-                processor::{
-                    X86Processor,
-                    ProcessorState,
-                }, 
+                processor::{ProcessorState, X86Processor},
             },
             AcpiError,
         };
@@ -156,8 +154,7 @@ impl Madt {
         let mut interrupt_source_overrides = crate::ManagedSlice::new_in(iso_count, allocator.clone())?;
         let mut nmi_sources = crate::ManagedSlice::new_in(nmi_source_count, allocator.clone())?;
         let mut local_apic_nmi_lines = crate::ManagedSlice::new_in(local_nmi_line_count, allocator.clone())?;
-        let mut application_processors =
-            crate::ManagedSlice::new_in(processor_count, allocator)?; // Subtract one for the BSP
+        let mut application_processors = crate::ManagedSlice::new_in(processor_count, allocator)?; // Subtract one for the BSP
         let mut found_bsp = false;
 
         io_apic_count = 0;
@@ -324,14 +321,7 @@ impl Madt {
     {
         use crate::{
             platform::{
-                interrupt::{
-                    Gic,
-                    Gicd,
-                    Gicc,
-                    GicMsiFrame,
-                    Gicr,
-                    GicIts,
-                },
+                interrupt::{Gic, GicIts, GicMsiFrame, Gicc, Gicd, Gicr},
                 processor::Arm64Processor,
             },
             AcpiError,
@@ -348,7 +338,10 @@ impl Madt {
 
         for entry in self.entries() {
             match entry {
-                MadtEntry::Gicc(_) => {gicc_count += 1; processor_count += 1;},
+                MadtEntry::Gicc(_) => {
+                    gicc_count += 1;
+                    processor_count += 1;
+                }
                 MadtEntry::Gicd(_) => gicd_count += 1,
                 MadtEntry::GicMsiFrame(_) => gic_msi_frame_count += 1,
                 MadtEntry::GicRedistributor(_) => gicr_count += 1,
@@ -359,10 +352,13 @@ impl Madt {
 
         let mut gicc: crate::ManagedSlice<Gicc, A> = crate::ManagedSlice::new_in(gicc_count, allocator.clone())?;
         let mut gicd: crate::ManagedSlice<Gicd, A> = crate::ManagedSlice::new_in(gicd_count, allocator.clone())?;
-        let mut gic_msi_frame: crate::ManagedSlice<GicMsiFrame, A> = crate::ManagedSlice::new_in(gic_msi_frame_count, allocator.clone())?;
+        let mut gic_msi_frame: crate::ManagedSlice<GicMsiFrame, A> =
+            crate::ManagedSlice::new_in(gic_msi_frame_count, allocator.clone())?;
         let mut gicr: crate::ManagedSlice<Gicr, A> = crate::ManagedSlice::new_in(gicr_count, allocator.clone())?;
-        let mut gic_its: crate::ManagedSlice<GicIts, A> = crate::ManagedSlice::new_in(gic_its_count, allocator.clone())?;
-        let mut processors: crate::ManagedSlice<Arm64Processor, A> = crate::ManagedSlice::new_in(processor_count, allocator.clone())?;
+        let mut gic_its: crate::ManagedSlice<GicIts, A> =
+            crate::ManagedSlice::new_in(gic_its_count, allocator.clone())?;
+        let mut processors: crate::ManagedSlice<Arm64Processor, A> =
+            crate::ManagedSlice::new_in(processor_count, allocator.clone())?;
         // let mut boot_processor = None;
 
         gicc_count = 0;
@@ -425,25 +421,20 @@ impl Madt {
                     gicr_count += 1;
                 }
                 MadtEntry::GicInterruptTranslationService(entry) => {
-                    gic_its[gic_its_count] = GicIts {
-                        id: entry.id,
-                        physical_base_address: entry.physical_base_address,
-                    };
+                    gic_its[gic_its_count] =
+                        GicIts { id: entry.id, physical_base_address: entry.physical_base_address };
                     gic_its_count += 1;
                 }
                 _ => {
                     return Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry));
-                },
+                }
             }
         }
 
-        Ok((InterruptModel::Gic(Gic::new(
-            gicc,
-            gicd,
-            gic_msi_frame,
-            gicr,
-            gic_its,
-        )), Some(ProcessorInfo::new_arm64(processors))))
+        Ok((
+            InterruptModel::Gic(Gic::new(gicc, gicd, gic_msi_frame, gicr, gic_its)),
+            Some(ProcessorInfo::new_arm64(processors)),
+        ))
     }
 
     pub fn entries(&self) -> MadtEntryIter {

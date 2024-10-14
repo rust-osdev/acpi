@@ -43,20 +43,12 @@ impl Mpam {
         let pointer = unsafe { (self as *const Mpam).add(1) as *const u8 };
         let remaining_length = self.header.length as u32 - size_of::<Mpam>() as u32;
 
-        MscNodeIter {
-            pointer,
-            remaining_length,
-            _phantom: PhantomData
-        }
+        MscNodeIter { pointer, remaining_length, _phantom: PhantomData }
     }
 
     pub fn mmio_ranges(&self) -> impl Iterator<Item = (u64, u32)> + '_ {
         self.nodes().filter_map(|node| {
-            return if node.if_type == 0x00 {
-                Some((node.base_address, node.mmio_size))
-            } else {
-                None
-            };
+            return if node.if_type == 0x00 { Some((node.base_address, node.mmio_size)) } else { None };
         })
     }
 }
@@ -64,7 +56,7 @@ impl Mpam {
 pub struct MscNodeIter<'a> {
     pointer: *const u8,
     remaining_length: u32,
-    _phantom: PhantomData<&'a ()>
+    _phantom: PhantomData<&'a ()>,
 }
 
 impl Iterator for MscNodeIter<'_> {
@@ -77,7 +69,7 @@ impl Iterator for MscNodeIter<'_> {
 
         let node = unsafe { &*(self.pointer as *const MscNode) };
         let node_length = node.length as u32;
-        
+
         self.pointer = unsafe { self.pointer.add(node_length as usize) };
         self.remaining_length -= node_length;
 
@@ -95,12 +87,12 @@ pub struct MscNode {
     pub id: u32,
     pub base_address: u64,
     pub mmio_size: u32,
-    
+
     pub overflow_interrupt: u32,
     pub overflow_interrupt_flags: u32,
     pub reserved2: u32,
     pub overflow_interrupt_affinity: u32,
-    
+
     pub error_interrupt: u32,
     pub error_interrupt_flags: u32,
     pub reserved3: u32,
@@ -135,7 +127,7 @@ impl MscNode {
             pointer: ptr,
             remaining_length,
             remaining_nodes: self.resource_node_num,
-            _phantom: PhantomData
+            _phantom: PhantomData,
         }
     }
 }
@@ -144,7 +136,7 @@ pub struct ResourceNodeIter<'a> {
     pointer: *const u8,
     remaining_length: u32,
     remaining_nodes: u32,
-    _phantom: PhantomData<&'a ()>
+    _phantom: PhantomData<&'a ()>,
 }
 
 impl Iterator for ResourceNodeIter<'_> {
@@ -156,8 +148,9 @@ impl Iterator for ResourceNodeIter<'_> {
         }
 
         let node = unsafe { &*(self.pointer as *const ResourceNode) };
-        let node_length = size_of::<ResourceNode>() + (node.func_dep_num as usize) * size_of::<FunctionDependency>();
-        
+        let node_length =
+            size_of::<ResourceNode>() + (node.func_dep_num as usize) * size_of::<FunctionDependency>();
+
         self.pointer = unsafe { self.pointer.add(node_length) };
         self.remaining_length -= node_length as u32;
         self.remaining_nodes -= 1;
@@ -194,9 +187,7 @@ impl ResourceNode {
         let ptr = self as *const ResourceNode;
         let ptr = unsafe { ptr.add(1) };
         let ptr = ptr as *const FunctionDependency;
-        unsafe {
-            core::slice::from_raw_parts(ptr, self.func_dep_num as usize)
-        }
+        unsafe { core::slice::from_raw_parts(ptr, self.func_dep_num as usize) }
     }
 }
 

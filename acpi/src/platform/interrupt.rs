@@ -188,13 +188,7 @@ where
         gicr: ManagedSlice<'a, Gicr, A>,
         gic_its: ManagedSlice<'a, GicIts, A>,
     ) -> Self {
-        Self {
-            gicc,
-            gicd,
-            gic_msi_frame,
-            gicr,
-            gic_its,
-        }
+        Self { gicc, gicd, gic_msi_frame, gicr, gic_its }
     }
 }
 

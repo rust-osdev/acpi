@@ -72,14 +72,14 @@ pub mod bgrt;
 pub mod fadt;
 pub mod handler;
 pub mod hpet;
+pub mod iort;
 pub mod madt;
 pub mod mcfg;
+pub mod mpam;
 pub mod rsdp;
 pub mod sdt;
 pub mod spcr;
 pub mod srat;
-pub mod mpam;
-pub mod iort;
 
 #[cfg(feature = "allocator_api")]
 mod managed_slice;

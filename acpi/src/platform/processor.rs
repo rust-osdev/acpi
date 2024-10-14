@@ -3,7 +3,7 @@ use core::alloc::Allocator;
 
 /// Processor trait
 pub trait Processor {
-    /// The OS associates this GICC Structure with a processor device object in the namespace 
+    /// The OS associates this GICC Structure with a processor device object in the namespace
     /// when the _UID child object of the processor device evaluates to a numeric value that matches the numeric value in this field.
     fn processor_uid(&self) -> u32;
 }
@@ -23,7 +23,7 @@ impl Processor for X86Processor {
 /// Arm64 processor
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Arm64Processor {
-    /// The OS associates this GICC Structure with a processor device object in the namespace 
+    /// The OS associates this GICC Structure with a processor device object in the namespace
     /// when the _UID child object of the processor device evaluates to a numeric value that matches the numeric value in this field.
     pub processor_uid: u32,
     /// This fields follows the MPIDR formatting of ARM architecture.

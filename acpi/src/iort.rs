@@ -1,15 +1,13 @@
-///Apart from the basic header, the table contains a number of IORT Nodes. 
-/// Each node represents a component, which can be an SMMU, 
-/// an ITS Group, a root complex, or a component that is described in the namespace.
-use core::marker::PhantomData;
 use crate::{
     sdt::{SdtHeader, Signature},
     AcpiTable,
 };
+///Apart from the basic header, the table contains a number of IORT Nodes.
+/// Each node represents a component, which can be an SMMU,
+/// an ITS Group, a root complex, or a component that is described in the namespace.
+use core::marker::PhantomData;
 
-pub enum IortError {
-    
-}
+pub enum IortError {}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -47,11 +45,7 @@ impl Iort {
         let pointer = unsafe { (self as *const Iort).add(1) as *const u8 };
         let remaining_length = self.header.length as u32 - core::mem::size_of::<Iort>() as u32;
 
-        IortNodeIter {
-            pointer,
-            remaining_length,
-            _phantom: PhantomData
-        }
+        IortNodeIter { pointer, remaining_length, _phantom: PhantomData }
     }
 }
 
@@ -81,10 +75,10 @@ pub enum IortNode<'a> {
 
 impl IortNode<'_> {
     pub fn id_mapping_array(&self) -> Option<&[IortIdMapping]> {
-        let node_header = unsafe{ *(self as *const IortNode as *const IortNodeHeader) };
+        let node_header = unsafe { *(self as *const IortNode as *const IortNodeHeader) };
         let id_mapping_num = node_header.id_mapping_num;
         let id_mapping_array_offset = node_header.id_mapping_array_offset;
-        
+
         if id_mapping_num == 0 {
             return None;
         } else {
@@ -99,7 +93,7 @@ impl IortNode<'_> {
 pub struct IortNodeIter<'a> {
     pointer: *const u8,
     remaining_length: u32,
-    _phantom: PhantomData<&'a ()>
+    _phantom: PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for IortNodeIter<'a> {
@@ -131,7 +125,6 @@ impl<'a> Iterator for IortNodeIter<'a> {
     }
 }
 
-
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct ItsNode {
@@ -147,7 +140,7 @@ pub struct NamedComponentNode {
     node_flags: u32,
     mem_access_properties: u64,
     device_mem_address_size_limit: u8,
-    // This is followed by a ASCII Null terminated string 
+    // This is followed by a ASCII Null terminated string
     // with the full path to the entry in the namespace for this object
     // and a padding to 32-bit word-aligned.
 }

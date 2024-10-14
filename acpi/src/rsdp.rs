@@ -1,7 +1,7 @@
 use uefi::table::{cfg::ACPI2_GUID, Boot, SystemTable};
 
 use crate::{AcpiError, AcpiHandler, AcpiResult, PhysicalMapping};
-use core::{mem, ops::Range, slice, str, ffi::c_void};
+use core::{ffi::c_void, mem, ops::Range, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
 const RSDP_V1_LENGTH: usize = 20;
@@ -112,14 +112,13 @@ impl Rsdp {
     where
         H: AcpiHandler,
     {
-        let system_table = unsafe {
-            SystemTable::<Boot>::from_ptr(system_table as *mut c_void).unwrap()
-        };
+        let system_table = unsafe { SystemTable::<Boot>::from_ptr(system_table as *mut c_void).unwrap() };
 
         let config_table = system_table.config_table();
         let rsdp = config_table.iter().find_map(|entry| {
             if entry.guid == ACPI2_GUID {
-                let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
+                let rsdp_mapping =
+                    unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
                 match rsdp_mapping.validate() {
                     Ok(()) => Some(rsdp_mapping),
                     Err(AcpiError::RsdpIncorrectSignature) => None,

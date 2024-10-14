@@ -5,9 +5,7 @@ use crate::{
     AcpiTable,
 };
 
-pub enum SratError {
-    
-}
+pub enum SratError {}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -16,8 +14,8 @@ pub struct Srat {
     _reserved: u32,
     _reserved2: u64,
     // Followed by `n` structs with Static Resource Allocation Structure
-    // A list of static resource allocation structures for the platform. 
-    // See Processor Local APIC/SAPIC Affinity Structure, Memory Affinity Structure, 
+    // A list of static resource allocation structures for the platform.
+    // See Processor Local APIC/SAPIC Affinity Structure, Memory Affinity Structure,
     // Processor Local x2APIC Affinity Structure, and GICC Affinity Structure.
 }
 
@@ -47,14 +45,12 @@ impl Srat {
     /// The iterator yields tuples of `(base_address, length)`, where `base_address` is the starting address of a memory range
     /// and `length` is the size of the memory range.
     pub fn memory_ranges(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
-        self.entries().filter_map(|entry| {
-            match entry {
-                AffinityStruct::MemoryAffinity(memory_affinity) => {
-                    Some((memory_affinity.base_address_lo as u64 | ((memory_affinity.base_address_hi as u64) << 32), 
-                          memory_affinity.length_lo as u64 | ((memory_affinity.length_hi as u64) << 32)))
-                }
-                _ => None,
-            }
+        self.entries().filter_map(|entry| match entry {
+            AffinityStruct::MemoryAffinity(memory_affinity) => Some((
+                memory_affinity.base_address_lo as u64 | ((memory_affinity.base_address_hi as u64) << 32),
+                memory_affinity.length_lo as u64 | ((memory_affinity.length_hi as u64) << 32),
+            )),
+            _ => None,
         })
     }
 
@@ -62,11 +58,7 @@ impl Srat {
         let pointer = unsafe { (self as *const Srat).add(1) as *const u8 };
         let remaining_length = self.header.length as u32 - core::mem::size_of::<Srat>() as u32;
 
-        AffinityStructIter {
-            pointer,
-            remaining_length,
-            _phantom: PhantomData,
-        }
+        AffinityStructIter { pointer, remaining_length, _phantom: PhantomData }
     }
 }
 
@@ -74,7 +66,7 @@ impl Srat {
 pub struct AffinityStructIter<'a> {
     pointer: *const u8,
     remaining_length: u32,
-    _phantom: PhantomData<&'a ()>
+    _phantom: PhantomData<&'a ()>,
 }
 
 #[derive(Debug)]
@@ -105,7 +97,9 @@ impl<'a> Iterator for AffinityStructIter<'a> {
             2 => AffinityStruct::LocalX2ApicAffinity(unsafe { &*(self.pointer as *const LocalX2ApicAffinity) }),
             3 => AffinityStruct::GiccAffinity(unsafe { &*(self.pointer as *const GiccAffinity) }),
             4 => AffinityStruct::GicItsAffinity(unsafe { &*(self.pointer as *const GicItsAffinity) }),
-            5 => AffinityStruct::GenericInitiatorAffinity(unsafe { &*(self.pointer as *const GenericInitiatorAffinity) }),
+            5 => AffinityStruct::GenericInitiatorAffinity(unsafe {
+                &*(self.pointer as *const GenericInitiatorAffinity)
+            }),
             _ => return None,
         };
 
