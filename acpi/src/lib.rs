@@ -149,6 +149,43 @@ pub enum AcpiError {
     AllocError,
 }
 
+macro_rules! read_root_table {
+    ($signature_name:ident, $address:ident, $acpi_handler:ident) => {{
+        #[repr(transparent)]
+        struct RootTable {
+            header: SdtHeader,
+        }
+
+        unsafe impl AcpiTable for RootTable {
+            const SIGNATURE: Signature = Signature::$signature_name;
+
+            fn header(&self) -> &SdtHeader {
+                &self.header
+            }
+        }
+
+        // Map and validate root table
+        // SAFETY: Addresses from a validated RSDP are also guaranteed to be valid.
+        let table_mapping = unsafe { read_table::<_, RootTable>($acpi_handler.clone(), $address) }?;
+
+        // Convert `table_mapping` to header mapping for storage
+        // Avoid requesting table unmap twice (from both original and converted `table_mapping`s)
+        let table_mapping = mem::ManuallyDrop::new(table_mapping);
+        // SAFETY: `SdtHeader` is equivalent to `Sdt` memory-wise
+        let table_mapping = unsafe {
+            PhysicalMapping::new(
+                table_mapping.physical_start(),
+                table_mapping.virtual_start().cast::<SdtHeader>(),
+                table_mapping.region_length(),
+                table_mapping.mapped_length(),
+                $acpi_handler.clone(),
+            )
+        };
+
+        table_mapping
+    }};
+}
+
 /// Type capable of enumerating the existing ACPI tables on the system.
 ///
 ///
@@ -199,61 +236,44 @@ where
     ///
     /// ### Safety: Caller must ensure that the provided mapping is a fully validated RSDP.
     pub unsafe fn from_validated_rsdp(handler: H, rsdp_mapping: PhysicalMapping<H, Rsdp>) -> AcpiResult<Self> {
-        macro_rules! read_root_table {
-            ($signature_name:ident, $address_getter:ident) => {{
-                #[repr(transparent)]
-                struct RootTable {
-                    header: SdtHeader,
-                }
-
-                unsafe impl AcpiTable for RootTable {
-                    const SIGNATURE: Signature = Signature::$signature_name;
-
-                    fn header(&self) -> &SdtHeader {
-                        &self.header
-                    }
-                }
-
-                // Unmap RSDP as soon as possible
-                let table_phys_start = rsdp_mapping.$address_getter() as usize;
-                drop(rsdp_mapping);
-
-                // Map and validate root table
-                // SAFETY: Addresses from a validated RSDP are also guaranteed to be valid.
-                let table_mapping = unsafe { read_table::<_, RootTable>(handler.clone(), table_phys_start) }?;
-
-                // Convert `table_mapping` to header mapping for storage
-                // Avoid requesting table unmap twice (from both original and converted `table_mapping`s)
-                let table_mapping = mem::ManuallyDrop::new(table_mapping);
-                // SAFETY: `SdtHeader` is equivalent to `Sdt` memory-wise
-                let table_mapping = unsafe {
-                    PhysicalMapping::new(
-                        table_mapping.physical_start(),
-                        table_mapping.virtual_start().cast::<SdtHeader>(),
-                        table_mapping.region_length(),
-                        table_mapping.mapped_length(),
-                        handler.clone(),
-                    )
-                };
-
-                table_mapping
-            }};
-        }
-
         let revision = rsdp_mapping.revision();
         let root_table_mapping = if revision == 0 {
             /*
              * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
              */
+            let table_phys_start = rsdp_mapping.rsdt_address() as usize;
+            drop(rsdp_mapping);
+            read_root_table!(RSDT, table_phys_start, handler)
+        } else {
+            /*
+             * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
+             * to 32 bits on x86.
+             */
+            let table_phys_start = rsdp_mapping.xsdt_address() as usize;
+            drop(rsdp_mapping);
+            read_root_table!(XSDT, table_phys_start, handler)
+        };
 
-            read_root_table!(RSDT, rsdt_address)
+        Ok(Self { mapping: root_table_mapping, revision, handler })
+    }
+
+    /// Create an `AcpiTables` if you have the physical address of the RSDT/XSDT.
+    ///
+    /// ### Safety: Caller must ensure the provided address is valid RSDT/XSDT address.
+    pub unsafe fn from_rsdt(handler: H, revision: u8, address: usize) -> AcpiResult<Self> {
+        let root_table_mapping = if revision == 0 {
+            /*
+             * We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
+             */
+
+            read_root_table!(RSDT, address, handler)
         } else {
             /*
              * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
              * to 32 bits on x86.
              */
 
-            read_root_table!(XSDT, xsdt_address)
+            read_root_table!(XSDT, address, handler)
         };
 
         Ok(Self { mapping: root_table_mapping, revision, handler })
@@ -490,9 +510,7 @@ where
                 log::warn!("Found invalid SDT at physical address {:p}: {:?}", table_phys_ptr, r);
                 continue;
             }
-            let result = header_mapping.clone();
-            drop(header_mapping);
-            return Some(result);
+            return Some(*header_mapping);
         }
     }
 }

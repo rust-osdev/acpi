@@ -293,6 +293,8 @@ impl Madt {
                     local_apic_address = entry.local_apic_address;
                 }
 
+                MadtEntry::MultiprocessorWakeup(_) => {}
+
                 _ => {
                     return Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry));
                 }
