@@ -42,10 +42,18 @@ impl fmt::Display for Iort {
 
 impl Iort {
     pub fn nodes(&self) -> IortNodeIter {
-        let pointer = unsafe { (self as *const Iort).add(1) as *const u8 };
-        let remaining_length = self.header.length as u32 - core::mem::size_of::<Iort>() as u32;
+        let node_offset = self.node_array_offset as usize;
+        let pointer = unsafe { (self as *const Iort as *const u8).add(node_offset)};
+        let remaining_length = self.header.length as u32 - node_offset as u32;
 
         IortNodeIter { pointer, remaining_length, _phantom: PhantomData }
+    }
+
+    pub fn smmuv3_bases(&self) -> impl Iterator<Item = u64> + '_ {
+        self.nodes().filter_map(|node| match node {
+            IortNode::SmmuV3(smmu_v3) => Some(smmu_v3.base_address),
+            _ => None,
+        })
     }
 }
 
