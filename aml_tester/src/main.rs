@@ -9,7 +9,7 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::{AmlContext, DebugVerbosity};
+use aml::{AmlContext, DebugVerbosity, AmlName};
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
     cell::RefCell,
