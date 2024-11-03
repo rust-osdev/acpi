@@ -29,8 +29,6 @@
 //! * Use `AcpiTables::from_rsdt` if you have the physical address of the RSDT/XSDT
 //! * Use `AcpiTables::search_for_rsdp_bios` if you don't have the address of either, but **you know you are
 //! running on BIOS, not UEFI**
-//! * Use `AcpiTables::from_tables_direct` if you are using the library in an unusual setting, such as in usermode,
-//!   and have a custom method to enumerate and access the tables.
 //!
 //! `AcpiTables` stores the addresses of all of the tables detected on a platform. The SDTs are parsed by this
 //! library, or can be accessed directly with `from_sdt`, while the `DSDT` and any `SSDTs` should be parsed with
