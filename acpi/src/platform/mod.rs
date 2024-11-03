@@ -1,4 +1,5 @@
 pub mod interrupt;
+pub mod processor;
 
 use crate::{
     address::GenericAddress,
@@ -8,61 +9,11 @@ use crate::{
     AcpiHandler,
     AcpiResult,
     AcpiTables,
-    ManagedSlice,
     PowerProfile,
 };
 use core::alloc::Allocator;
 use interrupt::InterruptModel;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProcessorState {
-    /// A processor in this state is unusable, and you must not attempt to bring it up.
-    Disabled,
-
-    /// A processor waiting for a SIPI (Startup Inter-processor Interrupt) is currently not active,
-    /// but may be brought up.
-    WaitingForSipi,
-
-    /// A Running processor is currently brought up and running code.
-    Running,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Processor {
-    /// Corresponds to the `_UID` object of the processor's `Device`, or the `ProcessorId` field of the `Processor`
-    /// object, in AML.
-    pub processor_uid: u32,
-    /// The ID of the local APIC of the processor. Will be less than `256` if the APIC is being used, but can be
-    /// greater than this if the X2APIC is being used.
-    pub local_apic_id: u32,
-
-    /// The state of this processor. Check that the processor is not `Disabled` before attempting to bring it up!
-    pub state: ProcessorState,
-
-    /// Whether this processor is the Bootstrap Processor (BSP), or an Application Processor (AP).
-    /// When the bootloader is entered, the BSP is the only processor running code. To run code on
-    /// more than one processor, you need to "bring up" the APs.
-    pub is_ap: bool,
-}
-
-#[derive(Debug)]
-pub struct ProcessorInfo<'a, A>
-where
-    A: Allocator,
-{
-    pub boot_processor: Processor,
-    /// Application processors should be brought up in the order they're defined in this list.
-    pub application_processors: ManagedSlice<'a, Processor, A>,
-}
-
-impl<'a, A> ProcessorInfo<'a, A>
-where
-    A: Allocator,
-{
-    pub(crate) fn new(boot_processor: Processor, application_processors: ManagedSlice<'a, Processor, A>) -> Self {
-        Self { boot_processor, application_processors }
-    }
-}
+use processor::ProcessorInfo;
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
 #[derive(Debug)]

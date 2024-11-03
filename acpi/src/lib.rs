@@ -56,6 +56,7 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
+#![feature(ptr_from_ref)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -69,11 +70,14 @@ pub mod bgrt;
 pub mod fadt;
 pub mod handler;
 pub mod hpet;
+pub mod iort;
 pub mod madt;
 pub mod mcfg;
+pub mod mpam;
 pub mod rsdp;
 pub mod sdt;
 pub mod spcr;
+pub mod srat;
 
 #[cfg(feature = "allocator_api")]
 mod managed_slice;
@@ -215,6 +219,12 @@ where
     pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone())? };
         // Safety: RSDP has been validated from `Rsdp::search_for_on_bios`
+        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
+    }
+
+    pub unsafe fn search_for_rsdp_uefi(handler: H, system_table: usize) -> AcpiResult<Self> {
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_uefi(handler.clone(), system_table)? };
+        // Safety: RSDP has been validated from `Rsdp::search_for_on_uefi`
         unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
 

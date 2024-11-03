@@ -13,6 +13,7 @@ edition = "2021"
 bit_field = "0.10.2"
 bitflags = "2.5.0"
 log = "0.4.20"
+uefi = "0.31.0"
 
 [features]
 default = ["allocator_api", "alloc"]
