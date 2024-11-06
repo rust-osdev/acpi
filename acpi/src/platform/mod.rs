@@ -124,7 +124,7 @@ where
 
         let madt = tables.find_table::<Madt>();
         let (interrupt_model, processor_info) = match madt {
-            Ok(madt) => madt.parse_interrupt_model_in(allocator)?,
+            Ok(madt) => madt.get().parse_interrupt_model_in(allocator)?,
             Err(_) => (InterruptModel::Unknown, None),
         };
         let pm_timer = PmTimer::new(&fadt)?;
