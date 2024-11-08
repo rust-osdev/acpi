@@ -289,6 +289,8 @@ impl Namespace {
         }
     }
 
+    /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
+    /// last segment to index into that level. This must not be called on `\\`.
     fn get_level_for_path(&self, path: &AmlName) -> Result<(&NamespaceLevel, NameSeg), AmlError> {
         assert_ne!(*path, AmlName::root());
 
