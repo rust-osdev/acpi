@@ -1,5 +1,6 @@
 use crate::{
     sdt::{ExtendedField, SdtHeader, Signature},
+    AcpiError,
     AcpiTable,
 };
 use bit_field::BitField;
@@ -21,6 +22,7 @@ pub enum MadtError {
     InvalidLocalNmiLine,
     MpsIntiInvalidPolarity,
     MpsIntiInvalidTriggerMode,
+    WakeupApsTimeout,
 }
 
 /// Represents the MADT - this contains the MADT header fields. You can then iterate over a `Madt`
@@ -49,6 +51,18 @@ unsafe impl AcpiTable for Madt {
 }
 
 impl Madt {
+    pub fn get_mpwk_mailbox_addr(&self) -> Result<u64, AcpiError> {
+        for entry in self.entries() {
+            match entry {
+                MadtEntry::MultiprocessorWakeup(entry) => {
+                    return Ok(entry.mailbox_address);
+                }
+                _ => {}
+            }
+        }
+        Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry))
+    }
+
     #[cfg(feature = "allocator_api")]
     pub fn parse_interrupt_model_in<'a, A>(
         &self,
@@ -102,21 +116,18 @@ impl Madt {
     where
         A: core::alloc::Allocator + Clone,
     {
-        use crate::{
-            platform::{
-                interrupt::{
-                    Apic,
-                    InterruptSourceOverride,
-                    IoApic,
-                    LocalInterruptLine,
-                    NmiLine,
-                    NmiProcessor,
-                    NmiSource,
-                },
-                Processor,
-                ProcessorState,
+        use crate::platform::{
+            interrupt::{
+                Apic,
+                InterruptSourceOverride,
+                IoApic,
+                LocalInterruptLine,
+                NmiLine,
+                NmiProcessor,
+                NmiSource,
             },
-            AcpiError,
+            Processor,
+            ProcessorState,
         };
 
         let mut local_apic_address = self.local_apic_address as u64;
@@ -628,6 +639,36 @@ pub struct MultiprocessorWakeupEntry {
     pub mailbox_version: u16,
     _reserved: u32,
     pub mailbox_address: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MpProtectedModeWakeupCommand {
+    Noop = 0,
+    Wakeup = 1,
+    Sleep = 2,
+    AcceptPages = 3,
+}
+
+impl From<u16> for MpProtectedModeWakeupCommand {
+    fn from(value: u16) -> Self {
+        match value {
+            0 => MpProtectedModeWakeupCommand::Noop,
+            1 => MpProtectedModeWakeupCommand::Wakeup,
+            2 => MpProtectedModeWakeupCommand::Sleep,
+            3 => MpProtectedModeWakeupCommand::AcceptPages,
+            _ => panic!("Invalid value for MpProtectedModeWakeupCommand"),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct MultiprocessorWakeupMailbox {
+    pub command: u16,
+    _reserved: u16,
+    pub apic_id: u32,
+    pub wakeup_vector: u64,
+    pub reserved_for_os: [u64; 254],
+    reserved_for_firmware: [u64; 256],
 }
 
 #[cfg(feature = "allocator_api")]
