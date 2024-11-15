@@ -1,4 +1,8 @@
-use uefi::table::{cfg::ACPI2_GUID, Boot, SystemTable};
+use uefi::table::{
+    cfg::{ACPI2_GUID, ACPI_GUID},
+    Boot,
+    SystemTable,
+};
 
 use crate::{AcpiError, AcpiHandler, AcpiResult, PhysicalMapping};
 use core::{ffi::c_void, mem, ops::Range, slice, str};
@@ -112,11 +116,24 @@ impl Rsdp {
     where
         H: AcpiHandler,
     {
+        // SAFETY: `system_table` is a valid pointer to a `SystemTable<Boot>`.
         let system_table = unsafe { SystemTable::<Boot>::from_ptr(system_table as *mut c_void).unwrap() };
-
         let config_table = system_table.config_table();
+
+        // Search the configuration table for the RSDP, using GUIDs to identify the correct entry
         let rsdp = config_table.iter().find_map(|entry| {
             if entry.guid == ACPI2_GUID {
+                let rsdp_mapping =
+                    unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
+                match rsdp_mapping.validate() {
+                    Ok(()) => Some(rsdp_mapping),
+                    Err(AcpiError::RsdpIncorrectSignature) => None,
+                    Err(err) => {
+                        log::warn!("Invalid RSDP found at {:#x}: {:?}", system_table.as_ptr() as usize, err);
+                        None
+                    }
+                }
+            } else if entry.guid == ACPI_GUID {
                 let rsdp_mapping =
                     unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
                 match rsdp_mapping.validate() {
@@ -131,6 +148,7 @@ impl Rsdp {
                 None
             }
         });
+        // Return the first valid RSDP found, or an error if none were found
         rsdp.ok_or(AcpiError::NoValidRsdp)
     }
 

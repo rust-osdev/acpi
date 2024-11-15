@@ -367,6 +367,43 @@ where
         SsdtIterator { tables_phys_ptrs: self.tables_phys_ptrs(), handler: self.handler.clone() }
     }
 
+    /// Add a new SSDT to the list of tables.
+    /// Sould edit the XSDT or RSDT to include the new table.
+    /// Safety: The address must be valid for reading as an SSDT. And must match the revision of the tables.
+    /// The address must be 8-byte aligned and the 8-byte after xsdt must be not used.
+    pub unsafe fn add_ssdt(&mut self, address: usize) -> AcpiResult<()> {
+        #[repr(transparent)]
+        struct Xsdt {
+            header: SdtHeader,
+        }
+
+        unsafe impl AcpiTable for Xsdt {
+            const SIGNATURE: Signature = Signature::XSDT;
+
+            fn header(&self) -> &SdtHeader {
+                &self.header
+            }
+        }
+
+        let mut xsdt =
+            unsafe { read_table::<H, Xsdt>(self.handler.clone(), self.mapping.physical_start()).unwrap() };
+
+        xsdt.write::<u64>(xsdt.header.length as usize, address as u64);
+
+        xsdt.write::<u32>(4, xsdt.header.length + 8); // length of the table
+        xsdt.write::<u8>(9, 0); // checksum
+        let mut sum = 0u8;
+        for i in 0..xsdt.header.length as usize {
+            sum = sum.wrapping_add(xsdt.read::<u8>(i));
+        }
+        xsdt.write::<u8>(9, (!sum).wrapping_add(1)); // checksum
+
+        let address = xsdt.physical_start();
+        let handler = xsdt.handler().clone();
+        self.mapping = read_root_table!(XSDT, address, handler);
+        Ok(())
+    }
+
     /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
     /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
     /// the platform from the ACPI tables.

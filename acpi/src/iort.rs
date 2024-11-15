@@ -43,7 +43,7 @@ impl fmt::Display for Iort {
 impl Iort {
     pub fn nodes(&self) -> IortNodeIter {
         let node_offset = self.node_array_offset as usize;
-        let pointer = unsafe { (self as *const Iort as *const u8).add(node_offset)};
+        let pointer = unsafe { (self as *const Iort as *const u8).add(node_offset) };
         let remaining_length = self.header.length as u32 - node_offset as u32;
 
         IortNodeIter { pointer, remaining_length, _phantom: PhantomData }
