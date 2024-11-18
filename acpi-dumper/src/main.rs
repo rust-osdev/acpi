@@ -98,5 +98,5 @@ fn main() {
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
-    std::compilation_error!("acpi-dumper currently only supports linux");
+    std::compile_error!("acpi-dumper currently only supports linux");
 }
