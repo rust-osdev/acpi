@@ -176,15 +176,15 @@ pub enum AddressSpaceDecodeType {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AddressSpaceDescriptor {
-    resource_type: AddressSpaceResourceType,
-    is_maximum_address_fixed: bool,
-    is_minimum_address_fixed: bool,
-    decode_type: AddressSpaceDecodeType,
+    pub resource_type: AddressSpaceResourceType,
+    pub is_maximum_address_fixed: bool,
+    pub is_minimum_address_fixed: bool,
+    pub decode_type: AddressSpaceDecodeType,
 
-    granularity: u64,
-    address_range: (u64, u64),
-    translation_offset: u64,
-    length: u64,
+    pub granularity: u64,
+    pub address_range: (u64, u64),
+    pub translation_offset: u64,
+    pub length: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -425,10 +425,10 @@ pub enum DMATransferTypePreference {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct DMADescriptor {
-    channel_mask: u8,
-    supported_speeds: DMASupportedSpeed,
-    is_bus_master: bool,
-    transfer_type_preference: DMATransferTypePreference,
+    pub channel_mask: u8,
+    pub supported_speeds: DMASupportedSpeed,
+    pub is_bus_master: bool,
+    pub transfer_type_preference: DMATransferTypePreference,
 }
 
 pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
@@ -485,10 +485,10 @@ pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct IOPortDescriptor {
-    decodes_full_address: bool,
-    memory_range: (u16, u16),
-    base_alignment: u8,
-    range_length: u8,
+    pub decodes_full_address: bool,
+    pub memory_range: (u16, u16),
+    pub base_alignment: u8,
+    pub range_length: u8,
 }
 
 fn io_port_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
