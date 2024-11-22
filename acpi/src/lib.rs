@@ -431,7 +431,7 @@ where
     handler: H,
 }
 
-impl<'t, H> Iterator for SsdtIterator<'t, H>
+impl<H> Iterator for SsdtIterator<'_, H>
 where
     H: AcpiHandler,
 {
@@ -479,7 +479,7 @@ where
     handler: H,
 }
 
-impl<'t, H> Iterator for SdtHeaderIterator<'t, H>
+impl<H> Iterator for SdtHeaderIterator<'_, H>
 where
     H: AcpiHandler,
 {
