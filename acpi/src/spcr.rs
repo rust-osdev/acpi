@@ -63,8 +63,8 @@ unsafe impl AcpiTable for Spcr {
 
 impl Spcr {
     /// Gets the type of the register interface.
-    pub fn interface_type(&self) -> SpcrInteraceType {
-        SpcrInteraceType::from(self.interface_type)
+    pub fn interface_type(&self) -> SpcrInterfaceType {
+        SpcrInterfaceType::from(self.interface_type)
     }
 
     /// The base address of the Serial Port register set, if if console
@@ -209,7 +209,7 @@ bitflags::bitflags! {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
-pub enum SpcrInteraceType {
+pub enum SpcrInterfaceType {
     /// Full 16550 interface
     Full16550,
     /// Full 16450 interface (must also accept writing to the 16550 FCR register).
@@ -256,7 +256,7 @@ pub enum SpcrInteraceType {
     Unknown(u8),
 }
 
-impl From<u8> for SpcrInteraceType {
+impl From<u8> for SpcrInterfaceType {
     fn from(val: u8) -> Self {
         match val {
             0x00 => Self::Full16550,
