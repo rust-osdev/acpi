@@ -53,11 +53,8 @@ unsafe impl AcpiTable for Madt {
 impl Madt {
     pub fn get_mpwk_mailbox_addr(&self) -> Result<u64, AcpiError> {
         for entry in self.entries() {
-            match entry {
-                MadtEntry::MultiprocessorWakeup(entry) => {
-                    return Ok(entry.mailbox_address);
-                }
-                _ => {}
+            if let MadtEntry::MultiprocessorWakeup(entry) = entry {
+                return Ok(entry.mailbox_address);
             }
         }
         Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry))
