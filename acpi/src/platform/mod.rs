@@ -102,7 +102,7 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl<'a> PlatformInfo<'a, alloc::alloc::Global> {
+impl PlatformInfo<'_, alloc::alloc::Global> {
     pub fn new<H>(tables: &AcpiTables<H>) -> AcpiResult<Self>
     where
         H: AcpiHandler,
@@ -111,7 +111,7 @@ impl<'a> PlatformInfo<'a, alloc::alloc::Global> {
     }
 }
 
-impl<'a, A> PlatformInfo<'a, A>
+impl<A> PlatformInfo<'_, A>
 where
     A: Allocator + Clone,
 {

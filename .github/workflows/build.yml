@@ -64,3 +64,20 @@ jobs:
 
     - name: Run AML test suite
       run: cargo run --bin aml_tester -- -p tests --reset
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        default: true
+        profile: minimal
+        components: clippy
+
+    - name: Run clippy
+      run: cargo clippy -p acpi
