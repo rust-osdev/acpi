@@ -28,7 +28,7 @@
 //! * Use [`AcpiTables::from_rsdp`] if you have the physical address of the RSDP
 //! * Use [`AcpiTables::from_rsdt`] if you have the physical address of the RSDT/XSDT
 //! * Use [`AcpiTables::search_for_rsdp_bios`] if you don't have the address of either, but **you know you are
-//! running on BIOS, not UEFI**
+//!   running on BIOS, not UEFI**
 //!
 //! `AcpiTables` stores the addresses of all of the tables detected on a platform. The SDTs are parsed by this
 //! library, or can be accessed directly with `from_sdt`, while the `DSDT` and any `SSDTs` should be parsed with
@@ -199,7 +199,9 @@ where
 {
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
     ///
-    /// ### Safety: Caller must ensure the provided address is valid to read as an RSDP.
+    /// ### Safety
+    ///
+    /// Caller must ensure the provided address is valid to read as an RSDP.
     pub unsafe fn from_rsdp(handler: H, address: usize) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
         rsdp_mapping.validate()?;
@@ -210,6 +212,11 @@ where
 
     /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
     /// work on UEFI platforms. See [`Rsdp::search_for_on_bios`] for details.
+    /// details.
+    ///
+    /// ### Safety
+    ///
+    /// The caller must ensure that this function is called on BIOS platforms.
     pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone())? };
         // Safety: RSDP has been validated from `Rsdp::search_for_on_bios`
@@ -220,7 +227,9 @@ where
     /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
     ///
-    /// ### Safety: Caller must ensure that the provided mapping is a fully validated RSDP.
+    /// ### Safety
+    ///
+    /// Caller must ensure that the provided mapping is a fully validated RSDP.
     pub unsafe fn from_validated_rsdp(handler: H, rsdp_mapping: PhysicalMapping<H, Rsdp>) -> AcpiResult<Self> {
         let revision = rsdp_mapping.revision();
         let root_table_mapping = if revision == 0 {
@@ -245,7 +254,9 @@ where
 
     /// Create an `AcpiTables` if you have the physical address of the RSDT/XSDT.
     ///
-    /// ### Safety: Caller must ensure the provided address is valid RSDT/XSDT address.
+    /// ### Safety
+    ///
+    /// Caller must ensure the provided address is valid RSDT/XSDT address.
     pub unsafe fn from_rsdt(handler: H, revision: u8, address: usize) -> AcpiResult<Self> {
         let root_table_mapping = if revision == 0 {
             /*
@@ -404,7 +415,9 @@ impl AmlTable {
     }
 }
 
-/// ### Safety: Caller must ensure the provided address is valid for being read as an `SdtHeader`.
+/// ### Safety
+///
+/// Caller must ensure the provided address is valid for being read as an `SdtHeader`.
 unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
     handler: H,
     address: usize,
@@ -427,7 +440,7 @@ where
     handler: H,
 }
 
-impl<'t, H> Iterator for SsdtIterator<'t, H>
+impl<H> Iterator for SsdtIterator<'_, H>
 where
     H: AcpiHandler,
 {
@@ -475,7 +488,7 @@ where
     handler: H,
 }
 
-impl<'t, H> Iterator for SdtHeaderIterator<'t, H>
+impl<H> Iterator for SdtHeaderIterator<'_, H>
 where
     H: AcpiHandler,
 {
