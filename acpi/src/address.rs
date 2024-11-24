@@ -45,6 +45,7 @@ pub enum AddressSpace {
     Ipmi,
     GeneralIo,
     GenericSerialBus,
+    /// Describes a subspace in the Platform Communications Channel Table ([PCCT](crate::pcct::Pcct)).
     PlatformCommunicationsChannel,
     FunctionalFixedHardware,
     OemDefined(u8),
