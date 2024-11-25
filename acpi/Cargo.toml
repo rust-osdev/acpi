@@ -1,6 +1,6 @@
 [package]
 name = "acpi"
-version = "5.0.0"
+version = "5.1.0"
 authors = ["Isaac Woods"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "A pure-Rust library for parsing ACPI tables"

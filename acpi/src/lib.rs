@@ -20,30 +20,27 @@
 //!      default configuration of the crate.
 //!
 //! ### Usage
-//! To use the library, you will need to provide an implementation of the `AcpiHandler` trait, which allows the
+//! To use the library, you will need to provide an implementation of the [`AcpiHandler`] trait, which allows the
 //! library to make requests such as mapping a particular region of physical memory into the virtual address space.
 //!
-//! You then need to construct an instance of `AcpiTables`, which can be done in a few ways depending on how much
+//! You then need to construct an instance of [`AcpiTables`], which can be done in a few ways depending on how much
 //! information you have:
-//! * Use `AcpiTables::from_rsdp` if you have the physical address of the RSDP
-//! * Use `AcpiTables::from_rsdt` if you have the physical address of the RSDT/XSDT
-//! * Use `AcpiTables::search_for_rsdp_bios` if you don't have the address of either, but **you know you are
-//! running on BIOS, not UEFI**
-//! * Use `AcpiTables::from_tables_direct` if you are using the library in an unusual setting, such as in usermode,
-//!   and have a custom method to enumerate and access the tables.
+//! * Use [`AcpiTables::from_rsdp`] if you have the physical address of the RSDP
+//! * Use [`AcpiTables::from_rsdt`] if you have the physical address of the RSDT/XSDT
+//! * Use [`AcpiTables::search_for_rsdp_bios`] if you don't have the address of either, but **you know you are
+//!   running on BIOS, not UEFI**
 //!
 //! `AcpiTables` stores the addresses of all of the tables detected on a platform. The SDTs are parsed by this
 //! library, or can be accessed directly with `from_sdt`, while the `DSDT` and any `SSDTs` should be parsed with
 //! `aml`.
 //!
 //! To gather information out of the static tables, a few of the types you should take a look at are:
-//!    - [`PlatformInfo`](crate::platform::PlatformInfo) parses the FADT and MADT to create a nice view of the
-//!      processor topology and interrupt controllers on `x86_64`, and the interrupt controllers on other platforms.
-//!      `AcpiTables::platform_info` is a convenience method for constructing a `PlatformInfo`.
-//!    - [`HpetInfo`](crate::hpet::HpetInfo) parses the HPET table and tells you how to configure the High
-//!      Precision Event Timer.
-//!    - [`PciConfigRegions`](crate::mcfg::PciConfigRegions) parses the MCFG and tells you how PCIe configuration
-//!      space is mapped into physical memory.
+//!    - [`PlatformInfo`] parses the FADT and MADT to create a nice view of the processor topology and interrupt
+//!      controllers on `x86_64`, and the interrupt controllers on other platforms.
+//!      [`AcpiTables::platform_info`] is a convenience method for constructing a `PlatformInfo`.
+//!    - [`HpetInfo`] parses the HPET table and tells you how to configure the High Precision Event Timer.
+//!    - [`PciConfigRegions`] parses the MCFG and tells you how PCIe configuration space is mapped into physical
+//!      memory.
 
 /*
  * Contributing notes (you may find these useful if you're new to contributing to the library):
@@ -206,7 +203,9 @@ where
 {
     /// Create an `AcpiTables` if you have the physical address of the RSDP.
     ///
-    /// ### Safety: Caller must ensure the provided address is valid to read as an RSDP.
+    /// ### Safety
+    ///
+    /// Caller must ensure the provided address is valid to read as an RSDP.
     pub unsafe fn from_rsdp(handler: H, address: usize) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
         rsdp_mapping.validate()?;
@@ -216,8 +215,12 @@ where
     }
 
     /// Search for the RSDP on a BIOS platform. This accesses BIOS-specific memory locations and will probably not
-    /// work on UEFI platforms. See [Rsdp::search_for_rsdp_bios](rsdp_search::Rsdp::search_for_rsdp_bios) for
+    /// work on UEFI platforms. See [`Rsdp::search_for_on_bios`] for details.
     /// details.
+    ///
+    /// ### Safety
+    ///
+    /// The caller must ensure that this function is called on BIOS platforms.
     pub unsafe fn search_for_rsdp_bios(handler: H) -> AcpiResult<Self> {
         let rsdp_mapping = unsafe { Rsdp::search_for_on_bios(handler.clone())? };
         // Safety: RSDP has been validated from `Rsdp::search_for_on_bios`
@@ -234,7 +237,9 @@ where
     /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
     ///
-    /// ### Safety: Caller must ensure that the provided mapping is a fully validated RSDP.
+    /// ### Safety
+    ///
+    /// Caller must ensure that the provided mapping is a fully validated RSDP.
     pub unsafe fn from_validated_rsdp(handler: H, rsdp_mapping: PhysicalMapping<H, Rsdp>) -> AcpiResult<Self> {
         let revision = rsdp_mapping.revision();
         let root_table_mapping = if revision == 0 {
@@ -259,7 +264,9 @@ where
 
     /// Create an `AcpiTables` if you have the physical address of the RSDT/XSDT.
     ///
-    /// ### Safety: Caller must ensure the provided address is valid RSDT/XSDT address.
+    /// ### Safety
+    ///
+    /// Caller must ensure the provided address is valid RSDT/XSDT address.
     pub unsafe fn from_rsdt(handler: H, revision: u8, address: usize) -> AcpiResult<Self> {
         let root_table_mapping = if revision == 0 {
             /*
@@ -404,19 +411,17 @@ where
         Ok(())
     }
 
-    /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
-    /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
-    /// the platform from the ACPI tables.
+    /// Convenience method for contructing a [`PlatformInfo`]. This is one of the first things you should usually do
+    /// with an `AcpiTables`, and allows to collect helpful information about the platform from the ACPI tables.
     ///
-    /// Like `platform_info_in`, but uses the global allocator.
+    /// Like [`platform_info_in`](Self::platform_info_in), but uses the global allocator.
     #[cfg(feature = "alloc")]
     pub fn platform_info(&self) -> AcpiResult<PlatformInfo<alloc::alloc::Global>> {
         PlatformInfo::new(self)
     }
 
-    /// Convenience method for contructing a [`PlatformInfo`](crate::platform::PlatformInfo). This is one of the
-    /// first things you should usually do with an `AcpiTables`, and allows to collect helpful information about
-    /// the platform from the ACPI tables.
+    /// Convenience method for contructing a [`PlatformInfo`]. This is one of the first things you should usually do
+    /// with an `AcpiTables`, and allows to collect helpful information about the platform from the ACPI tables.
     #[cfg(feature = "allocator_api")]
     pub fn platform_info_in<A>(&self, allocator: A) -> AcpiResult<PlatformInfo<A>>
     where
@@ -457,7 +462,9 @@ impl AmlTable {
     }
 }
 
-/// ### Safety: Caller must ensure the provided address is valid for being read as an `SdtHeader`.
+/// ### Safety
+///
+/// Caller must ensure the provided address is valid for being read as an `SdtHeader`.
 unsafe fn read_table<H: AcpiHandler, T: AcpiTable>(
     handler: H,
     address: usize,
@@ -480,7 +487,7 @@ where
     handler: H,
 }
 
-impl<'t, H> Iterator for SsdtIterator<'t, H>
+impl<H> Iterator for SsdtIterator<'_, H>
 where
     H: AcpiHandler,
 {
@@ -528,7 +535,7 @@ where
     handler: H,
 }
 
-impl<'t, H> Iterator for SdtHeaderIterator<'t, H>
+impl<H> Iterator for SdtHeaderIterator<'_, H>
 where
     H: AcpiHandler,
 {

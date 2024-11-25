@@ -1,4 +1,8 @@
-use core::{fmt, ops::Deref, ptr::NonNull};
+use core::{
+    fmt,
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
 /// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `size_of::<T>()`
@@ -47,6 +51,10 @@ where
     ///   than `region_length`, due to requirements of the paging system or other reasoning.
     /// - `handler` should be the same `AcpiHandler` that created the mapping. When the `PhysicalMapping` is
     ///   dropped, it will be used to unmap the structure.
+    ///
+    /// ### Safety
+    ///
+    /// The caller must ensure that the physical memory can be safely mapped.
     pub unsafe fn new(
         physical_start: usize,
         virtual_start: NonNull<T>,
@@ -102,6 +110,15 @@ where
 
     fn deref(&self) -> &T {
         unsafe { self.virtual_start.as_ref() }
+    }
+}
+
+impl<H, T> DerefMut for PhysicalMapping<H, T>
+where
+    H: AcpiHandler,
+{
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { self.virtual_start.as_mut() }
     }
 }
 
