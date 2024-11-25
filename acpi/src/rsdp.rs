@@ -110,7 +110,7 @@ impl Rsdp {
     /// with the GUIDs may not be safe to read, and so this function should be used with caution.
     /// The GUIDs used to find the RSDP are:
     ///    - ACPI v1.0 structures use `eb9d2d30-2d88-11d3-9a16-0090273fc14d`.
-    ///   - ACPI v2.0 or later structures use `8868e871-e4f1-11d3-bc22-0080c73c8881`.
+    ///    - ACPI v2.0 or later structures use `8868e871-e4f1-11d3-bc22-0080c73c8881`.
     /// You should search the entire table for the v2.0 GUID before searching for the v1.0 one.
     pub unsafe fn search_for_on_uefi<H>(handler: H, system_table: usize) -> AcpiResult<PhysicalMapping<H, Rsdp>>
     where
@@ -122,20 +122,10 @@ impl Rsdp {
 
         // Search the configuration table for the RSDP, using GUIDs to identify the correct entry
         let rsdp = config_table.iter().find_map(|entry| {
-            if entry.guid == ACPI2_GUID {
+            if entry.guid == ACPI2_GUID || entry.guid == ACPI_GUID {
                 let rsdp_mapping =
                     unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
-                match rsdp_mapping.validate() {
-                    Ok(()) => Some(rsdp_mapping),
-                    Err(AcpiError::RsdpIncorrectSignature) => None,
-                    Err(err) => {
-                        log::warn!("Invalid RSDP found at {:#x}: {:?}", system_table.as_ptr() as usize, err);
-                        None
-                    }
-                }
-            } else if entry.guid == ACPI_GUID {
-                let rsdp_mapping =
-                    unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
+
                 match rsdp_mapping.validate() {
                     Ok(()) => Some(rsdp_mapping),
                     Err(AcpiError::RsdpIncorrectSignature) => None,

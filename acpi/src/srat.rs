@@ -5,8 +5,6 @@ use crate::{
     AcpiTable,
 };
 
-pub enum SratError {}
-
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct Srat {
@@ -44,6 +42,9 @@ impl Srat {
     ///
     /// The iterator yields tuples of `(base_address, length)`, where `base_address` is the starting address of a memory range
     /// and `length` is the size of the memory range.
+    ///
+    /// However, the mem ranges here are not actually the range of System RAM,
+    /// and the final available memory segment needs to be obtained through the Memory Map of UEFI Boot Services.
     pub fn memory_ranges(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
         self.entries().filter_map(|entry| match entry {
             AffinityStruct::MemoryAffinity(memory_affinity) => Some((
@@ -54,6 +55,9 @@ impl Srat {
         })
     }
 
+    /// Returns an iterator over the affinity structures in the System Resource Affinity Table (SRAT).
+    /// including Local APIC/SAPIC Affinity Structure, Memory Affinity Structure, Processor Local x2APIC Affinity Structure,
+    /// GICC Affinity Structure, GIC ITS Affinity Structure, and Generic Initiator Affinity Structure.
     pub fn entries(&self) -> AffinityStructIter {
         let pointer = unsafe { (self as *const Srat).add(1) as *const u8 };
         let remaining_length = self.header.length as u32 - core::mem::size_of::<Srat>() as u32;
@@ -113,6 +117,13 @@ impl<'a> Iterator for AffinityStructIter<'a> {
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct StructHeader {
+    /// Type of the structure
+    /// 0: Processor Local APIC/SAPIC Affinity Structure
+    /// 1: Memory Affinity Structure
+    /// 2: Processor Local x2APIC Affinity Structure
+    /// 3: GICC Affinity Structure
+    /// 4: GIC ITS Affinity Structure
+    /// 5: Generic Initiator Affinity Structure
     pub struct_type: u8,
     pub length: u8,
 }
@@ -128,6 +139,10 @@ pub struct MemoryAffinity {
     pub length_lo: u32,
     pub length_hi: u32,
     pub _reserved2: u32,
+    /// bit_offset: field
+    ///          0: Enabled
+    ///          1: Hot-pluggable
+    ///          2: Non-volatile
     pub flags: u32,
     pub _reserved3: [u8; 8],
 }
@@ -138,6 +153,8 @@ pub struct GiccAffinity {
     pub struct_header: StructHeader,
     pub proximity_domain: u32,
     pub acpi_processor_uid: u32,
+    /// bit_offset: field
+    ///          0: Enabled
     pub flags: u32,
     pub clock_domain: u32,
 }
@@ -148,6 +165,8 @@ pub struct LocalApicAffinity {
     pub struct_header: StructHeader,
     pub proximity_domain_lo: u8,
     pub apic_id: u8,
+    /// bit_offset: field
+    ///         0: Enabled
     pub flags: u32,
     pub local_sapic_eid: u8,
     pub proximity_domain_hi: [u8; 3],
@@ -161,6 +180,8 @@ pub struct LocalX2ApicAffinity {
     pub _reserved: u16,
     pub proximity_domain: u32,
     pub x2apic_id: u32,
+    /// bit_offset: field
+    ///         0: Enabled
     pub flags: u32,
     pub clock_domain: u32,
     pub _reserved2: u32,
@@ -180,6 +201,8 @@ pub struct GicItsAffinity {
 pub struct GenericInitiatorAffinity {
     pub struct_header: StructHeader,
     pub _reserved: u8,
+    /// 0: ACPI Device Handle
+    /// 1: PCI Device Handle
     pub device_handle_type: u8,
     pub proximity_domain: u32,
     pub device_handle: [u8; 16],

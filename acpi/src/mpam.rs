@@ -25,13 +25,8 @@ use core::fmt;
 impl fmt::Display for Mpam {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "MAPM: {:#x?}", self.header)?;
-        let mut i = 100;
         for node in self.nodes() {
             write!(f, "\n{:#x?}", node)?;
-            i -= 1;
-            if i == 0 {
-                break;
-            }
         }
         Ok(())
     }

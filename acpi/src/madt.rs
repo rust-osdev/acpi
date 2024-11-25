@@ -124,20 +124,17 @@ impl Madt {
     where
         A: core::alloc::Allocator + Clone,
     {
-        use crate::{
-            platform::{
-                interrupt::{
-                    Apic,
-                    InterruptSourceOverride,
-                    IoApic,
-                    LocalInterruptLine,
-                    NmiLine,
-                    NmiProcessor,
-                    NmiSource,
-                },
-                processor::{ProcessorState, X86Processor},
+        use crate::platform::{
+            interrupt::{
+                Apic,
+                InterruptSourceOverride,
+                IoApic,
+                LocalInterruptLine,
+                NmiLine,
+                NmiProcessor,
+                NmiSource,
             },
-            AcpiError,
+            processor::{ProcessorState, X86Processor},
         };
 
         let mut local_apic_address = self.local_apic_address as u64;
@@ -332,12 +329,9 @@ impl Madt {
     where
         A: core::alloc::Allocator + Clone,
     {
-        use crate::{
-            platform::{
-                interrupt::{Gic, GicIts, GicMsiFrame, Gicc, Gicd, Gicr},
-                processor::Arm64Processor,
-            },
-            AcpiError,
+        use crate::platform::{
+            interrupt::{Gic, GicIts, GicMsiFrame, Gicc, Gicd, Gicr},
+            processor::Arm64Processor,
         };
 
         // need to count the number of each type of entry
@@ -404,6 +398,7 @@ impl Madt {
                         processor_uid: entry.processor_uid,
                         mpidr: entry.mpidr,
                         gicc_base_address: entry.gic_registers_address,
+                        gicr_base_address: entry.gicr_base_address,
                     };
                     gicc_count += 1;
                     processor_count += 1;

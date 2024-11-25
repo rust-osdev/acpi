@@ -32,6 +32,8 @@ pub struct Arm64Processor {
     /// this field holds the 64-bit physical address at which the processor can access this GIC CPU Interface.
     /// If provided here, the “Local Interrupt Controller Address” field in the MADT must be ignored by the OSPM.
     pub gicc_base_address: u64,
+    /// On GICv3/4 systems, this field holds the 64-bit physical address at which the processor can access this GIC Redistributor.
+    pub gicr_base_address: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
