@@ -1,5 +1,11 @@
+use uefi::table::{
+    cfg::{ACPI2_GUID, ACPI_GUID},
+    Boot,
+    SystemTable,
+};
+
 use crate::{AcpiError, AcpiHandler, AcpiResult, PhysicalMapping};
-use core::{mem, ops::Range, slice, str};
+use core::{ffi::c_void, mem, ops::Range, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
 const RSDP_V1_LENGTH: usize = 20;
@@ -95,6 +101,45 @@ impl Rsdp {
             }
             None => Err(AcpiError::NoValidRsdp),
         }
+    }
+
+    /// This searches for a RSDP on UEFI systems.
+    /// ### Safety
+    /// This function reads the EFI configuration table, which is a list of GUIDs and their associated data. The
+    /// configuration table is provided by the firmware, and so should be safe to read. However, the data associated
+    /// with the GUIDs may not be safe to read, and so this function should be used with caution.
+    /// The GUIDs used to find the RSDP are:
+    ///    - ACPI v1.0 structures use `eb9d2d30-2d88-11d3-9a16-0090273fc14d`.
+    ///    - ACPI v2.0 or later structures use `8868e871-e4f1-11d3-bc22-0080c73c8881`.
+    /// You should search the entire table for the v2.0 GUID before searching for the v1.0 one.
+    pub unsafe fn search_for_on_uefi<H>(handler: H, system_table: usize) -> AcpiResult<PhysicalMapping<H, Rsdp>>
+    where
+        H: AcpiHandler,
+    {
+        // SAFETY: `system_table` is a valid pointer to a `SystemTable<Boot>`.
+        let system_table = unsafe { SystemTable::<Boot>::from_ptr(system_table as *mut c_void).unwrap() };
+        let config_table = system_table.config_table();
+
+        // Search the configuration table for the RSDP, using GUIDs to identify the correct entry
+        let rsdp = config_table.iter().find_map(|entry| {
+            if entry.guid == ACPI2_GUID || entry.guid == ACPI_GUID {
+                let rsdp_mapping =
+                    unsafe { handler.map_physical_region::<Rsdp>(entry.address as usize, mem::size_of::<Rsdp>()) };
+
+                match rsdp_mapping.validate() {
+                    Ok(()) => Some(rsdp_mapping),
+                    Err(AcpiError::RsdpIncorrectSignature) => None,
+                    Err(err) => {
+                        log::warn!("Invalid RSDP found at {:#x}: {:?}", system_table.as_ptr() as usize, err);
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        });
+        // Return the first valid RSDP found, or an error if none were found
+        rsdp.ok_or(AcpiError::NoValidRsdp)
     }
 
     /// Checks that:

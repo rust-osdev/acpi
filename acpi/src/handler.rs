@@ -84,6 +84,20 @@ where
     pub fn handler(&self) -> &H {
         &self.handler
     }
+
+    pub fn write<V>(&mut self, offset: usize, value: V) {
+        unsafe {
+            let ptr = (self.virtual_start.as_ptr() as *mut u8).add(offset) as *mut V;
+            ptr.write(value);
+        }
+    }
+
+    pub fn read<V>(&self, offset: usize) -> V {
+        unsafe {
+            let ptr = (self.virtual_start.as_ptr() as *mut u8).add(offset) as *mut V;
+            ptr.read()
+        }
+    }
 }
 
 unsafe impl<H: AcpiHandler + Send, T: Send> Send for PhysicalMapping<H, T> {}

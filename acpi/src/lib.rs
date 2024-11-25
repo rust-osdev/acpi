@@ -55,6 +55,7 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(feature = "allocator_api", feature(allocator_api))]
+#![feature(ptr_from_ref)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -68,11 +69,14 @@ pub mod bgrt;
 pub mod fadt;
 pub mod handler;
 pub mod hpet;
+pub mod iort;
 pub mod madt;
 pub mod mcfg;
+pub mod mpam;
 pub mod rsdp;
 pub mod sdt;
 pub mod spcr;
+pub mod srat;
 
 #[cfg(feature = "allocator_api")]
 mod managed_slice;
@@ -223,6 +227,12 @@ where
         unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
     }
 
+    pub unsafe fn search_for_rsdp_uefi(handler: H, system_table: usize) -> AcpiResult<Self> {
+        let rsdp_mapping = unsafe { Rsdp::search_for_on_uefi(handler.clone(), system_table)? };
+        // Safety: RSDP has been validated from `Rsdp::search_for_on_uefi`
+        unsafe { Self::from_validated_rsdp(handler, rsdp_mapping) }
+    }
+
     /// Create an `AcpiTables` if you have a `PhysicalMapping` of the RSDP that you know is correct. This is called
     /// from `from_rsdp` after validation, but can also be used if you've searched for the RSDP manually on a BIOS
     /// system.
@@ -362,6 +372,43 @@ where
     /// Iterates through all of the SSDT tables.
     pub fn ssdts(&self) -> SsdtIterator<H> {
         SsdtIterator { tables_phys_ptrs: self.tables_phys_ptrs(), handler: self.handler.clone() }
+    }
+
+    /// Add a new SSDT to the list of tables.
+    /// Sould edit the XSDT or RSDT to include the new table.
+    /// Safety: The address must be valid for reading as an SSDT. And must match the revision of the tables.
+    /// The address must be 8-byte aligned and the 8-byte after xsdt must be not used.
+    pub unsafe fn add_ssdt(&mut self, address: usize) -> AcpiResult<()> {
+        #[repr(transparent)]
+        struct Xsdt {
+            header: SdtHeader,
+        }
+
+        unsafe impl AcpiTable for Xsdt {
+            const SIGNATURE: Signature = Signature::XSDT;
+
+            fn header(&self) -> &SdtHeader {
+                &self.header
+            }
+        }
+
+        let mut xsdt =
+            unsafe { read_table::<H, Xsdt>(self.handler.clone(), self.mapping.physical_start()).unwrap() };
+
+        xsdt.write::<u64>(xsdt.header.length as usize, address as u64);
+
+        xsdt.write::<u32>(4, xsdt.header.length + 8); // length of the table
+        xsdt.write::<u8>(9, 0); // checksum
+        let mut sum = 0u8;
+        for i in 0..xsdt.header.length as usize {
+            sum = sum.wrapping_add(xsdt.read::<u8>(i));
+        }
+        xsdt.write::<u8>(9, (!sum).wrapping_add(1)); // checksum
+
+        let address = xsdt.physical_start();
+        let handler = xsdt.handler().clone();
+        self.mapping = read_root_table!(XSDT, address, handler);
+        Ok(())
     }
 
     /// Convenience method for contructing a [`PlatformInfo`]. This is one of the first things you should usually do
