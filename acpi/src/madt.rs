@@ -34,7 +34,7 @@ pub enum MadtError {
 ///     * The Streamlined Advanced Programmable Interrupt Controller (SAPIC) model (for Itanium systems)
 ///     * The Generic Interrupt Controller (GIC) model (for ARM systems)
 #[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct Madt {
     pub header: SdtHeader,
     pub local_apic_address: u32,
