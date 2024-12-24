@@ -252,7 +252,7 @@ mod tests {
         let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
-            name_seg().parse(&[b'A', b'F', b'3', b'Z'], &mut context),
+            name_seg().parse(b"AF3Z", &mut context),
             NameSeg([b'A', b'F', b'3', b'Z']),
             &[]
         );
@@ -292,12 +292,12 @@ mod tests {
         let mut context = crate::test_utils::make_test_context();
 
         check_ok!(
-            name_string().parse(&[b'^', b'A', b'B', b'C', b'D'], &mut context),
+            name_string().parse(b"^ABCD", &mut context),
             AmlName::from_str("^ABCD").unwrap(),
             &[]
         );
         check_ok!(
-            name_string().parse(&[b'^', b'^', b'^', b'A', b'B', b'C', b'D'], &mut context),
+            name_string().parse(b"^^^ABCD", &mut context),
             AmlName::from_str("^^^ABCD").unwrap(),
             &[]
         );

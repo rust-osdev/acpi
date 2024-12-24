@@ -600,12 +600,12 @@ mod tests {
 
     #[test]
     fn test_is_normal() {
-        assert_eq!(AmlName::root().is_normal(), true);
-        assert_eq!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_normal(), true);
-        assert_eq!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_normal(), false);
-        assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal(), false);
-        assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal(), true);
+        assert!(AmlName::root().is_normal());
+        assert!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_normal());
+        assert!(!AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_normal());
+        assert!(!AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal());
+        assert!(!AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal());
+        assert!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal());
     }
 
     #[test]
@@ -638,22 +638,22 @@ mod tests {
 
     #[test]
     fn test_is_absolute() {
-        assert_eq!(AmlName::root().is_absolute(), true);
-        assert_eq!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_absolute(), true);
-        assert_eq!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_absolute(), true);
-        assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_absolute(), true);
-        assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_absolute(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_absolute(), false);
+        assert!(AmlName::root().is_absolute());
+        assert!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_absolute());
+        assert!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_absolute());
+        assert!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_absolute());
+        assert!(!AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_absolute());
+        assert!(!AmlName::from_str("_SB.PCI0.VGA").unwrap().is_absolute());
     }
 
     #[test]
     fn test_search_rules_apply() {
-        assert_eq!(AmlName::root().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("\\_SB").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("^VGA").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("VGA").unwrap().search_rules_apply(), true);
-        assert_eq!(AmlName::from_str("_SB").unwrap().search_rules_apply(), true);
+        assert!(!AmlName::root().search_rules_apply());
+        assert!(!AmlName::from_str("\\_SB").unwrap().search_rules_apply());
+        assert!(!AmlName::from_str("^VGA").unwrap().search_rules_apply());
+        assert!(!AmlName::from_str("_SB.PCI0.VGA").unwrap().search_rules_apply());
+        assert!(AmlName::from_str("VGA").unwrap().search_rules_apply());
+        assert!(AmlName::from_str("_SB").unwrap().search_rules_apply());
     }
 
     #[test]
