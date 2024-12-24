@@ -199,7 +199,7 @@ where
                     }
 
                     let mut buffer = vec![0; buffer_size];
-                    (&mut buffer[0..bytes.len()]).copy_from_slice(bytes);
+                    buffer[0..bytes.len()].copy_from_slice(bytes);
                     (Ok(buffer), context)
                 })
             }),
@@ -564,16 +564,16 @@ where
                         context,
                         match source {
                             AmlValue::Buffer(bytes) => {
-                                let foo = bytes.lock();
-                                if index >= foo.len() {
+                                let guard = bytes.lock();
+                                if index >= guard.len() {
                                     Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(vec![]))))
-                                } else if (index + length) >= foo.len() {
+                                } else if (index + length) >= guard.len() {
                                     Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(
-                                        foo[index..].to_vec(),
+                                        guard[index..].to_vec(),
                                     ))))
                                 } else {
                                     Ok(AmlValue::Buffer(Arc::new(spinning_top::Spinlock::new(
-                                        foo[index..(index + length)].to_vec(),
+                                        guard[index..(index + length)].to_vec(),
                                     ))))
                                 }
                             }

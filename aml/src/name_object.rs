@@ -101,7 +101,7 @@ where
             PREFIX_CHAR => prefix_path.parse(input, context),
             _ => name_path()
                 .map(|path| {
-                    if path.len() == 0 {
+                    if path.is_empty() {
                         return Err(Propagate::Err(AmlError::EmptyNamesAreInvalid));
                     }
 
@@ -175,7 +175,7 @@ pub struct NameSeg(pub(crate) [u8; 4]);
 impl NameSeg {
     pub(crate) fn from_str(string: &str) -> Result<NameSeg, AmlError> {
         // Each NameSeg can only have four chars, and must have at least one
-        if string.len() < 1 || string.len() > 4 {
+        if string.is_empty() || string.len() > 4 {
             return Err(AmlError::InvalidNameSeg);
         }
 
@@ -234,21 +234,18 @@ where
 }
 
 fn is_lead_name_char(byte: u8) -> bool {
-    (byte >= b'A' && byte <= b'Z') || byte == b'_'
-}
-
-fn is_digit_char(byte: u8) -> bool {
-    byte >= b'0' && byte <= b'9'
+    byte.is_ascii_uppercase() || byte == b'_'
 }
 
 fn is_name_char(byte: u8) -> bool {
-    is_lead_name_char(byte) || is_digit_char(byte)
+    is_lead_name_char(byte) || byte.is_ascii_digit()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{parser::Parser, test_utils::*, AmlError};
+    use core::str::FromStr;
 
     #[test]
     fn test_name_seg() {
