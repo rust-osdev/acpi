@@ -84,3 +84,6 @@ jobs:
 
     - name: Run clippy (AML)
       run: cargo clippy -p aml
+
+    - name: Run clippy (AML tests)
+      run: cargo clippy -p aml --tests
