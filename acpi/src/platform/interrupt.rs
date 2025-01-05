@@ -1,7 +1,7 @@
 use crate::ManagedSlice;
 use core::alloc::Allocator;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct IoApic {
     pub id: u8,
     /// The physical address at which to access this I/O APIC.
@@ -10,7 +10,7 @@ pub struct IoApic {
     pub global_system_interrupt_base: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NmiLine {
     pub processor: NmiProcessor,
     pub line: LocalInterruptLine,
@@ -59,7 +59,7 @@ pub enum TriggerMode {
 /// models. For example, if a device is connected to ISA IRQ 0 and IOAPIC input 2, an override will
 /// appear mapping source 0 to GSI 2. Currently these will only be created for ISA interrupt
 /// sources.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct InterruptSourceOverride {
     pub isa_source: u8,
     pub global_system_interrupt: u32,
@@ -69,14 +69,14 @@ pub struct InterruptSourceOverride {
 
 /// Describes a Global System Interrupt that should be enabled as non-maskable. Any source that is
 /// non-maskable can not be used by devices.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NmiSource {
     pub global_system_interrupt: u32,
     pub polarity: Polarity,
     pub trigger_mode: TriggerMode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Apic<'a, A>
 where
     A: Allocator,
@@ -116,7 +116,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum InterruptModel<'a, A>
 where

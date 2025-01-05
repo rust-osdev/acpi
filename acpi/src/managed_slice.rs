@@ -73,3 +73,11 @@ where
         self.slice
     }
 }
+
+impl<T: Clone, A: Allocator + Clone> Clone for ManagedSlice<'_, T, A> {
+    fn clone(&self) -> Self {
+        let mut new_managed_slice = ManagedSlice::new_in(self.len(), self.allocator.clone()).unwrap();
+        new_managed_slice.clone_from_slice(self);
+        new_managed_slice
+    }
+}
