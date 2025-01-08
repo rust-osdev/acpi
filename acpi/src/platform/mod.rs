@@ -45,7 +45,7 @@ pub struct Processor {
     pub is_ap: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcessorInfo<'a, A>
 where
     A: Allocator,
@@ -65,7 +65,7 @@ where
 }
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PmTimer {
     /// A generic address to the register block of ACPI PM Timer.
     pub base: GenericAddress,
@@ -85,7 +85,7 @@ impl PmTimer {
 /// `PlatformInfo` allows the collection of some basic information about the platform from some of the fixed-size
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlatformInfo<'a, A>
 where
     A: Allocator,
