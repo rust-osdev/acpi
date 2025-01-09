@@ -70,6 +70,7 @@ pub mod handler;
 pub mod hpet;
 pub mod madt;
 pub mod mcfg;
+pub mod pcct;
 pub mod rsdp;
 pub mod sdt;
 pub mod spcr;
@@ -138,6 +139,10 @@ pub enum AcpiError {
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
     InvalidGenericAddress,
+
+    /// The signature for a PCC subspace shared memory region did not
+    /// match.
+    PccInvalidShmemSignature(u32),
 
     AllocError,
 }
