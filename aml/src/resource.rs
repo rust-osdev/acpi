@@ -25,7 +25,7 @@ pub fn resource_descriptor_list(descriptor: &AmlValue) -> Result<Vec<Resource>, 
         let buffer_data = bytes.lock();
         let mut bytes = buffer_data.as_slice();
 
-        while bytes.len() > 0 {
+        while !bytes.is_empty() {
             let (descriptor, remaining_bytes) = resource_descriptor(bytes)?;
 
             if let Some(descriptor) = descriptor {

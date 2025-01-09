@@ -9,6 +9,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use bit_field::BitField;
+use core::str::FromStr;
 
 pub use crate::resource::IrqDescriptor;
 
@@ -60,7 +61,7 @@ impl PciRoutingTable {
     pub fn from_prt_path(prt_path: &AmlName, context: &mut AmlContext) -> Result<PciRoutingTable, AmlError> {
         let mut entries = Vec::new();
 
-        let prt = context.invoke_method(&prt_path, Args::default())?;
+        let prt = context.invoke_method(prt_path, Args::default())?;
         if let AmlValue::Package(ref inner_values) = prt {
             for value in inner_values {
                 if let AmlValue::Package(ref pin_package) = value {
@@ -118,7 +119,7 @@ impl PciRoutingTable {
                         }
                         AmlValue::String(ref name) => {
                             let link_object_name =
-                                context.namespace.search_for_level(&AmlName::from_str(name)?, &prt_path)?;
+                                context.namespace.search_for_level(&AmlName::from_str(name)?, prt_path)?;
                             entries.push(PciRoute {
                                 device,
                                 function,

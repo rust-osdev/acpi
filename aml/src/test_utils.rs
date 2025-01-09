@@ -125,10 +125,7 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
     use crate::value::MethodCode;
 
     match a {
-        AmlValue::Uninitialized => match b {
-            AmlValue::Uninitialized => true,
-            _ => false,
-        },
+        AmlValue::Uninitialized => matches!(b, AmlValue::Uninitialized),
         AmlValue::Boolean(a) => match b {
             AmlValue::Boolean(b) => a == b,
             _ => false,
@@ -151,10 +148,7 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             }
             _ => false,
         },
-        AmlValue::Device => match b {
-            AmlValue::Device => true,
-            _ => false,
-        },
+        AmlValue::Device => matches!(b, AmlValue::Device),
         AmlValue::Method { flags, code } => match b {
             AmlValue::Method { flags: b_flags, code: b_code } => {
                 if flags != b_flags {
@@ -195,7 +189,7 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
         AmlValue::Package(a) => match b {
             AmlValue::Package(b) => {
                 for (a, b) in a.iter().zip(b) {
-                    if crudely_cmp_values(a, b) == false {
+                    if !crudely_cmp_values(a, b) {
                         return false;
                     }
                 }
@@ -210,9 +204,6 @@ pub(crate) fn crudely_cmp_values(a: &AmlValue, b: &AmlValue) -> bool {
             }
             _ => false,
         },
-        AmlValue::ThermalZone => match b {
-            AmlValue::ThermalZone => true,
-            _ => false,
-        },
+        AmlValue::ThermalZone => matches!(b, AmlValue::ThermalZone),
     }
 }

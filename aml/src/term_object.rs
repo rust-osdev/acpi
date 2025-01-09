@@ -1056,7 +1056,7 @@ mod test {
         );
         check_ok_value!(
             computational_data().parse(&[0xff, 0x98, 0xc3], &mut context),
-            AmlValue::Integer(u64::max_value()),
+            AmlValue::Integer(u64::MAX),
             &[0x98, 0xc3]
         );
         check_ok_value!(

@@ -62,6 +62,7 @@ where
     /// parsing with `other`, returning the result of that parser in all cases. Other errors from the first
     /// parser are propagated without attempting the second parser. To chain more than two parsers using
     /// `or`, see the `choice!` macro.
+    #[allow(unused)]
     fn or<OtherParser>(self, other: OtherParser) -> Or<'a, 'c, Self, OtherParser, R>
     where
         OtherParser: Parser<'a, 'c, R>,

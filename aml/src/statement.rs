@@ -153,7 +153,7 @@ where
                         .then(comment_scope(
                             DebugVerbosity::AllScopes,
                             "DefElse",
-                            pkg_length().feed(|length| take_to_end_of_pkglength(length)),
+                            pkg_length().feed(take_to_end_of_pkglength),
                         ))
                         .map(|((), else_branch): ((), &[u8])| Ok(else_branch)),
                     // TODO: can this be `id().map(&[])`?

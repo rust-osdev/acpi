@@ -4,7 +4,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::fmt;
+use core::{fmt, str::FromStr};
 
 /// A handle is used to refer to an AML value without actually borrowing it until you need to
 /// access it (this makes borrowing situation much easier as you only have to consider who's
@@ -70,6 +70,12 @@ pub struct Namespace {
     root: NamespaceLevel,
 }
 
+impl Default for Namespace {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Namespace {
     pub fn new() -> Namespace {
         Namespace {
@@ -103,9 +109,7 @@ impl Namespace {
              * If the level has already been added, we don't need to add it again. The parser can try to add it
              * multiple times if the ASL contains multiple blocks that add to the same scope/device.
              */
-            if !level.children.contains_key(&last_seg) {
-                level.children.insert(last_seg, NamespaceLevel::new(typ));
-            }
+            level.children.entry(last_seg).or_insert_with(|| NamespaceLevel::new(typ));
         }
 
         Ok(())
@@ -268,7 +272,7 @@ impl Namespace {
             loop {
                 let name = level_name.resolve(&scope)?;
                 if let Ok((level, last_seg)) = self.get_level_for_path(&name) {
-                    if let Some(_) = level.children.get(&last_seg) {
+                    if level.children.contains_key(&last_seg) {
                         return Ok(name);
                     }
                 }
@@ -342,7 +346,7 @@ impl Namespace {
         where
             F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
         {
-            for (name, ref child) in level.children.iter() {
+            for (name, child) in level.children.iter() {
                 let name = AmlName::from_name_seg(*name).resolve(scope)?;
 
                 if f(&name, child)? {
@@ -396,6 +400,39 @@ impl fmt::Debug for Namespace {
     }
 }
 
+impl FromStr for AmlName {
+    type Err = AmlError;
+
+    fn from_str(mut string: &str) -> Result<Self, Self::Err> {
+        if string.is_empty() {
+            return Err(AmlError::EmptyNamesAreInvalid);
+        }
+
+        let mut components = Vec::new();
+
+        // If it starts with a \, make it an absolute name
+        if string.starts_with('\\') {
+            components.push(NameComponent::Root);
+            string = &string[1..];
+        }
+
+        if !string.is_empty() {
+            // Divide the rest of it into segments, and parse those
+            for mut part in string.split('.') {
+                // Handle prefix chars
+                while part.starts_with('^') {
+                    components.push(NameComponent::Prefix);
+                    part = &part[1..];
+                }
+
+                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
+            }
+        }
+
+        Ok(Self(components))
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct AmlName(Vec<NameComponent>);
 
@@ -409,38 +446,8 @@ impl AmlName {
     }
 
     pub fn from_components(components: Vec<NameComponent>) -> AmlName {
-        assert!(components.len() > 0);
+        assert!(!components.is_empty());
         AmlName(components)
-    }
-
-    /// Convert a string representation of an AML name into an `AmlName`.
-    pub fn from_str(mut string: &str) -> Result<AmlName, AmlError> {
-        if string.len() == 0 {
-            return Err(AmlError::EmptyNamesAreInvalid);
-        }
-
-        let mut components = Vec::new();
-
-        // If it starts with a \, make it an absolute name
-        if string.starts_with('\\') {
-            components.push(NameComponent::Root);
-            string = &string[1..];
-        }
-
-        if string.len() > 0 {
-            // Divide the rest of it into segments, and parse those
-            for mut part in string.split('.') {
-                // Handle prefix chars
-                while part.starts_with('^') {
-                    components.push(NameComponent::Prefix);
-                    part = &part[1..];
-                }
-
-                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
-            }
-        }
-
-        Ok(AmlName(components))
     }
 
     pub fn as_string(&self) -> String {
@@ -472,10 +479,7 @@ impl AmlName {
             return false;
         }
 
-        match self.0[0] {
-            NameComponent::Segment(_) => true,
-            _ => false,
-        }
+        matches!(self.0[0], NameComponent::Segment(_))
     }
 
     /// Normalize an AML path, resolving prefix chars. Returns `AmlError::InvalidNormalizedName` if the path
@@ -556,10 +560,10 @@ pub enum NameComponent {
 }
 
 impl NameComponent {
-    pub fn as_segment(self) -> Result<NameSeg, ()> {
+    pub fn as_segment(self) -> Option<NameSeg> {
         match self {
-            NameComponent::Segment(seg) => Ok(seg),
-            NameComponent::Root | NameComponent::Prefix => Err(()),
+            NameComponent::Segment(seg) => Some(seg),
+            NameComponent::Root | NameComponent::Prefix => None,
         }
     }
 }
@@ -596,12 +600,12 @@ mod tests {
 
     #[test]
     fn test_is_normal() {
-        assert_eq!(AmlName::root().is_normal(), true);
-        assert_eq!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_normal(), true);
-        assert_eq!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_normal(), false);
-        assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal(), false);
-        assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal(), true);
+        assert!(AmlName::root().is_normal());
+        assert!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_normal());
+        assert!(!AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_normal());
+        assert!(!AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal());
+        assert!(!AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal());
+        assert!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal());
     }
 
     #[test]
@@ -634,22 +638,22 @@ mod tests {
 
     #[test]
     fn test_is_absolute() {
-        assert_eq!(AmlName::root().is_absolute(), true);
-        assert_eq!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_absolute(), true);
-        assert_eq!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_absolute(), true);
-        assert_eq!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_absolute(), true);
-        assert_eq!(AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_absolute(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_absolute(), false);
+        assert!(AmlName::root().is_absolute());
+        assert!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_absolute());
+        assert!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_absolute());
+        assert!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_absolute());
+        assert!(!AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_absolute());
+        assert!(!AmlName::from_str("_SB.PCI0.VGA").unwrap().is_absolute());
     }
 
     #[test]
     fn test_search_rules_apply() {
-        assert_eq!(AmlName::root().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("\\_SB").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("^VGA").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("_SB.PCI0.VGA").unwrap().search_rules_apply(), false);
-        assert_eq!(AmlName::from_str("VGA").unwrap().search_rules_apply(), true);
-        assert_eq!(AmlName::from_str("_SB").unwrap().search_rules_apply(), true);
+        assert!(!AmlName::root().search_rules_apply());
+        assert!(!AmlName::from_str("\\_SB").unwrap().search_rules_apply());
+        assert!(!AmlName::from_str("^VGA").unwrap().search_rules_apply());
+        assert!(!AmlName::from_str("_SB.PCI0.VGA").unwrap().search_rules_apply());
+        assert!(AmlName::from_str("VGA").unwrap().search_rules_apply());
+        assert!(AmlName::from_str("_SB").unwrap().search_rules_apply());
     }
 
     #[test]

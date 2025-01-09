@@ -189,7 +189,7 @@ mod tests {
 
         check_ok!(
             pkg_length()
-                .feed(|length| crate::parser::take_to_end_of_pkglength(length))
+                .feed(crate::parser::take_to_end_of_pkglength)
                 .parse(&[0x05, 0x01, 0x02, 0x03, 0x04, 0xff, 0xff, 0xff], &mut context),
             &[0x01, 0x02, 0x03, 0x04],
             &[0xff, 0xff, 0xff]

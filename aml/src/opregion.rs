@@ -6,6 +6,7 @@ use crate::{
     AmlValue,
 };
 use bit_field::BitField;
+use core::str::FromStr;
 
 #[derive(Clone, Debug)]
 pub struct OpRegion {
@@ -187,10 +188,22 @@ impl OpRegion {
             RegionSpace::SystemMemory => {
                 let address = (self.base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
                 match length {
-                    8 => Ok(context.handler.write_u8(address, value as u8)),
-                    16 => Ok(context.handler.write_u16(address, value as u16)),
-                    32 => Ok(context.handler.write_u32(address, value as u32)),
-                    64 => Ok(context.handler.write_u64(address, value)),
+                    8 => {
+                        context.handler.write_u8(address, value as u8);
+                        Ok(())
+                    }
+                    16 => {
+                        context.handler.write_u16(address, value as u16);
+                        Ok(())
+                    }
+                    32 => {
+                        context.handler.write_u32(address, value as u32);
+                        Ok(())
+                    }
+                    64 => {
+                        context.handler.write_u64(address, value);
+                        Ok(())
+                    }
                     _ => Err(AmlError::FieldInvalidAccessSize),
                 }
             }
@@ -198,9 +211,18 @@ impl OpRegion {
             RegionSpace::SystemIo => {
                 let port = (self.base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
                 match length {
-                    8 => Ok(context.handler.write_io_u8(port, value as u8)),
-                    16 => Ok(context.handler.write_io_u16(port, value as u16)),
-                    32 => Ok(context.handler.write_io_u32(port, value as u32)),
+                    8 => {
+                        context.handler.write_io_u8(port, value as u8);
+                        Ok(())
+                    }
+                    16 => {
+                        context.handler.write_io_u16(port, value as u16);
+                        Ok(())
+                    }
+                    32 => {
+                        context.handler.write_io_u32(port, value as u32);
+                        Ok(())
+                    }
                     _ => Err(AmlError::FieldInvalidAccessSize),
                 }
             }
@@ -241,9 +263,18 @@ impl OpRegion {
                 let offset = (self.base + offset).try_into().map_err(|_| AmlError::FieldInvalidAddress)?;
 
                 match length {
-                    8 => Ok(context.handler.write_pci_u8(seg, bbn, device, function, offset, value as u8)),
-                    16 => Ok(context.handler.write_pci_u16(seg, bbn, device, function, offset, value as u16)),
-                    32 => Ok(context.handler.write_pci_u32(seg, bbn, device, function, offset, value as u32)),
+                    8 => {
+                        context.handler.write_pci_u8(seg, bbn, device, function, offset, value as u8);
+                        Ok(())
+                    }
+                    16 => {
+                        context.handler.write_pci_u16(seg, bbn, device, function, offset, value as u16);
+                        Ok(())
+                    }
+                    32 => {
+                        context.handler.write_pci_u32(seg, bbn, device, function, offset, value as u32);
+                        Ok(())
+                    }
                     _ => Err(AmlError::FieldInvalidAccessSize),
                 }
             }

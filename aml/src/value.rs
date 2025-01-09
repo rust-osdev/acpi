@@ -142,10 +142,12 @@ pub enum AmlType {
     ThermalZone,
 }
 
+type NativeMethod = Arc<dyn Fn(&mut AmlContext) -> Result<AmlValue, AmlError> + Send + Sync>;
+
 #[derive(Clone)]
 pub enum MethodCode {
     Aml(Vec<u8>),
-    Native(Arc<dyn Fn(&mut AmlContext) -> Result<AmlValue, AmlError> + Send + Sync>),
+    Native(NativeMethod),
 }
 
 impl fmt::Debug for MethodCode {
@@ -214,7 +216,7 @@ impl AmlValue {
     }
 
     pub fn ones() -> AmlValue {
-        AmlValue::Integer(u64::max_value())
+        AmlValue::Integer(u64::MAX)
     }
 
     pub fn native_method<F>(arg_count: u8, serialize: bool, sync_level: u8, f: F) -> AmlValue
@@ -264,7 +266,7 @@ impl AmlValue {
         match self {
             AmlValue::Boolean(value) => Ok(*value),
             AmlValue::Integer(value) => Ok(*value != 0),
-            AmlValue::Field{ .. } => Ok(self.as_integer(context)? != 0),
+            AmlValue::Field { .. } => Ok(self.as_integer(context)? != 0),
             _ => Err(AmlError::IncompatibleValueConversion { current: self.type_of(), target: AmlType::Integer }),
         }
     }
@@ -272,7 +274,7 @@ impl AmlValue {
     pub fn as_integer(&self, context: &mut AmlContext) -> Result<u64, AmlError> {
         match self {
             AmlValue::Integer(value) => Ok(*value),
-            AmlValue::Boolean(value) => Ok(if *value { u64::max_value() } else { 0 }),
+            AmlValue::Boolean(value) => Ok(if *value { u64::MAX } else { 0 }),
             AmlValue::Buffer(ref bytes) => {
                 /*
                  * "The first 8 bytes of the buffer are converted to an integer, taking the first
@@ -393,8 +395,8 @@ impl AmlValue {
 
         // TODO: implement all of the rules
         match desired_type {
-            AmlType::Integer => self.as_integer(context).map(|value| AmlValue::Integer(value)),
-            AmlType::Buffer => self.as_buffer(context).map(|value| AmlValue::Buffer(value)),
+            AmlType::Integer => self.as_integer(context).map(AmlValue::Integer),
+            AmlType::Buffer => self.as_buffer(context).map(AmlValue::Buffer),
             AmlType::FieldUnit => panic!(
                 "Can't implicitly convert to FieldUnit. This must be special-cased by the caller for now :("
             ),
@@ -462,7 +464,7 @@ impl AmlValue {
                 let mut lower = 0u32;
                 lower.view_bits_mut::<bitvec::order::Lsb0>()[0..32].clone_from_bitslice(bits);
                 upper.view_bits_mut::<bitvec::order::Lsb0>()[0..(length - 32)].clone_from_bitslice(&bits[32..]);
-                Ok(AmlValue::Integer((upper as u64) << 32 + (lower as u64)))
+                Ok(AmlValue::Integer((upper as u64) << (32 + (lower as u64))))
             } else {
                 let mut value = 0u32;
                 value.view_bits_mut::<bitvec::order::Lsb0>()[0..length].clone_from_bitslice(bits);

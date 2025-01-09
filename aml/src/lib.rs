@@ -66,7 +66,7 @@ use alloc::{
     format,
     string::{String, ToString},
 };
-use core::mem;
+use core::{mem, str::FromStr};
 use log::{error, warn};
 use misc::{ArgNum, LocalNum};
 use name_object::Target;
@@ -171,7 +171,7 @@ impl AmlContext {
             format!("buf {:X?}", abbreviated)
         }
 
-        if stream.len() == 0 {
+        if stream.is_empty() {
             return Err(AmlError::UnexpectedEndOfStream);
         }
 
@@ -287,7 +287,7 @@ impl AmlContext {
         self.namespace.clone().traverse(|path, level: &NamespaceLevel| match level.typ {
             LevelType::Device => {
                 let status = if level.values.contains_key(&NameSeg::from_str("_STA").unwrap()) {
-                    self.invoke_method(&AmlName::from_str("_STA").unwrap().resolve(&path)?, Args::default())?
+                    self.invoke_method(&AmlName::from_str("_STA").unwrap().resolve(path)?, Args::default())?
                         .as_status()?
                 } else {
                     StatusObject::default()
@@ -298,7 +298,7 @@ impl AmlContext {
                  */
                 if status.present && level.values.contains_key(&NameSeg::from_str("_INI").unwrap()) {
                     log::info!("Invoking _INI at level: {}", path);
-                    self.invoke_method(&AmlName::from_str("_INI").unwrap().resolve(&path)?, Args::default())?;
+                    self.invoke_method(&AmlName::from_str("_INI").unwrap().resolve(path)?, Args::default())?;
                 }
 
                 /*
@@ -339,7 +339,7 @@ impl AmlContext {
 
     /// Get the current value of a local by its local number. Can only be executed from inside a control method.
     pub(crate) fn local(&self, local: LocalNum) -> Result<&AmlValue, AmlError> {
-        if let None = self.method_context {
+        if self.method_context.is_none() {
             return Err(AmlError::NotExecutingControlMethod);
         }
         if local > 7 {
@@ -384,7 +384,7 @@ impl AmlContext {
             }
 
             Target::Arg(arg_num) => {
-                if let None = self.method_context {
+                if self.method_context.is_none() {
                     return Err(AmlError::NotExecutingControlMethod);
                 }
 
@@ -399,7 +399,7 @@ impl AmlContext {
             }
 
             Target::Local(local_num) => {
-                if let None = self.method_context {
+                if self.method_context.is_none() {
                     return Err(AmlError::NotExecutingControlMethod);
                 }
 
@@ -454,49 +454,53 @@ impl AmlContext {
                 AmlName::from_str("\\_OSI").unwrap(),
                 AmlValue::native_method(1, false, 0, |context| {
                     let value = context.current_arg(0)?.clone();
-                    Ok(match value.as_string(context)?.as_str() {
-                        "Windows 2000" => true,       // 2000
-                        "Windows 2001" => true,       // XP
-                        "Windows 2001 SP1" => true,   // XP SP1
-                        "Windows 2001 SP2" => true,   // XP SP2
-                        "Windows 2001.1" => true,     // Server 2003
-                        "Windows 2001.1 SP1" => true, // Server 2003 SP1
-                        "Windows 2006" => true,       // Vista
-                        "Windows 2006 SP1" => true,   // Vista SP1
-                        "Windows 2006 SP2" => true,   // Vista SP2
-                        "Windows 2006.1" => true,     // Server 2008
-                        "Windows 2009" => true,       // 7 and Server 2008 R2
-                        "Windows 2012" => true,       // 8 and Server 2012
-                        "Windows 2013" => true,       // 8.1 and Server 2012 R2
-                        "Windows 2015" => true,       // 10
-                        "Windows 2016" => true,       // 10 version 1607
-                        "Windows 2017" => true,       // 10 version 1703
-                        "Windows 2017.2" => true,     // 10 version 1709
-                        "Windows 2018" => true,       // 10 version 1803
-                        "Windows 2018.2" => true,     // 10 version 1809
-                        "Windows 2019" => true,       // 10 version 1903
+                    Ok(
+                        if match value.as_string(context)?.as_str() {
+                            "Windows 2000" => true,       // 2000
+                            "Windows 2001" => true,       // XP
+                            "Windows 2001 SP1" => true,   // XP SP1
+                            "Windows 2001 SP2" => true,   // XP SP2
+                            "Windows 2001.1" => true,     // Server 2003
+                            "Windows 2001.1 SP1" => true, // Server 2003 SP1
+                            "Windows 2006" => true,       // Vista
+                            "Windows 2006 SP1" => true,   // Vista SP1
+                            "Windows 2006 SP2" => true,   // Vista SP2
+                            "Windows 2006.1" => true,     // Server 2008
+                            "Windows 2009" => true,       // 7 and Server 2008 R2
+                            "Windows 2012" => true,       // 8 and Server 2012
+                            "Windows 2013" => true,       // 8.1 and Server 2012 R2
+                            "Windows 2015" => true,       // 10
+                            "Windows 2016" => true,       // 10 version 1607
+                            "Windows 2017" => true,       // 10 version 1703
+                            "Windows 2017.2" => true,     // 10 version 1709
+                            "Windows 2018" => true,       // 10 version 1803
+                            "Windows 2018.2" => true,     // 10 version 1809
+                            "Windows 2019" => true,       // 10 version 1903
 
-                        "Darwin" => true,
+                            "Darwin" => true,
 
-                        "Linux" => {
-                            // TODO: should we allow users to specify that this should be true? Linux has a
-                            // command line option for this.
-                            warn!("ACPI evaluated `_OSI(\"Linux\")`. This is a bug. Reporting no support.");
-                            false
-                        }
+                            "Linux" => {
+                                // TODO: should we allow users to specify that this should be true? Linux has a
+                                // command line option for this.
+                                warn!("ACPI evaluated `_OSI(\"Linux\")`. This is a bug. Reporting no support.");
+                                false
+                            }
 
-                        "Extended Address Space Descriptor" => true,
-                        // TODO: support module devices
-                        "Module Device" => false,
-                        "3.0 Thermal Model" => true,
-                        "3.0 _SCP Extensions" => true,
-                        // TODO: support processor aggregator devices
-                        "Processor Aggregator Device" => false,
+                            "Extended Address Space Descriptor" => true,
+                            // TODO: support module devices
+                            "Module Device" => false,
+                            "3.0 Thermal Model" => true,
+                            "3.0 _SCP Extensions" => true,
+                            // TODO: support processor aggregator devices
+                            "Processor Aggregator Device" => false,
 
-                        _ => false,
-                    }
-                    .then_some(AmlValue::ones())
-                    .unwrap_or(AmlValue::zero()))
+                            _ => false,
+                        } {
+                            AmlValue::ones()
+                        } else {
+                            AmlValue::zero()
+                        },
+                    )
                 }),
             )
             .unwrap();
