@@ -142,7 +142,7 @@ where
 /// - Paging mode is enabled and physical memory for waking vector is identity mapped (virtual address equals physical address).
 /// - Waking vector must be contained within one physical page.
 /// - Selectors are set to flat and otherwise not used.
-pub fn wakeup_aps<H>(
+pub unsafe fn wakeup_aps<H>(
     tables: &AcpiTables<H>,
     handler: H,
     apic_id: u32,
