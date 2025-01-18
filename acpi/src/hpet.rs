@@ -21,8 +21,11 @@ pub enum PageProtection {
 /// Information about the High Precision Event Timer (HPET)
 #[derive(Debug)]
 pub struct HpetInfo {
-    // TODO(3.0.0): unpack these fields directly, and get rid of methods
-    pub event_timer_block_id: u32,
+    pub hardware_rev: u8,
+    pub num_comparators: u8,
+    pub main_counter_is_64bits: bool,
+    pub legacy_irq_capable: bool,
+    pub pci_vendor_id: u16,
     pub base_address: usize,
     pub hpet_number: u8,
     /// The minimum number of clock ticks that can be set without losing interrupts (for timers in Periodic Mode)
@@ -40,8 +43,13 @@ impl HpetInfo {
         // Make sure the HPET is in system memory
         assert_eq!(hpet.base_address.address_space, 0);
 
+        let event_timer_block_id = hpet.event_timer_block_id;
         Ok(HpetInfo {
-            event_timer_block_id: hpet.event_timer_block_id,
+            hardware_rev: event_timer_block_id.get_bits(0..8) as u8,
+            num_comparators: event_timer_block_id.get_bits(8..13) as u8,
+            main_counter_is_64bits: event_timer_block_id.get_bit(13),
+            legacy_irq_capable: event_timer_block_id.get_bit(15),
+            pci_vendor_id: event_timer_block_id.get_bits(16..32) as u16,
             base_address: hpet.base_address.address as usize,
             hpet_number: hpet.hpet_number,
             clock_tick_unit: hpet.clock_tick_unit,
@@ -53,26 +61,6 @@ impl HpetInfo {
                 _ => unreachable!(),
             },
         })
-    }
-
-    pub fn hardware_rev(&self) -> u8 {
-        self.event_timer_block_id.get_bits(0..8) as u8
-    }
-
-    pub fn num_comparators(&self) -> u8 {
-        self.event_timer_block_id.get_bits(8..13) as u8 + 1
-    }
-
-    pub fn main_counter_is_64bits(&self) -> bool {
-        self.event_timer_block_id.get_bit(13)
-    }
-
-    pub fn legacy_irq_capable(&self) -> bool {
-        self.event_timer_block_id.get_bit(15)
-    }
-
-    pub fn pci_vendor_id(&self) -> u16 {
-        self.event_timer_block_id.get_bits(16..32) as u16
     }
 }
 
