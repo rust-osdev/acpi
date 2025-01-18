@@ -30,15 +30,15 @@ pub enum PowerProfile {
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Fadt {
-    header: SdtHeader,
+    pub header: SdtHeader,
 
-    firmware_ctrl: u32,
-    dsdt_address: u32,
+    pub firmware_ctrl: u32,
+    pub dsdt_address: u32,
 
     // Used in acpi 1.0; compatibility only, should be zero
     _reserved: u8,
 
-    preferred_pm_profile: u8,
+    pub preferred_pm_profile: u8,
     /// On systems with an i8259 PIC, this is the vector the System Control Interrupt (SCI) is wired to. On other systems, this is
     /// the Global System Interrupt (GSI) number of the SCI.
     ///
@@ -64,20 +64,20 @@ pub struct Fadt {
     pub acpi_disable: u8,
     pub s4bios_req: u8,
     pub pstate_control: u8,
-    pm1a_event_block: u32,
-    pm1b_event_block: u32,
-    pm1a_control_block: u32,
-    pm1b_control_block: u32,
-    pm2_control_block: u32,
-    pm_timer_block: u32,
-    gpe0_block: u32,
-    gpe1_block: u32,
-    pm1_event_length: u8,
-    pm1_control_length: u8,
-    pm2_control_length: u8,
-    pm_timer_length: u8,
-    gpe0_block_length: u8,
-    gpe1_block_length: u8,
+    pub pm1a_event_block: u32,
+    pub pm1b_event_block: u32,
+    pub pm1a_control_block: u32,
+    pub pm1b_control_block: u32,
+    pub pm2_control_block: u32,
+    pub pm_timer_block: u32,
+    pub gpe0_block: u32,
+    pub gpe1_block: u32,
+    pub pm1_event_length: u8,
+    pub pm1_control_length: u8,
+    pub pm2_control_length: u8,
+    pub pm_timer_length: u8,
+    pub gpe0_block_length: u8,
+    pub gpe1_block_length: u8,
     pub gpe1_base: u8,
     pub c_state_control: u8,
     /// The worst-case latency to enter and exit the C2 state, in microseconds. A value `>100` indicates that the
@@ -96,23 +96,23 @@ pub struct Fadt {
     pub iapc_boot_arch: IaPcBootArchFlags,
     _reserved2: u8, // must be 0
     pub flags: FixedFeatureFlags,
-    reset_reg: RawGenericAddress,
+    pub reset_reg: RawGenericAddress,
     pub reset_value: u8,
     pub arm_boot_arch: ArmBootArchFlags,
-    fadt_minor_version: u8,
-    x_firmware_ctrl: ExtendedField<u64, 2>,
-    x_dsdt_address: ExtendedField<u64, 2>,
-    x_pm1a_event_block: ExtendedField<RawGenericAddress, 2>,
-    x_pm1b_event_block: ExtendedField<RawGenericAddress, 2>,
-    x_pm1a_control_block: ExtendedField<RawGenericAddress, 2>,
-    x_pm1b_control_block: ExtendedField<RawGenericAddress, 2>,
-    x_pm2_control_block: ExtendedField<RawGenericAddress, 2>,
-    x_pm_timer_block: ExtendedField<RawGenericAddress, 2>,
-    x_gpe0_block: ExtendedField<RawGenericAddress, 2>,
-    x_gpe1_block: ExtendedField<RawGenericAddress, 2>,
-    sleep_control_reg: ExtendedField<RawGenericAddress, 2>,
-    sleep_status_reg: ExtendedField<RawGenericAddress, 2>,
-    hypervisor_vendor_id: ExtendedField<u64, 2>,
+    pub fadt_minor_version: u8,
+    pub x_firmware_ctrl: ExtendedField<u64, 2>,
+    pub x_dsdt_address: ExtendedField<u64, 2>,
+    pub x_pm1a_event_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_pm1b_event_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_pm1a_control_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_pm1b_control_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_pm2_control_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_pm_timer_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_gpe0_block: ExtendedField<RawGenericAddress, 2>,
+    pub x_gpe1_block: ExtendedField<RawGenericAddress, 2>,
+    pub sleep_control_reg: ExtendedField<RawGenericAddress, 2>,
+    pub sleep_status_reg: ExtendedField<RawGenericAddress, 2>,
+    pub hypervisor_vendor_id: ExtendedField<u64, 2>,
 }
 
 /// ### Safety: Implementation properly represents a valid FADT.

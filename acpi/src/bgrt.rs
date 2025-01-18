@@ -9,13 +9,13 @@ use bit_field::BitField;
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct Bgrt {
-    header: SdtHeader,
+    pub header: SdtHeader,
     pub version: u16,
-    status: u8,
-    image_type: u8,
+    pub status: u8,
+    pub image_type: u8,
     pub image_address: u64,
-    image_offset_x: u32,
-    image_offset_y: u32,
+    pub image_offset_x: u32,
+    pub image_offset_y: u32,
 }
 
 /// ### Safety: Implementation properly represents a valid BGRT.

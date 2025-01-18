@@ -24,33 +24,33 @@ use core::{
 #[derive(Debug)]
 pub struct Spcr {
     pub header: SdtHeader,
-    interface_type: u8,
+    pub interface_type: u8,
     _reserved: [u8; 3],
-    base_address: RawGenericAddress,
-    interrupt_type: u8,
-    irq: u8,
-    global_system_interrupt: u32,
+    pub base_address: RawGenericAddress,
+    pub interrupt_type: u8,
+    pub irq: u8,
+    pub global_system_interrupt: u32,
     /// The baud rate the BIOS used for redirection.
-    configured_baud_rate: u8,
+    pub configured_baud_rate: u8,
     pub parity: u8,
     pub stop_bits: u8,
-    flow_control: u8,
-    terminal_type: u8,
+    pub flow_control: u8,
+    pub terminal_type: u8,
     /// Language which the BIOS was redirecting. Must be 0.
     pub language: u8,
-    pci_device_id: u16,
-    pci_vendor_id: u16,
-    pci_bus_number: u8,
-    pci_device_number: u8,
-    pci_function_number: u8,
+    pub pci_device_id: u16,
+    pub pci_vendor_id: u16,
+    pub pci_bus_number: u8,
+    pub pci_device_number: u8,
+    pub pci_function_number: u8,
     pub pci_flags: u32,
     /// PCI segment number. systems with fewer than 255 PCI buses, this number
     /// will be 0.
     pub pci_segment: u8,
-    uart_clock_freq: u32,
-    precise_baud_rate: u32,
-    namespace_string_length: u16,
-    namespace_string_offset: u16,
+    pub uart_clock_freq: u32,
+    pub precise_baud_rate: u32,
+    pub namespace_string_length: u16,
+    pub namespace_string_offset: u16,
 }
 
 unsafe impl AcpiTable for Spcr {

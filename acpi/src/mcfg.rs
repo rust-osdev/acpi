@@ -101,7 +101,7 @@ impl Iterator for PciConfigEntryIterator<'_> {
 
 #[repr(C, packed)]
 pub struct Mcfg {
-    header: SdtHeader,
+    pub header: SdtHeader,
     _reserved: u64,
     // Followed by `n` entries with format `McfgEntry`
 }

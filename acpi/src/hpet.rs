@@ -67,17 +67,15 @@ impl HpetInfo {
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct HpetTable {
-    /// The contents of the HPET's 'General Capabilities and ID register'
-    header: SdtHeader,
-    event_timer_block_id: u32,
-    base_address: RawGenericAddress,
-    hpet_number: u8,
-    clock_tick_unit: u16,
+    pub header: SdtHeader,
+    pub event_timer_block_id: u32,
+    pub base_address: RawGenericAddress,
+    pub hpet_number: u8,
+    pub clock_tick_unit: u16,
     /// Bits `0..4` specify the page protection guarantee. Bits `4..8` are reserved for OEM attributes.
-    page_protection_and_oem: u8,
+    pub page_protection_and_oem: u8,
 }
 
-/// ### Safety: Implementation properly represents a valid HPET table.
 unsafe impl AcpiTable for HpetTable {
     const SIGNATURE: Signature = Signature::HPET;
 

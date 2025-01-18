@@ -523,7 +523,7 @@ pub struct LocalSapicEntry {
     /// namespace when the `_UID` object is a string. It is a null-terminated ASCII string, and so
     /// this field will be `'\0'` if the string is not present, otherwise it extends from the
     /// address of this field.
-    processor_uid_string: u8,
+    pub processor_uid_string: u8,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -676,7 +676,7 @@ pub struct MultiprocessorWakeupMailbox {
     pub apic_id: u32,
     pub wakeup_vector: u64,
     pub reserved_for_os: [u64; 254],
-    reserved_for_firmware: [u64; 256],
+    pub reserved_for_firmware: [u64; 256],
 }
 
 #[cfg(feature = "allocator_api")]

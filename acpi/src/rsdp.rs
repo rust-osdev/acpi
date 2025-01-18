@@ -22,19 +22,19 @@ const RSDP_V2_EXT_LENGTH: usize = mem::size_of::<Rsdp>() - RSDP_V1_LENGTH;
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct Rsdp {
-    signature: [u8; 8],
-    checksum: u8,
-    oem_id: [u8; 6],
-    revision: u8,
-    rsdt_address: u32,
+    pub signature: [u8; 8],
+    pub checksum: u8,
+    pub oem_id: [u8; 6],
+    pub revision: u8,
+    pub rsdt_address: u32,
 
     /*
      * These fields are only valid for ACPI Version 2.0 and greater
      */
-    length: u32,
-    xsdt_address: u64,
-    ext_checksum: u8,
-    reserved: [u8; 3],
+    pub length: u32,
+    pub xsdt_address: u64,
+    pub ext_checksum: u8,
+    _reserved: [u8; 3],
 }
 
 impl Rsdp {
