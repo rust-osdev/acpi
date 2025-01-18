@@ -77,15 +77,15 @@ pub struct NmiSource {
 }
 
 #[derive(Debug, Clone)]
-pub struct Apic<'a, A>
+pub struct Apic<A>
 where
     A: Allocator,
 {
     pub local_apic_address: u64,
-    pub io_apics: ManagedSlice<'a, IoApic, A>,
-    pub local_apic_nmi_lines: ManagedSlice<'a, NmiLine, A>,
-    pub interrupt_source_overrides: ManagedSlice<'a, InterruptSourceOverride, A>,
-    pub nmi_sources: ManagedSlice<'a, NmiSource, A>,
+    pub io_apics: ManagedSlice<IoApic, A>,
+    pub local_apic_nmi_lines: ManagedSlice<NmiLine, A>,
+    pub interrupt_source_overrides: ManagedSlice<InterruptSourceOverride, A>,
+    pub nmi_sources: ManagedSlice<NmiSource, A>,
 
     /// If this field is set, you must remap and mask all the lines of the legacy PIC, even if
     /// you choose to use the APIC. It's recommended that you do this even if ACPI does not
@@ -93,16 +93,16 @@ where
     pub also_has_legacy_pics: bool,
 }
 
-impl<'a, A> Apic<'a, A>
+impl<A> Apic<A>
 where
     A: Allocator,
 {
     pub(crate) fn new(
         local_apic_address: u64,
-        io_apics: ManagedSlice<'a, IoApic, A>,
-        local_apic_nmi_lines: ManagedSlice<'a, NmiLine, A>,
-        interrupt_source_overrides: ManagedSlice<'a, InterruptSourceOverride, A>,
-        nmi_sources: ManagedSlice<'a, NmiSource, A>,
+        io_apics: ManagedSlice<IoApic, A>,
+        local_apic_nmi_lines: ManagedSlice<NmiLine, A>,
+        interrupt_source_overrides: ManagedSlice<InterruptSourceOverride, A>,
+        nmi_sources: ManagedSlice<NmiSource, A>,
         also_has_legacy_pics: bool,
     ) -> Self {
         Self {
@@ -118,7 +118,7 @@ where
 
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum InterruptModel<'a, A>
+pub enum InterruptModel<A>
 where
     A: Allocator,
 {
@@ -129,5 +129,5 @@ where
     /// Describes an interrupt controller based around the Advanced Programmable Interrupt Controller (any of APIC,
     /// XAPIC, or X2APIC). These are likely to be found on x86 and x86_64 systems and are made up of a Local APIC
     /// for each core and one or more I/O APICs to handle external interrupts.
-    Apic(Apic<'a, A>),
+    Apic(Apic<A>),
 }

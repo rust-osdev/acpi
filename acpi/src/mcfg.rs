@@ -10,16 +10,16 @@ use core::{mem, slice};
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
 #[cfg(feature = "allocator_api")]
-pub struct PciConfigRegions<'a, A>
+pub struct PciConfigRegions<A>
 where
     A: core::alloc::Allocator,
 {
-    regions: crate::ManagedSlice<'a, McfgEntry, A>,
+    regions: crate::ManagedSlice<McfgEntry, A>,
 }
 
 #[cfg(feature = "alloc")]
-impl<'a> PciConfigRegions<'a, alloc::alloc::Global> {
-    pub fn new<H>(tables: &crate::AcpiTables<H>) -> crate::AcpiResult<PciConfigRegions<'a, alloc::alloc::Global>>
+impl<'a> PciConfigRegions<alloc::alloc::Global> {
+    pub fn new<H>(tables: &crate::AcpiTables<H>) -> crate::AcpiResult<PciConfigRegions<alloc::alloc::Global>>
     where
         H: crate::AcpiHandler,
     {
@@ -28,11 +28,11 @@ impl<'a> PciConfigRegions<'a, alloc::alloc::Global> {
 }
 
 #[cfg(feature = "allocator_api")]
-impl<'a, A> PciConfigRegions<'a, A>
+impl<A> PciConfigRegions<A>
 where
     A: core::alloc::Allocator,
 {
-    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: A) -> crate::AcpiResult<PciConfigRegions<'a, A>>
+    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: A) -> crate::AcpiResult<PciConfigRegions<A>>
     where
         H: crate::AcpiHandler,
     {

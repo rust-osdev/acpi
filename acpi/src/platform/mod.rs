@@ -46,20 +46,20 @@ pub struct Processor {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProcessorInfo<'a, A>
+pub struct ProcessorInfo<A>
 where
     A: Allocator,
 {
     pub boot_processor: Processor,
     /// Application processors should be brought up in the order they're defined in this list.
-    pub application_processors: ManagedSlice<'a, Processor, A>,
+    pub application_processors: ManagedSlice<Processor, A>,
 }
 
-impl<'a, A> ProcessorInfo<'a, A>
+impl<A> ProcessorInfo<A>
 where
     A: Allocator,
 {
-    pub(crate) fn new(boot_processor: Processor, application_processors: ManagedSlice<'a, Processor, A>) -> Self {
+    pub(crate) fn new(boot_processor: Processor, application_processors: ManagedSlice<Processor, A>) -> Self {
         Self { boot_processor, application_processors }
     }
 }
@@ -86,15 +86,15 @@ impl PmTimer {
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
 #[derive(Debug, Clone)]
-pub struct PlatformInfo<'a, A>
+pub struct PlatformInfo<A>
 where
     A: Allocator,
 {
     pub power_profile: PowerProfile,
-    pub interrupt_model: InterruptModel<'a, A>,
+    pub interrupt_model: InterruptModel<A>,
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
-    pub processor_info: Option<ProcessorInfo<'a, A>>,
+    pub processor_info: Option<ProcessorInfo<A>>,
     pub pm_timer: Option<PmTimer>,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
@@ -102,7 +102,7 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl PlatformInfo<'_, alloc::alloc::Global> {
+impl PlatformInfo<alloc::alloc::Global> {
     pub fn new<H>(tables: &AcpiTables<H>) -> AcpiResult<Self>
     where
         H: AcpiHandler,
@@ -111,7 +111,7 @@ impl PlatformInfo<'_, alloc::alloc::Global> {
     }
 }
 
-impl<A> PlatformInfo<'_, A>
+impl<A> PlatformInfo<A>
 where
     A: Allocator + Clone,
 {
