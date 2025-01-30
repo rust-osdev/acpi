@@ -1,4 +1,9 @@
-use core::{fmt, ops::{Deref, DerefMut}, pin::Pin, ptr::NonNull};
+use core::{
+    fmt,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    ptr::NonNull,
+};
 
 /// Describes a physical mapping created by `AcpiHandler::map_physical_region` and unmapped by
 /// `AcpiHandler::unmap_physical_region`. The region mapped must be at least `size_of::<T>()`

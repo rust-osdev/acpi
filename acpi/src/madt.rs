@@ -51,7 +51,6 @@ pub struct Madt {
     _pinned: PhantomPinned,
 }
 
-/// ### Safety: Implementation properly represents a valid MADT.
 unsafe impl AcpiTable for Madt {
     const SIGNATURE: Signature = Signature::MADT;
 
@@ -116,14 +115,10 @@ impl Madt {
     }
 
     #[cfg(feature = "allocator_api")]
-<<<<<<< HEAD
-    fn parse_apic_model_in<'a, A>(
+    fn parse_apic_model_in<A>(
         self: Pin<&Self>,
         allocator: A,
-    ) -> AcpiResult<(InterruptModel<'a, A>, Option<ProcessorInfo<'a, A>>)>
-=======
-    fn parse_apic_model_in<A>(&self, allocator: A) -> AcpiResult<(InterruptModel<A>, Option<ProcessorInfo<A>>)>
->>>>>>> 25e9814 (`acpi`: remove lifetime from `ManagedSlice`)
+    ) -> AcpiResult<(InterruptModel<A>, Option<ProcessorInfo<A>>)>
     where
         A: core::alloc::Allocator + Clone,
     {
@@ -335,7 +330,7 @@ impl Madt {
     }
 
     pub fn supports_8259(&self) -> bool {
-        { self.flags }.get_bit(0)
+        self.flags.get_bit(0)
     }
 }
 
