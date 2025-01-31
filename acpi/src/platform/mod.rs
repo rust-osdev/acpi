@@ -153,7 +153,7 @@ where
     H: AcpiHandler,
 {
     let madt = tables.find_table::<Madt>()?;
-    let mailbox_addr = madt.get_mpwk_mailbox_addr()?;
+    let mailbox_addr = madt.get().get_mpwk_mailbox_addr()?;
     let mut mpwk_mapping = unsafe {
         handler.map_physical_region::<MultiprocessorWakeupMailbox>(
             mailbox_addr as usize,
