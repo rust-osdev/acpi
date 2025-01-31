@@ -42,7 +42,7 @@ pub enum MadtError {
 /// This type only contains the static portion, and then uses pointer arithmetic to parse the following entries.
 /// To make this sound, this type is `!Unpin` - this prevents you from getting anything other than a `Pin<&Madt>`
 /// out of a `PhysicalMapping`, thereby preventing a `Madt` from being moved before [`Madt::entries`] is called.
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Debug)]
 pub struct Madt {
     pub header: SdtHeader,
@@ -61,7 +61,7 @@ unsafe impl AcpiTable for Madt {
 }
 
 impl Madt {
-    pub fn get_mpwk_mailbox_addr(&self) -> Result<u64, AcpiError> {
+    pub fn get_mpwk_mailbox_addr(self: Pin<&Self>) -> Result<u64, AcpiError> {
         for entry in self.entries() {
             if let MadtEntry::MultiprocessorWakeup(entry) = entry {
                 return Ok(entry.mailbox_address);
