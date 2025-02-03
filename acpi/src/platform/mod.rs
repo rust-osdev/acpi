@@ -1,15 +1,7 @@
 pub mod interrupt;
 
 use crate::{
-    address::GenericAddress,
-    fadt::Fadt,
-    madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
-    AcpiError,
-    AcpiHandler,
-    AcpiResult,
-    AcpiTables,
-    ManagedSlice,
-    PowerProfile,
+    address::GenericAddress, fadt::Fadt, madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox}, srat::Srat, AcpiError, AcpiHandler, AcpiResult, AcpiTables, ManagedSlice, PowerProfile
 };
 use core::{alloc::Allocator, mem, ptr};
 use interrupt::InterruptModel;
@@ -35,6 +27,8 @@ pub struct Processor {
     /// The ID of the local APIC of the processor. Will be less than `256` if the APIC is being used, but can be
     /// greater than this if the X2APIC is being used.
     pub local_apic_id: u32,
+    /// Proximity domain to which the processor belongs to.
+    pub proximity_domain: Option<u32>,
 
     /// The state of this processor. Check that the processor is not `Disabled` before attempting to bring it up!
     pub state: ProcessorState,
@@ -43,6 +37,19 @@ pub struct Processor {
     /// When the bootloader is entered, the BSP is the only processor running code. To run code on
     /// more than one processor, you need to "bring up" the APs.
     pub is_ap: bool,
+}
+
+impl Processor {
+    fn attach_affinity<A>(&mut self, topology: &ProcessorTopology<A>)
+    where
+        A: Allocator,
+    {
+        for affinity in topology.processor_affinities.iter() {
+            if affinity.local_apic_id == self.local_apic_id {
+                self.proximity_domain = Some(affinity.proximity_domain);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +69,44 @@ where
     pub(crate) fn new(boot_processor: Processor, application_processors: ManagedSlice<'a, Processor, A>) -> Self {
         Self { boot_processor, application_processors }
     }
+
+    fn attach_affinity(&mut self, topology: &ProcessorTopology<'a, A>) {
+        self.boot_processor.attach_affinity(topology);
+        for application_processor in self.application_processors.iter_mut() {
+            application_processor.attach_affinity(topology);
+        }
+    }
+}
+
+pub struct ProcessorAffinity {
+    pub local_apic_id: u32,
+    pub proximity_domain: u32,
+    pub is_enabled: bool,
+}
+
+pub struct ProcessorTopology<'a, A>
+where
+    A: Allocator,
+{
+    pub processor_affinities: ManagedSlice<'a, ProcessorAffinity, A>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryRange {
+    pub base_address: u64,
+    pub length: u64,
+    pub proximity_domain: Option<u32>,
+    pub hot_pluggable: bool,
+    pub non_volatile: bool,
+    pub is_enabled: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryInfo<'a, A>
+where
+    A: Allocator,
+{
+    pub memory_ranges: ManagedSlice<'a, MemoryRange, A>,
 }
 
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
@@ -95,6 +140,7 @@ where
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo<'a, A>>,
+    pub memory_info: Option<MemoryInfo<'a, A>>,
     pub pm_timer: Option<PmTimer>,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
@@ -119,17 +165,34 @@ where
     where
         H: AcpiHandler,
     {
-        let fadt = tables.find_table::<Fadt>()?;
-        let power_profile = fadt.power_profile();
-
-        let madt = tables.find_table::<Madt>();
-        let (interrupt_model, processor_info) = match madt {
-            Ok(madt) => madt.get().parse_interrupt_model_in(allocator)?,
-            Err(_) => (InterruptModel::Unknown, None),
+        let (power_profile, pm_timer) = {
+            let fadt = tables.find_table::<Fadt>()?;
+            (fadt.power_profile(), PmTimer::new(&fadt)?)
         };
-        let pm_timer = PmTimer::new(&fadt)?;
 
-        Ok(PlatformInfo { power_profile, interrupt_model, processor_info, pm_timer })
+        let (interrupt_model, processor_info) = {
+            let madt = tables.find_table::<Madt>();
+            match madt {
+                Ok(madt) => madt.get().parse_interrupt_model_in(allocator.clone())?,
+                Err(_) => (InterruptModel::Unknown, None),
+            }
+        };
+
+        let (processor_info, memory_info) = {
+            let srat = tables.find_table::<Srat>();
+            match srat {
+                Ok(srat) => {
+                    let (processor_topology, memory_info) = srat.get().parse_topology_in(allocator)?;
+                    (processor_info.map(|mut processor_info| {
+                        processor_info.attach_affinity(&processor_topology);
+                        processor_info
+                    }), Some(memory_info))
+                }
+                Err(_) => (processor_info, None),
+            }
+        };
+
+        Ok(PlatformInfo { power_profile, interrupt_model, processor_info, memory_info, pm_timer })
     }
 }
 

@@ -191,6 +191,7 @@ impl Madt {
                     let processor = Processor {
                         processor_uid: entry.processor_id as u32,
                         local_apic_id: entry.apic_id as u32,
+                        proximity_domain: None,
                         state,
                         is_ap,
                     };
@@ -216,6 +217,7 @@ impl Madt {
                     let processor = Processor {
                         processor_uid: entry.processor_uid,
                         local_apic_id: entry.x2apic_id,
+                        proximity_domain: None,
                         state,
                         is_ap,
                     };
