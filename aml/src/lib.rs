@@ -606,6 +606,7 @@ pub enum AmlError {
     /// `AmlName` is the name of the entire sub-level/value.
     LevelDoesNotExist(AmlName),
     ValueDoesNotExist(AmlName),
+    HandleDoesNotExist(AmlHandle),
     /// Produced when two values with the same name are added to the namespace.
     NameCollision(AmlName),
     TriedToRemoveRootNamespace,
