@@ -13,7 +13,7 @@ use aml::{AmlContext, DebugVerbosity};
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::OsStr,
     fs::{self, File},
     io::{Read, Write},
@@ -55,8 +55,8 @@ fn main() -> std::io::Result<()> {
         println!("Running tests in directory: {:?}", dir_path);
         fs::read_dir(dir_path)?
             .filter_map(|entry| {
-                if entry.is_ok() {
-                    Some(entry.unwrap().path().to_string_lossy().to_string())
+                if let Ok(entry) = entry {
+                    Some(entry.path().to_string_lossy().to_string())
                 } else {
                     None
                 }
@@ -67,15 +67,18 @@ fn main() -> std::io::Result<()> {
     };
 
     // Make sure all files exist, propagate error if it occurs
-    files.iter().fold(Ok(()), |result: std::io::Result<()>, file| {
+    let mut result = Ok(());
+    for file in files.iter() {
         let path = Path::new(file);
         if !path.is_file() {
             println!("Not a regular file: {}", file);
             // Get the io error if there is one
-            path.metadata()?;
+            if let Err(e) = path.metadata() {
+                result = Err(e);
+            }
         }
-        result
-    })?;
+    }
+    result?;
 
     // Make sure we have the ability to compile ASL -> AML, if user wants it
     let user_wants_compile = !matches.get_flag("no_compile");

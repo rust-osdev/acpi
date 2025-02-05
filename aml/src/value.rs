@@ -494,7 +494,7 @@ impl AmlValue {
                      */
                     let bits_to_copy = cmp::min(length, 64);
                     bitslice[offset..(offset + bits_to_copy)]
-                        .copy_from_bitslice(&value.to_le_bytes().view_bits()[..(bits_to_copy as usize)]);
+                        .copy_from_bitslice(&value.to_le_bytes().view_bits()[..(bits_to_copy)]);
                     // Zero extend to the end of the buffer field
                     bitslice[(offset + bits_to_copy)..(offset + length)].fill(false);
                     Ok(())
@@ -514,7 +514,7 @@ impl AmlValue {
                     let value_data = value.lock();
                     let bits_to_copy = cmp::min(length, value_data.len() * 8);
                     bitslice[offset..(offset + bits_to_copy)]
-                        .copy_from_bitslice(&value_data.view_bits()[..(bits_to_copy as usize)]);
+                        .copy_from_bitslice(&value_data.view_bits()[..(bits_to_copy)]);
                     // Zero extend to the end of the buffer field
                     bitslice[(offset + bits_to_copy)..(offset + length)].fill(false);
                     Ok(())
@@ -560,7 +560,7 @@ impl Args {
         }
 
         let mut args: Vec<Option<AmlValue>> = list.into_iter().map(Option::Some).collect();
-        args.extend(core::iter::repeat(None).take(7 - args.len()));
+        args.extend(core::iter::repeat_n(None, 7 - args.len()));
         Ok(Args(args.try_into().unwrap()))
     }
 
