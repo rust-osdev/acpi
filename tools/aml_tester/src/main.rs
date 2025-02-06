@@ -9,7 +9,7 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::{AmlContext, DebugVerbosity};
+use aml::Interpreter;
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
     collections::HashSet,
@@ -169,7 +169,8 @@ fn main() -> std::io::Result<()> {
         .collect::<Vec<_>>();
 
     let combined_test = matches.get_flag("combined");
-    let mut context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
+
+    let mut interpreter = Interpreter::new(Handler);
 
     let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry);
@@ -185,20 +186,20 @@ fn main() -> std::io::Result<()> {
         const AML_TABLE_HEADER_LENGTH: usize = 36;
 
         if !combined_test {
-            context = AmlContext::new(Box::new(Handler), DebugVerbosity::None);
+            interpreter = Interpreter::new(Handler);
         }
 
-        match context.parse_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
+        match interpreter.load_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
             Ok(()) => {
                 println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
-                println!("Namespace: {:#?}", context.namespace);
+                println!("Namespace: {:#?}", interpreter.namespace.lock());
                 summaries.insert((file_entry, TestResult::Pass));
                 (passed + 1, failed)
             }
 
             Err(err) => {
                 println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
-                println!("Namespace: {:#?}", context.namespace);
+                println!("Namespace: {:#?}", interpreter.namespace.lock());
                 summaries.insert((file_entry, TestResult::ParseFail));
                 (passed, failed + 1)
             }

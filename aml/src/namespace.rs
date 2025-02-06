@@ -1,107 +1,36 @@
-use crate::{name_object::NameSeg, value::AmlValue, AmlError};
+use crate::{AmlError, object::Object};
 use alloc::{
-    collections::BTreeMap,
+    collections::btree_map::BTreeMap,
     string::{String, ToString},
+    sync::Arc,
+    vec,
     vec::Vec,
 };
-use core::{fmt, str::FromStr};
+use core::{fmt, str, str::FromStr};
 
-/// A handle is used to refer to an AML value without actually borrowing it until you need to
-/// access it (this makes borrowing situation much easier as you only have to consider who's
-/// borrowing the namespace). They can also be cached to avoid expensive namespace lookups.
-///
-/// Handles are never reused (the handle to a removed object will never be reused to point to a new
-/// object). This ensures handles cached by the library consumer will never point to an object they
-/// did not originally point to, but also means that, in theory, we can run out of handles on a
-/// very-long-running system (we are yet to see if this is a problem, practically).
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct AmlHandle(u32);
-
-impl AmlHandle {
-    pub(self) fn increment(&mut self) {
-        self.0 += 1;
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LevelType {
-    Scope,
-    Device,
-    /// A legacy `Processor` object's sub-objects are stored in a level of this type. Modern tables define
-    /// processors as `Device`s.
-    Processor,
-    /// A `PowerResource` object's sub-objects are stored in a level of this type.
-    PowerResource,
-    /// A `ThermalZone` object's sub-objects are stored in a level of this type.
-    ThermalZone,
-    /// A level of this type is created at the same path as the name of a method when it is invoked. It can be
-    /// used by the method to store local variables.
-    MethodLocals,
-}
-
-#[derive(Clone, Debug)]
-pub struct NamespaceLevel {
-    pub typ: LevelType,
-    pub children: BTreeMap<NameSeg, NamespaceLevel>,
-    pub values: BTreeMap<NameSeg, AmlHandle>,
-}
-
-impl NamespaceLevel {
-    pub(crate) fn new(typ: LevelType) -> NamespaceLevel {
-        NamespaceLevel { typ, children: BTreeMap::new(), values: BTreeMap::new() }
-    }
-}
-
-#[derive(Clone)]
 pub struct Namespace {
-    /// This is a running count of ids, which are never reused. This is incremented every time we
-    /// add a new object to the namespace. We can then remove objects, freeing their memory, without
-    /// risking using the same id for two objects.
-    next_handle: AmlHandle,
-
-    /// This maps handles to actual values, and is used to access the actual AML values. When removing a value
-    /// from the object map, care must be taken to also remove references to its handle in the level data
-    /// structure, as invalid handles will cause panics.
-    object_map: BTreeMap<AmlHandle, AmlValue>,
-
-    /// Holds the first level of the namespace - containing items such as `\_SB`. Subsequent levels are held
-    /// recursively inside this structure. It holds handles to references, which need to be indexed into
-    /// `object_map` to acctually access the object.
     root: NamespaceLevel,
 }
 
-impl Default for Namespace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Namespace {
+    /// Create a new AML namespace, with the expected pre-defined objects.
     pub fn new() -> Namespace {
-        Namespace {
-            next_handle: AmlHandle(0),
-            object_map: BTreeMap::new(),
-            root: NamespaceLevel::new(LevelType::Scope),
-        }
+        let mut namespace = Namespace { root: NamespaceLevel::new(NamespaceLevelKind::Scope) };
+
+        namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), NamespaceLevelKind::Scope).unwrap();
+        namespace.add_level(AmlName::from_str("\\_SB").unwrap(), NamespaceLevelKind::Scope).unwrap();
+        namespace.add_level(AmlName::from_str("\\_SI").unwrap(), NamespaceLevelKind::Scope).unwrap();
+        namespace.add_level(AmlName::from_str("\\_PR").unwrap(), NamespaceLevelKind::Scope).unwrap();
+        namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), NamespaceLevelKind::Scope).unwrap();
+
+        namespace
     }
 
-    /// Add a new level to the namespace. A "level" is named by a single `NameSeg`, and can contain values, and
-    /// also other further sub-levels. Once a level has been created, AML values can be added to it with
-    /// `add_value`.
-    ///
-    /// ### Note
-    /// At first glance, you might expect `DefDevice` to add a value of type `Device`. However, because all
-    /// `Devices` do is hold other values, we model them as namespace levels, and so they must be created
-    /// accordingly.
-    pub fn add_level(&mut self, path: AmlName, typ: LevelType) -> Result<(), AmlError> {
+    pub fn add_level(&mut self, path: AmlName, kind: NamespaceLevelKind) -> Result<(), AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
-        /*
-         * We need to handle a special case here: if a `Scope(\) { ... }` appears in the AML, the parser will
-         * try and recreate the root scope. Instead of handling this specially in the parser, we just
-         * return nicely here.
-         */
+        // Don't try to recreate the root scope
         if path != AmlName::root() {
             let (level, last_seg) = self.get_level_for_path_mut(&path)?;
 
@@ -109,183 +38,31 @@ impl Namespace {
              * If the level has already been added, we don't need to add it again. The parser can try to add it
              * multiple times if the ASL contains multiple blocks that add to the same scope/device.
              */
-            level.children.entry(last_seg).or_insert_with(|| NamespaceLevel::new(typ));
+            level.children.entry(last_seg).or_insert_with(|| NamespaceLevel::new(kind));
         }
 
         Ok(())
     }
 
-    pub fn remove_level(&mut self, path: AmlName) -> Result<(), AmlError> {
+    pub fn insert(&mut self, path: AmlName, object: Arc<Object>) -> Result<(), AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
-
-        if path != AmlName::root() {
-            let (level, last_seg) = self.get_level_for_path_mut(&path)?;
-
-            match level.children.remove(&last_seg) {
-                Some(_) => Ok(()),
-                None => Err(AmlError::LevelDoesNotExist(path)),
-            }
-        } else {
-            Err(AmlError::TriedToRemoveRootNamespace)
-        }
-    }
-
-    /// Add a value to the namespace at the given path, which must be a normalized, absolute AML
-    /// name. If you want to add at a path relative to a given scope, use `add_at_resolved_path`
-    /// instead.
-    pub fn add_value(&mut self, path: AmlName, value: AmlValue) -> Result<AmlHandle, AmlError> {
-        assert!(path.is_absolute());
-        let path = path.normalize()?;
-
-        let handle = self.next_handle;
-        self.next_handle.increment();
-        self.object_map.insert(handle, value);
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
-        match level.values.insert(last_seg, handle) {
-            None => Ok(handle),
+        match level.values.insert(last_seg, object) {
+            None => Ok(()),
             Some(_) => Err(AmlError::NameCollision(path)),
         }
     }
 
-    /// Helper method for adding a value to the namespace at a path that is relative to the given
-    /// scope. This operation involves a lot of error handling in parts of the parser, so is
-    /// encapsulated here.
-    pub fn add_value_at_resolved_path(
-        &mut self,
-        path: AmlName,
-        scope: &AmlName,
-        value: AmlValue,
-    ) -> Result<AmlHandle, AmlError> {
-        self.add_value(path.resolve(scope)?, value)
-    }
-
-    /// Add an alias for an existing name. The alias will refer to the same value as the original,
-    /// and the fact that the alias exists is forgotten.
-    pub fn add_alias_at_resolved_path(
-        &mut self,
-        path: AmlName,
-        scope: &AmlName,
-        target: AmlName,
-    ) -> Result<AmlHandle, AmlError> {
-        let path = path.resolve(scope)?;
-        let target = target.resolve(scope)?;
-
-        let handle = self.get_handle(&target)?;
+    pub fn get(&mut self, path: AmlName) -> Result<Arc<Object>, AmlError> {
+        assert!(path.is_absolute());
+        let path = path.normalize()?;
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
-        match level.values.insert(last_seg, handle) {
-            None => Ok(handle),
-            Some(_) => Err(AmlError::NameCollision(path)),
-        }
-    }
-
-    pub fn get(&self, handle: AmlHandle) -> Result<&AmlValue, AmlError> {
-        Ok(self.object_map.get(&handle).unwrap())
-    }
-
-    pub fn get_mut(&mut self, handle: AmlHandle) -> Result<&mut AmlValue, AmlError> {
-        Ok(self.object_map.get_mut(&handle).unwrap())
-    }
-
-    pub fn get_handle(&self, path: &AmlName) -> Result<AmlHandle, AmlError> {
-        let (level, last_seg) = self.get_level_for_path(path)?;
-        Ok(*level.values.get(&last_seg).ok_or(AmlError::ValueDoesNotExist(path.clone()))?)
-    }
-
-    pub fn get_by_path(&self, path: &AmlName) -> Result<&AmlValue, AmlError> {
-        let handle = self.get_handle(path)?;
-        Ok(self.get(handle).unwrap())
-    }
-
-    pub fn get_by_path_mut(&mut self, path: &AmlName) -> Result<&mut AmlValue, AmlError> {
-        let handle = self.get_handle(path)?;
-        Ok(self.get_mut(handle).unwrap())
-    }
-
-    /// Search for an object at the given path of the namespace, applying the search rules described in §5.3 of the
-    /// ACPI specification, if they are applicable. Returns the resolved name, and the handle of the first valid
-    /// object, if found.
-    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, AmlHandle), AmlError> {
-        if path.search_rules_apply() {
-            /*
-             * If search rules apply, we need to recursively look through the namespace. If the
-             * given name does not occur in the current scope, we look at the parent scope, until
-             * we either find the name, or reach the root of the namespace.
-             */
-            let mut scope = starting_scope.clone();
-            assert!(scope.is_absolute());
-            loop {
-                // Search for the name at this namespace level. If we find it, we're done.
-                let name = path.resolve(&scope)?;
-                match self.get_level_for_path(&name) {
-                    Ok((level, last_seg)) => {
-                        if let Some(&handle) = level.values.get(&last_seg) {
-                            return Ok((name, handle));
-                        }
-                    }
-
-                    /*
-                     * This error is caught specially to avoid a case that seems bizzare but is quite useful - when
-                     * the passed starting scope doesn't exist. Certain methods return values that reference names
-                     * from the point of view of the method, so it makes sense for the starting scope to be inside
-                     * the method.  However, because we have destroyed all the objects created by the method
-                     * dynamically, the level no longer exists.
-                     *
-                     * To avoid erroring here, we simply continue to the parent scope. If the whole scope doesn't
-                     * exist, this will error when we get to the root, so this seems unlikely to introduce bugs.
-                     */
-                    Err(AmlError::LevelDoesNotExist(_)) => (),
-                    Err(err) => return Err(err),
-                }
-
-                // If we don't find it, go up a level in the namespace and search for it there recursively
-                match scope.parent() {
-                    Ok(parent) => scope = parent,
-                    // If we still haven't found the value and have run out of parents, return `None`.
-                    Err(AmlError::RootHasNoParent) => return Err(AmlError::ValueDoesNotExist(path.clone())),
-                    Err(err) => return Err(err),
-                }
-            }
-        } else {
-            // If search rules don't apply, simply resolve it against the starting scope
-            let name = path.resolve(starting_scope)?;
-            // TODO: the fuzzer crashes when path is `\` and the scope is also `\`. This means that name is `\`,
-            // which then trips up get_level_for_path. I don't know where to best solve this: we could check for
-            // specific things that crash `search`, or look for a more general solution.
-            let (level, last_seg) = self.get_level_for_path(&path.resolve(starting_scope)?)?;
-
-            if let Some(&handle) = level.values.get(&last_seg) {
-                Ok((name, handle))
-            } else {
-                Err(AmlError::ValueDoesNotExist(path.clone()))
-            }
-        }
-    }
-
-    pub fn search_for_level(&self, level_name: &AmlName, starting_scope: &AmlName) -> Result<AmlName, AmlError> {
-        if level_name.search_rules_apply() {
-            let mut scope = starting_scope.clone().normalize()?;
-            assert!(scope.is_absolute());
-
-            loop {
-                let name = level_name.resolve(&scope)?;
-                if let Ok((level, last_seg)) = self.get_level_for_path(&name) {
-                    if level.children.contains_key(&last_seg) {
-                        return Ok(name);
-                    }
-                }
-
-                // If we don't find it, move the scope up a level and search for it there recursively
-                match scope.parent() {
-                    Ok(parent) => scope = parent,
-                    Err(AmlError::RootHasNoParent) => return Err(AmlError::LevelDoesNotExist(level_name.clone())),
-                    Err(err) => return Err(err),
-                }
-            }
-        } else {
-            Ok(level_name.clone())
+        match level.values.get(&last_seg) {
+            Some(object) => Ok(object.clone()),
+            None => Err(AmlError::ObjectDoesNotExist(path.clone())),
         }
     }
 
@@ -295,7 +72,9 @@ impl Namespace {
         assert_ne!(*path, AmlName::root());
 
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
-        let last_seg = last_seg.as_segment().unwrap();
+        let NameComponent::Segment(last_seg) = last_seg else {
+            panic!();
+        };
 
         // TODO: this helps with diagnostics, but requires a heap allocation just in case we need to error.
         let mut traversed_path = AmlName::root();
@@ -303,13 +82,15 @@ impl Namespace {
         let mut current_level = &self.root;
         for level in levels {
             traversed_path.0.push(*level);
-            current_level = current_level
-                .children
-                .get(&level.as_segment().unwrap())
-                .ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
+
+            let NameComponent::Segment(segment) = level else {
+                panic!();
+            };
+            current_level =
+                current_level.children.get(&segment).ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
         }
 
-        Ok((current_level, last_seg))
+        Ok((current_level, *last_seg))
     }
 
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
@@ -318,7 +99,9 @@ impl Namespace {
         assert_ne!(*path, AmlName::root());
 
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
-        let last_seg = last_seg.as_segment().unwrap();
+        let NameComponent::Segment(last_seg) = last_seg else {
+            panic!();
+        };
 
         // TODO: this helps with diagnostics, but requires a heap allocation just in case we need to error. We can
         // improve this by changing the `levels` interation into an `enumerate()`, and then using the index to
@@ -328,45 +111,22 @@ impl Namespace {
         let mut current_level = &mut self.root;
         for level in levels {
             traversed_path.0.push(*level);
+
+            let NameComponent::Segment(segment) = level else {
+                panic!();
+            };
             current_level = current_level
                 .children
-                .get_mut(&level.as_segment().unwrap())
+                .get_mut(&segment)
                 .ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
         }
 
-        Ok((current_level, last_seg))
-    }
-
-    /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError>` -
-    /// errors terminate the traversal and are propagated, and the `bool` on the successful path marks whether the
-    /// children of the level should also be traversed.
-    pub fn traverse<F>(&mut self, mut f: F) -> Result<(), AmlError>
-    where
-        F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
-    {
-        fn traverse_level<F>(level: &NamespaceLevel, scope: &AmlName, f: &mut F) -> Result<(), AmlError>
-        where
-            F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
-        {
-            for (name, child) in level.children.iter() {
-                let name = AmlName::from_name_seg(*name).resolve(scope)?;
-
-                if f(&name, child)? {
-                    traverse_level(child, &name, f)?;
-                }
-            }
-
-            Ok(())
-        }
-
-        if f(&AmlName::root(), &self.root)? {
-            traverse_level(&self.root, &AmlName::root(), &mut f)?;
-        }
-
-        Ok(())
+        Ok((current_level, *last_seg))
     }
 }
 
+// TODO: this is fairly unreadable. We should group devices better and maybe use ASCII chars to
+// format the tree better (maybe that should be `Display` instead idk?)
 impl fmt::Debug for Namespace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const INDENT_PER_LEVEL: usize = 4;
@@ -380,15 +140,8 @@ impl fmt::Debug for Namespace {
         ) -> fmt::Result {
             writeln!(f, "{:indent$}{}:", "", level_name, indent = indent)?;
 
-            for (name, handle) in level.values.iter() {
-                writeln!(
-                    f,
-                    "{:indent$}{}: {:?}",
-                    "",
-                    name.as_str(),
-                    namespace.object_map.get(handle).unwrap(),
-                    indent = indent + INDENT_PER_LEVEL
-                )?;
+            for (name, object) in level.values.iter() {
+                writeln!(f, "{:indent$}{}: {:?}", "", name.as_str(), object, indent = indent + INDENT_PER_LEVEL)?;
             }
 
             for (name, sub_level) in level.children.iter() {
@@ -402,53 +155,48 @@ impl fmt::Debug for Namespace {
     }
 }
 
-impl FromStr for AmlName {
-    type Err = AmlError;
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum NamespaceLevelKind {
+    Scope,
+    Device,
+    Processor,
+    PowerResource,
+    ThermalZone,
+    //MethodLocals,
+}
 
-    fn from_str(mut string: &str) -> Result<Self, Self::Err> {
-        if string.is_empty() {
-            return Err(AmlError::EmptyNamesAreInvalid);
-        }
+pub struct NamespaceLevel {
+    pub kind: NamespaceLevelKind,
+    pub values: BTreeMap<NameSeg, Arc<Object>>,
+    pub children: BTreeMap<NameSeg, NamespaceLevel>,
+}
 
-        let mut components = Vec::new();
-
-        // If it starts with a \, make it an absolute name
-        if string.starts_with('\\') {
-            components.push(NameComponent::Root);
-            string = &string[1..];
-        }
-
-        if !string.is_empty() {
-            // Divide the rest of it into segments, and parse those
-            for mut part in string.split('.') {
-                // Handle prefix chars
-                while part.starts_with('^') {
-                    components.push(NameComponent::Prefix);
-                    part = &part[1..];
-                }
-
-                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
-            }
-        }
-
-        Ok(Self(components))
+impl NamespaceLevel {
+    pub fn new(kind: NamespaceLevelKind) -> NamespaceLevel {
+        NamespaceLevel { kind, values: BTreeMap::new(), children: BTreeMap::new() }
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct AmlName(Vec<NameComponent>);
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum NameComponent {
+    Root,
+    Prefix,
+    Segment(NameSeg),
+}
 
 impl AmlName {
     pub fn root() -> AmlName {
-        AmlName(alloc::vec![NameComponent::Root])
+        AmlName(vec![NameComponent::Root])
     }
 
     pub fn from_name_seg(seg: NameSeg) -> AmlName {
-        AmlName(alloc::vec![NameComponent::Segment(seg)])
+        AmlName(vec![NameComponent::Segment(seg)])
     }
 
     pub fn from_components(components: Vec<NameComponent>) -> AmlName {
-        assert!(!components.is_empty());
         AmlName(components)
     }
 
@@ -548,252 +296,108 @@ impl AmlName {
     }
 }
 
+impl FromStr for AmlName {
+    type Err = AmlError;
+
+    fn from_str(mut string: &str) -> Result<Self, Self::Err> {
+        if string.is_empty() {
+            return Err(AmlError::EmptyNamesAreInvalid);
+        }
+
+        let mut components = Vec::new();
+
+        // If it starts with a \, make it an absolute name
+        if string.starts_with('\\') {
+            components.push(NameComponent::Root);
+            string = &string[1..];
+        }
+
+        if !string.is_empty() {
+            // Divide the rest of it into segments, and parse those
+            for mut part in string.split('.') {
+                // Handle prefix chars
+                while part.starts_with('^') {
+                    components.push(NameComponent::Prefix);
+                    part = &part[1..];
+                }
+
+                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
+            }
+        }
+
+        Ok(Self(components))
+    }
+}
+
 impl fmt::Display for AmlName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_string())
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum NameComponent {
-    Root,
-    Prefix,
-    Segment(NameSeg),
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NameSeg(pub(crate) [u8; 4]);
+
+impl NameSeg {
+    pub fn from_str(string: &str) -> Result<NameSeg, AmlError> {
+        // Each NameSeg can only have four chars, and must have at least one
+        if string.is_empty() || string.len() > 4 {
+            return Err(AmlError::InvalidNameSeg);
+        }
+
+        // We pre-fill the array with '_', so it will already be correct if the length is < 4
+        let mut seg = [b'_'; 4];
+        let bytes = string.as_bytes();
+
+        // Manually do the first one, because we have to check it's a LeadNameChar
+        if !is_lead_name_char(bytes[0]) {
+            return Err(AmlError::InvalidNameSeg);
+        }
+        seg[0] = bytes[0];
+
+        // Copy the rest of the chars, checking that they're NameChars
+        for i in 1..bytes.len() {
+            if !is_name_char(bytes[i]) {
+                return Err(AmlError::InvalidNameSeg);
+            }
+            seg[i] = bytes[i];
+        }
+
+        Ok(NameSeg(seg))
+    }
+
+    pub fn from_bytes(bytes: [u8; 4]) -> Result<NameSeg, AmlError> {
+        if !is_lead_name_char(bytes[0]) {
+            return Err(AmlError::InvalidNameSeg);
+        }
+        if !is_name_char(bytes[1]) {
+            return Err(AmlError::InvalidNameSeg);
+        }
+        if !is_name_char(bytes[2]) {
+            return Err(AmlError::InvalidNameSeg);
+        }
+        if !is_name_char(bytes[3]) {
+            return Err(AmlError::InvalidNameSeg);
+        }
+        Ok(NameSeg(bytes))
+    }
+
+    pub fn as_str(&self) -> &str {
+        // We should only construct valid ASCII name segments
+        unsafe { str::from_utf8_unchecked(&self.0) }
+    }
 }
 
-impl NameComponent {
-    pub fn as_segment(self) -> Option<NameSeg> {
-        match self {
-            NameComponent::Segment(seg) => Some(seg),
-            NameComponent::Root | NameComponent::Prefix => None,
-        }
-    }
+pub fn is_lead_name_char(c: u8) -> bool {
+    c.is_ascii_uppercase() || c == b'_'
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_utils::crudely_cmp_values;
+pub fn is_name_char(c: u8) -> bool {
+    is_lead_name_char(c) || c.is_ascii_digit()
+}
 
-    #[test]
-    fn test_aml_name_from_str() {
-        assert_eq!(AmlName::from_str(""), Err(AmlError::EmptyNamesAreInvalid));
-        assert_eq!(AmlName::from_str("\\"), Ok(AmlName::root()));
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0"),
-            Ok(AmlName(alloc::vec![
-                NameComponent::Root,
-                NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
-                NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
-            ]))
-        );
-        assert_eq!(
-            AmlName::from_str("\\_SB.^^^PCI0"),
-            Ok(AmlName(alloc::vec![
-                NameComponent::Root,
-                NameComponent::Segment(NameSeg([b'_', b'S', b'B', b'_'])),
-                NameComponent::Prefix,
-                NameComponent::Prefix,
-                NameComponent::Prefix,
-                NameComponent::Segment(NameSeg([b'P', b'C', b'I', b'0']))
-            ]))
-        );
-    }
-
-    #[test]
-    fn test_is_normal() {
-        assert!(AmlName::root().is_normal());
-        assert!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_normal());
-        assert!(!AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_normal());
-        assert!(!AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_normal());
-        assert!(!AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_normal());
-        assert!(AmlName::from_str("_SB.PCI0.VGA").unwrap().is_normal());
-    }
-
-    #[test]
-    fn test_normalization() {
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0").unwrap().normalize(),
-            Ok(AmlName::from_str("\\_SB.PCI0").unwrap())
-        );
-        assert_eq!(
-            AmlName::from_str("\\_SB.^PCI0").unwrap().normalize(),
-            Ok(AmlName::from_str("\\PCI0").unwrap())
-        );
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0.^^FOO").unwrap().normalize(),
-            Ok(AmlName::from_str("\\FOO").unwrap())
-        );
-        assert_eq!(
-            AmlName::from_str("_SB.PCI0.^FOO.BAR").unwrap().normalize(),
-            Ok(AmlName::from_str("_SB.FOO.BAR").unwrap())
-        );
-        assert_eq!(
-            AmlName::from_str("\\^_SB").unwrap().normalize(),
-            Err(AmlError::InvalidNormalizedName(AmlName::from_str("\\^_SB").unwrap()))
-        );
-        assert_eq!(
-            AmlName::from_str("\\_SB.PCI0.FOO.^^^^BAR").unwrap().normalize(),
-            Err(AmlError::InvalidNormalizedName(AmlName::from_str("\\_SB.PCI0.FOO.^^^^BAR").unwrap()))
-        );
-    }
-
-    #[test]
-    fn test_is_absolute() {
-        assert!(AmlName::root().is_absolute());
-        assert!(AmlName::from_str("\\_SB.PCI0.VGA").unwrap().is_absolute());
-        assert!(AmlName::from_str("\\_SB.^PCI0.VGA").unwrap().is_absolute());
-        assert!(AmlName::from_str("\\^_SB.^^PCI0.VGA").unwrap().is_absolute());
-        assert!(!AmlName::from_str("_SB.^^PCI0.VGA").unwrap().is_absolute());
-        assert!(!AmlName::from_str("_SB.PCI0.VGA").unwrap().is_absolute());
-    }
-
-    #[test]
-    fn test_search_rules_apply() {
-        assert!(!AmlName::root().search_rules_apply());
-        assert!(!AmlName::from_str("\\_SB").unwrap().search_rules_apply());
-        assert!(!AmlName::from_str("^VGA").unwrap().search_rules_apply());
-        assert!(!AmlName::from_str("_SB.PCI0.VGA").unwrap().search_rules_apply());
-        assert!(AmlName::from_str("VGA").unwrap().search_rules_apply());
-        assert!(AmlName::from_str("_SB").unwrap().search_rules_apply());
-    }
-
-    #[test]
-    fn test_aml_name_parent() {
-        assert_eq!(AmlName::from_str("\\").unwrap().parent(), Err(AmlError::RootHasNoParent));
-        assert_eq!(AmlName::from_str("\\_SB").unwrap().parent(), Ok(AmlName::root()));
-        assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent(), Ok(AmlName::from_str("\\_SB").unwrap()));
-        assert_eq!(AmlName::from_str("\\_SB.PCI0").unwrap().parent().unwrap().parent(), Ok(AmlName::root()));
-    }
-
-    #[test]
-    fn test_namespace() {
-        let mut namespace = Namespace::new();
-
-        /*
-         * This should succeed but do nothing.
-         */
-        assert_eq!(namespace.add_level(AmlName::from_str("\\").unwrap(), LevelType::Scope), Ok(()));
-
-        /*
-         * Add `\_SB`, also testing that adding a level twice succeeds.
-         */
-        assert_eq!(namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\_SB").unwrap(), LevelType::Scope), Ok(()));
-
-        /*
-         * Add a device under a level that already exists.
-         */
-        assert_eq!(namespace.add_level(AmlName::from_str("\\_SB.PCI0").unwrap(), LevelType::Device), Ok(()));
-
-        /*
-         * Add some deeper scopes.
-         */
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap(), LevelType::Scope), Ok(()));
-
-        /*
-         * Add some things to the scopes to query later.
-         */
-        assert!(namespace.add_value(AmlName::from_str("\\MOO").unwrap(), AmlValue::Boolean(true)).is_ok());
-        assert!(namespace.add_value(AmlName::from_str("\\FOO.BAR.A").unwrap(), AmlValue::Integer(12345)).is_ok());
-        assert!(namespace.add_value(AmlName::from_str("\\FOO.BAR.B").unwrap(), AmlValue::Integer(6)).is_ok());
-        assert!(namespace
-            .add_value(AmlName::from_str("\\FOO.BAR.C").unwrap(), AmlValue::String(String::from("hello, world!")))
-            .is_ok());
-
-        /*
-         * Get objects using their absolute paths.
-         */
-        assert!(crudely_cmp_values(
-            namespace.get_by_path(&AmlName::from_str("\\MOO").unwrap()).unwrap(),
-            &AmlValue::Boolean(true)
-        ));
-        assert!(crudely_cmp_values(
-            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.A").unwrap()).unwrap(),
-            &AmlValue::Integer(12345)
-        ));
-        assert!(crudely_cmp_values(
-            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.B").unwrap()).unwrap(),
-            &AmlValue::Integer(6)
-        ));
-        assert!(crudely_cmp_values(
-            namespace.get_by_path(&AmlName::from_str("\\FOO.BAR.C").unwrap()).unwrap(),
-            &AmlValue::String(String::from("hello, world!"))
-        ));
-
-        /*
-         * Search for some objects that should use search rules.
-         */
-        {
-            let (name, _) = namespace
-                .search(&AmlName::from_str("MOO").unwrap(), &AmlName::from_str("\\FOO.BAR.BAZ").unwrap())
-                .unwrap();
-            assert_eq!(name, AmlName::from_str("\\MOO").unwrap());
-        }
-        {
-            let (name, _) = namespace
-                .search(&AmlName::from_str("A").unwrap(), &AmlName::from_str("\\FOO.BAR").unwrap())
-                .unwrap();
-            assert_eq!(name, AmlName::from_str("\\FOO.BAR.A").unwrap());
-        }
-        {
-            let (name, _) = namespace
-                .search(&AmlName::from_str("A").unwrap(), &AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap())
-                .unwrap();
-            assert_eq!(name, AmlName::from_str("\\FOO.BAR.A").unwrap());
-        }
-    }
-
-    #[test]
-    fn test_alias() {
-        let mut namespace = Namespace::new();
-
-        assert_eq!(namespace.add_level((AmlName::from_str("\\FOO")).unwrap(), LevelType::Scope), Ok(()));
-
-        assert!(namespace
-            .add_value_at_resolved_path(
-                AmlName::from_str("BAR").unwrap(),
-                &AmlName::from_str("\\FOO").unwrap(),
-                AmlValue::Integer(100)
-            )
-            .is_ok());
-        assert!(namespace
-            .add_alias_at_resolved_path(
-                AmlName::from_str("BARA").unwrap(),
-                &AmlName::from_str("\\FOO").unwrap(),
-                AmlName::from_str("BAR").unwrap()
-            )
-            .is_ok());
-        assert!(namespace.get_by_path(&AmlName::from_str("\\FOO.BARA").unwrap()).is_ok());
-        assert_eq!(
-            namespace.get_handle(&AmlName::from_str("\\FOO.BARA").unwrap()),
-            namespace.get_handle(&AmlName::from_str("\\FOO.BAR").unwrap())
-        );
-    }
-
-    #[test]
-    fn test_get_level_for_path() {
-        let mut namespace = Namespace::new();
-
-        // Add some scopes
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ").unwrap(), LevelType::Scope), Ok(()));
-        assert_eq!(namespace.add_level(AmlName::from_str("\\FOO.BAR.BAZ.QUX").unwrap(), LevelType::Scope), Ok(()));
-
-        {
-            let (_, last_seg) =
-                namespace.get_level_for_path(&AmlName::from_str("\\FOO.BAR.BAZ").unwrap()).unwrap();
-            assert_eq!(last_seg, NameSeg::from_str("BAZ").unwrap());
-        }
-        {
-            let (_, last_seg) = namespace.get_level_for_path(&AmlName::from_str("\\FOO").unwrap()).unwrap();
-            assert_eq!(last_seg, NameSeg::from_str("FOO").unwrap());
-        }
+impl fmt::Debug for NameSeg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.as_str())
     }
 }
