@@ -704,47 +704,59 @@ impl<'a> MethodContext<'a> {
     pub fn namestring(&mut self) -> Result<AmlName, AmlError> {
         use namespace::{NameComponent, NameSeg};
 
+        /*
+         * The NameString grammar is actually a little finicky and annoying.
+         *
+         * NameString := <RootChar NamePath> | <PrefixPath NamePath>
+         * PrefixPath := Nothing | <'^' PrefixPath>
+         * NamePath := NameSeg | DualNamePath | MultiNamePath | NullName
+         * DualNamePath := DualNamePrefix NameSeg NameSeg
+         * MultiNamePath := MultiNamePrefix SegCount NameSeg(SegCount)
+         */
         const NULL_NAME: u8 = 0x00;
         const DUAL_NAME_PREFIX: u8 = 0x2e;
         const MULTI_NAME_PREFIX: u8 = 0x2f;
 
         let mut components = vec![];
-        loop {
-            let next = match self.next() {
-                Ok(next) => next,
-                Err(AmlError::RunOutOfStream) => break,
-                Err(other) => Err(other)?,
-            };
-            match next {
-                b'\\' => {
-                    if !components.is_empty() {
-                        return Err(AmlError::InvalidName(None));
-                    }
-                    components.push(NameComponent::Root);
+
+        match self.peek()? {
+            b'\\' => {
+                self.next()?;
+                components.push(NameComponent::Root);
+            }
+            b'^' => {
+                components.push(NameComponent::Prefix);
+                self.next()?;
+                while self.peek()? == b'^' {
+                    self.next()?;
+                    components.push(NameComponent::Prefix);
                 }
-                b'^' => components.push(NameComponent::Prefix),
-                NULL_NAME => {}
-                DUAL_NAME_PREFIX => {
-                    for _ in 0..2 {
-                        let name_seg = [self.next()?, self.next()?, self.next()?, self.next()?];
-                        components.push(NameComponent::Segment(NameSeg::from_bytes(name_seg)?));
-                    }
+            }
+            _ => (),
+        }
+
+        let next = self.next()?;
+        match next {
+            NULL_NAME => {}
+            DUAL_NAME_PREFIX => {
+                for _ in 0..2 {
+                    let name_seg = [self.next()?, self.next()?, self.next()?, self.next()?];
+                    components.push(NameComponent::Segment(NameSeg::from_bytes(name_seg)?));
                 }
-                MULTI_NAME_PREFIX => {
-                    let count = self.next()?;
-                    for _ in 0..count {
-                        let name_seg = [self.next()?, self.next()?, self.next()?, self.next()?];
-                        components.push(NameComponent::Segment(NameSeg::from_bytes(name_seg)?));
-                    }
+            }
+            MULTI_NAME_PREFIX => {
+                let count = self.next()?;
+                for _ in 0..count {
+                    let name_seg = [self.next()?, self.next()?, self.next()?, self.next()?];
+                    components.push(NameComponent::Segment(NameSeg::from_bytes(name_seg)?));
                 }
-                first_char => {
-                    if !namespace::is_lead_name_char(first_char) {
-                        self.current_block.pc -= 1;
-                        break;
-                    }
-                    let name_seg = [first_char, self.next()?, self.next()?, self.next()?];
-                    components.push(namespace::NameComponent::Segment(namespace::NameSeg::from_bytes(name_seg)?));
+            }
+            first_char => {
+                if !namespace::is_lead_name_char(first_char) {
+                    self.current_block.pc -= 1;
                 }
+                let name_seg = [first_char, self.next()?, self.next()?, self.next()?];
+                components.push(namespace::NameComponent::Segment(namespace::NameSeg::from_bytes(name_seg)?));
             }
         }
 
@@ -1015,7 +1027,7 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(
-            MethodContext::new(b"\\\x2eABC_DEF_").namestring(),
+            MethodContext::new(b"\\\x2eABC_DEF_\0").namestring(),
             Ok(AmlName::from_str("\\ABC.DEF").unwrap())
         );
         assert_eq!(
