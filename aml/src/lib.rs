@@ -120,6 +120,31 @@ impl Interpreter {
                         // TODO: convert offset and length to integers
                         // TODO: add to namespace
                     }
+                    Opcode::Buffer => {
+                        let [
+                            Argument::TrackedPc(start_pc),
+                            Argument::PkgLength(pkg_length),
+                            Argument::Object(buffer_size),
+                        ] = &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let Object::Integer(buffer_size) = **buffer_size else { panic!() };
+
+                        let buffer_len = pkg_length - (context.current_block.pc - start_pc);
+                        let mut buffer = vec![0; buffer_size as usize];
+                        buffer[0..buffer_len].copy_from_slice(
+                            &context.current_block.stream
+                                [context.current_block.pc..(context.current_block.pc + buffer_len)],
+                        );
+                        context.current_block.pc += buffer_len;
+
+                        if let Some(prev_op) = context.in_flight.last_mut() {
+                            if prev_op.arguments.len() < prev_op.expected_arguments {
+                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Buffer(buffer))));
+                            }
+                        }
+                    }
                     Opcode::Package => {
                         // Nothing to do here. The package is created by the block ending.
                     }
@@ -241,7 +266,15 @@ impl Interpreter {
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
-                Opcode::Buffer => todo!(),
+                Opcode::Buffer => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    context.start_in_flight_op(OpInFlight::new_with(
+                        Opcode::Buffer,
+                        vec![Argument::TrackedPc(start_pc), Argument::PkgLength(pkg_length)],
+                        1,
+                    ));
+                }
                 Opcode::Package => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
@@ -486,6 +519,8 @@ pub enum Argument {
     Object(Arc<Object>),
     Namestring(AmlName),
     ByteData(u8),
+    TrackedPc(usize),
+    PkgLength(usize),
 }
 
 pub struct Block<'a> {
