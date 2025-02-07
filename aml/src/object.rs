@@ -13,11 +13,11 @@ pub enum Object {
     Mutex,
     Reference(Arc<Object>),
     OpRegion,
-    Package,
+    Package(Vec<Arc<Object>>),
     PowerResource,
     Processor,
     RawDataBuffer,
-    String,
+    String(String),
     ThermalZone,
 }
 

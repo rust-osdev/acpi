@@ -11,7 +11,7 @@ pub mod object;
 
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use bit_field::BitField;
-use core::mem;
+use core::{mem, str};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::Object;
 use spinning_top::Spinlock;
@@ -64,7 +64,7 @@ impl Interpreter {
          * up.
          */
 
-        'main_loop: loop {
+        loop {
             /*
              * First, see if we've gathered enough arguments to complete some in-flight operations.
              */
@@ -106,6 +106,9 @@ impl Interpreter {
                         let name = name.resolve(&context.current_scope)?;
                         self.namespace.lock().insert(name, object.clone())?;
                     }
+                    Opcode::Package => {
+                        // Nothing to do here. The package is created by the block ending.
+                    }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -114,28 +117,57 @@ impl Interpreter {
              * Now that we've retired as many in-flight operations as we have arguments for, move
              * forward in the AML stream.
              */
-            let opcode = loop {
-                match context.opcode() {
-                    Ok(opcode) => break opcode,
-                    Err(AmlError::RunOutOfStream) => {
-                        /*
-                         * We've reached the end of the current block. What we should do about this
-                         * depends on what type of block it was.
-                         */
-                        match context.current_block.kind {
-                            BlockKind::Normal => {
-                                break 'main_loop Ok(());
+            let opcode = match context.opcode() {
+                Ok(opcode) => opcode,
+                Err(AmlError::RunOutOfStream) => {
+                    /*
+                     * We've reached the end of the current block. What we should do about this
+                     * depends on what type of block it was.
+                     */
+                    match context.current_block.kind {
+                        BlockKind::Normal => {
+                            break Ok(());
+                        }
+                        BlockKind::Scope { old_scope } => {
+                            assert!(context.block_stack.len() > 0);
+                            context.current_block = context.block_stack.pop().unwrap();
+                            context.current_scope = old_scope;
+                            // Go round the loop again to get the next opcode for the new block
+                            continue;
+                        }
+                        BlockKind::Package => {
+                            assert!(context.block_stack.len() > 0);
+
+                            // Pop the in-flight operation off and make sure it's the package
+                            let package_op = context.in_flight.pop().unwrap();
+                            assert_eq!(package_op.op, Opcode::Package);
+
+                            let mut elements = Vec::with_capacity(package_op.expected_arguments);
+                            for arg in &package_op.arguments {
+                                let Argument::Object(object) = arg else { panic!() };
+                                elements.push(object.clone());
                             }
-                            BlockKind::Scope { old_scope } => {
-                                assert!(context.block_stack.len() > 0);
-                                context.current_block = context.block_stack.pop().unwrap();
-                                context.current_scope = old_scope;
-                                // Go round the loop again to get the next opcode for the new block
+                            for _ in package_op.arguments.len()..package_op.expected_arguments {
+                                // Each uninitialized element must be a distinct object
+                                elements.push(Arc::new(Object::Uninitialized));
                             }
+
+                            // Add the created package to the last in-flight op's arguments
+                            if let Some(prev_op) = context.in_flight.last_mut() {
+                                if prev_op.arguments.len() < prev_op.expected_arguments {
+                                    prev_op.arguments.push(Argument::Object(Arc::new(Object::Package(elements))));
+                                } else {
+                                    panic!("Random package floating around?");
+                                }
+                            }
+
+                            // End the block, go round the loop again
+                            context.current_block = context.block_stack.pop().unwrap();
+                            continue;
                         }
                     }
-                    Err(other_err) => return Err(other_err),
                 }
+                Err(other_err) => return Err(other_err),
             };
             match opcode {
                 Opcode::Zero => {
@@ -165,7 +197,18 @@ impl Interpreter {
                     let value = context.next_u32()?;
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(value as u64))));
                 }
-                Opcode::StringPrefix => todo!(),
+                Opcode::StringPrefix => {
+                    let str_start = context.current_block.pc;
+                    while context.next()? != b'\0' {}
+                    // TODO: handle err
+                    let str =
+                        str::from_utf8(&context.current_block.stream[str_start..(context.current_block.pc - 1)])
+                            .unwrap();
+                    context
+                        .last_op()?
+                        .arguments
+                        .push(Argument::Object(Arc::new(Object::String(String::from(str)))));
+                }
                 Opcode::QWordPrefix => {
                     let value = context.next_u64()?;
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(value))));
@@ -185,7 +228,24 @@ impl Interpreter {
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
                 Opcode::Buffer => todo!(),
-                Opcode::Package => todo!(),
+                Opcode::Package => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let num_elements = context.next()?;
+
+                    let remaining_length = pkg_length - (context.current_block.pc - start_pc);
+                    println!("Package. num elements = {}", num_elements);
+
+                    /*
+                     * We now need to interpret an arbitrary number of package elements, bounded by
+                     * the remaining pkglength. This may be less than `num_elements` - the
+                     * remaining elements of the package are uninitialized. We utilise a
+                     * combination of a block to manage the pkglength, plus an in-flight op to
+                     * store interpreted arguments.
+                     */
+                    context.start_in_flight_op(OpInFlight::new(Opcode::Package, num_elements as usize));
+                    context.start_new_block(BlockKind::Package, remaining_length);
+                }
                 Opcode::VarPackage => todo!(),
                 Opcode::Method => todo!(),
                 Opcode::External => todo!(),
@@ -337,6 +397,7 @@ pub struct Block<'a> {
 pub enum BlockKind {
     Normal,
     Scope { old_scope: AmlName },
+    Package,
 }
 
 impl OpInFlight {
