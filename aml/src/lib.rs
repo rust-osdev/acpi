@@ -8,12 +8,14 @@ extern crate alloc;
 
 pub mod namespace;
 pub mod object;
+pub mod op_region;
 
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use bit_field::BitField;
 use core::{mem, str};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
-use object::Object;
+use object::{MethodFlags, Object};
+use op_region::RegionSpace;
 use spinning_top::Spinlock;
 
 pub struct Interpreter {
@@ -71,40 +73,52 @@ impl Interpreter {
             while let Some(op) = context.in_flight.pop_if(|op| op.arguments.len() == op.expected_arguments) {
                 match op.op {
                     Opcode::Add => {
-                        let [left, right, target] = &op.arguments[..] else { panic!() };
-                        if let Argument::Object(left) = left
-                            && let Argument::Object(right) = right
-                        {
-                            let Object::Integer(left) = **left else { panic!() };
-                            let Object::Integer(right) = **right else { panic!() };
+                        let [Argument::Object(left), Argument::Object(right), Argument::Object(target)] =
+                            &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let Object::Integer(left) = **left else { panic!() };
+                        let Object::Integer(right) = **right else { panic!() };
 
-                            if let Argument::Object(target) = target {
-                                *target.gain_mut() = Object::Integer(left + right);
-                            } else {
-                                panic!("Unexpected target type in AddOp");
+                        *target.gain_mut() = Object::Integer(left + right);
+
+                        // TODO: this is probs a slightly scuffed way of working out if the
+                        // prev op wants our result
+                        if let Some(prev_op) = context.in_flight.last_mut() {
+                            if prev_op.arguments.len() < prev_op.expected_arguments {
+                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(left + right))));
                             }
-                            // TODO: this is probs a slightly scuffed way of working out if the
-                            // prev op wants our result
-                            if let Some(prev_op) = context.in_flight.last_mut() {
-                                if prev_op.arguments.len() < prev_op.expected_arguments {
-                                    prev_op
-                                        .arguments
-                                        .push(Argument::Object(Arc::new(Object::Integer(left + right))));
-                                }
-                            }
-                            // println!("Result: {}", left + right);
-                        } else {
-                            panic!("Bad operands");
                         }
+                        println!("Result: {}", left + right);
                     }
                     Opcode::Name => {
-                        let [name, object] = &op.arguments[..] else { panic!() };
-                        let Argument::Namestring(name) = name else { panic!() };
-                        let Argument::Object(object) = object else { panic!() };
-                        // println!("Making Name with name {} and object: {:?}", name, object);
+                        let [Argument::Namestring(name), Argument::Object(object)] = &op.arguments[..] else {
+                            panic!()
+                        };
+                        println!("Making Name with name {} and object: {:?}", name, object);
 
                         let name = name.resolve(&context.current_scope)?;
                         self.namespace.lock().insert(name, object.clone())?;
+                    }
+                    Opcode::OpRegion => {
+                        let [
+                            Argument::Namestring(name),
+                            Argument::ByteData(region_space),
+                            Argument::Object(region_offset),
+                            Argument::Object(region_length),
+                        ] = &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+
+                        let region_space = RegionSpace::from(*region_space);
+                        println!(
+                            "OpRegion. name={}, space={:?}, offset={:?}, length={:?}",
+                            name, region_space, region_offset, region_length
+                        );
+                        // TODO: convert offset and length to integers
+                        // TODO: add to namespace
                     }
                     Opcode::Package => {
                         // Nothing to do here. The package is created by the block ending.
@@ -223,7 +237,7 @@ impl Interpreter {
                     let new_scope = name.resolve(&context.current_scope)?;
                     self.namespace.lock().add_level(new_scope.clone(), NamespaceLevelKind::Scope)?;
 
-                    // println!("Scope. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
+                    println!("Scope. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
@@ -247,8 +261,27 @@ impl Interpreter {
                     context.start_new_block(BlockKind::Package, remaining_length);
                 }
                 Opcode::VarPackage => todo!(),
-                Opcode::Method => todo!(),
-                Opcode::External => todo!(),
+                Opcode::Method => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let name = context.namestring()?;
+                    let flags = MethodFlags(context.next()?);
+
+                    let code_len = pkg_length - (context.current_block.pc - start_pc);
+                    let code = context.current_block.stream[start_pc..(start_pc + code_len)].to_vec();
+                    context.current_block.pc += code_len;
+
+                    println!("Method. Name={:?}, len={}", name, code_len);
+
+                    let name = name.resolve(&context.current_scope)?;
+                    self.namespace.lock().insert(name, Arc::new(Object::Method { code, flags }))?;
+                }
+                Opcode::External => {
+                    let _name = context.namestring()?;
+                    let _object_type = context.next()?;
+                    let _arg_count = context.next()?;
+                    println!("External. Name = {}, typ={}, arg_count={}", _name, _object_type, _arg_count);
+                }
                 Opcode::DualNamePrefix => todo!(),
                 Opcode::MultiNamePrefix => todo!(),
                 Opcode::Digit(_) => todo!(),
@@ -272,8 +305,62 @@ impl Interpreter {
                 Opcode::Debug => todo!(),
                 Opcode::Fatal => todo!(),
                 Opcode::Timer => todo!(),
-                Opcode::OpRegion => todo!(),
-                Opcode::Field => todo!(),
+                Opcode::OpRegion => {
+                    let name = context.namestring()?;
+                    let region_space = context.next()?;
+                    context.start_in_flight_op(OpInFlight::new_with(
+                        Opcode::OpRegion,
+                        vec![Argument::Namestring(name), Argument::ByteData(region_space)],
+                        2,
+                    ));
+                }
+                Opcode::Field => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let name = context.namestring()?;
+                    let flags = context.next()?;
+
+                    println!("Parsing field list. NAme = {:?}", name);
+
+                    const RESERVED_FIELD: u8 = 0x00;
+                    const ACCESS_FIELD: u8 = 0x01;
+                    const CONNECT_FIELD: u8 = 0x02;
+                    const EXTENDED_ACCESS_FIELD: u8 = 0x03;
+
+                    let mut field_offset = 0;
+
+                    while context.current_block.pc < (start_pc + pkg_length) {
+                        match context.next()? {
+                            RESERVED_FIELD => {
+                                let length = context.pkglength()?;
+                                field_offset += length;
+                                println!("Reserved field. len={}", length);
+                            }
+                            ACCESS_FIELD => {
+                                let access_type = context.next()?;
+                                let access_attrib = context.next()?;
+                                println!("Access field. typ={}, attrib={}", access_type, access_attrib);
+                                // TODO
+                            }
+                            CONNECT_FIELD => {
+                                // TODO: either consume a namestring or `BufferData` (it's not
+                                // clear what a buffer data acc is lmao)
+                                println!("Connect field :(");
+                            }
+                            EXTENDED_ACCESS_FIELD => {
+                                println!("Extended access field :(");
+                                todo!()
+                            }
+                            _ => {
+                                context.current_block.pc -= 1;
+                                // TODO: this should only ever be a nameseg really...
+                                let field_name = context.namestring()?;
+                                let field_length = context.pkglength()?;
+                                println!("NAmed field. NAme={:?}, len={}", field_name, field_length);
+                            }
+                        }
+                    }
+                }
                 Opcode::Device => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
@@ -284,12 +371,25 @@ impl Interpreter {
                     let new_scope = name.resolve(&context.current_scope)?;
                     self.namespace.lock().add_level(new_scope.clone(), NamespaceLevelKind::Device)?;
 
-                    // println!("Device. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
+                    println!("Device. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
                 Opcode::PowerRes => todo!(),
-                Opcode::ThermalZone => todo!(),
+                Opcode::ThermalZone => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let name = context.namestring()?;
+
+                    let remaining_length = pkg_length - (context.current_block.pc - start_pc);
+
+                    let new_scope = name.resolve(&context.current_scope)?;
+                    self.namespace.lock().add_level(new_scope.clone(), NamespaceLevelKind::ThermalZone)?;
+
+                    println!("ThermalZone. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
+                    let old_scope = mem::replace(&mut context.current_scope, new_scope);
+                    context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
+                }
                 Opcode::IndexField => todo!(),
                 Opcode::BankField => todo!(),
                 Opcode::DataRegion => todo!(),
@@ -385,6 +485,7 @@ pub struct OpInFlight {
 pub enum Argument {
     Object(Arc<Object>),
     Namestring(AmlName),
+    ByteData(u8),
 }
 
 pub struct Block<'a> {
@@ -430,12 +531,12 @@ impl<'a> MethodContext<'a> {
     }
 
     pub fn start_in_flight_op(&mut self, op: OpInFlight) {
-        // println!("Starting in-flight op of type: {:?}", op);
+        println!("Starting in-flight op of type: {:?}", op);
         self.in_flight.push(op);
     }
 
     pub fn start_new_block(&mut self, kind: BlockKind, length: usize) {
-        // println!("Starting new block at pc={}, length={}, kind={:?}", self.current_block.pc, length, kind);
+        println!("Starting new block at pc={}, length={}, kind={:?}", self.current_block.pc, length, kind);
         let block = Block {
             stream: &self.current_block.stream[..(self.current_block.pc + length)],
             pc: self.current_block.pc,

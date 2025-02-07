@@ -1,3 +1,4 @@
+use crate::op_region::OpRegion;
 use alloc::{sync::Arc, vec::Vec};
 
 #[derive(Debug)]
@@ -9,10 +10,10 @@ pub enum Object {
     Event,
     FieldUnit,
     Integer(u64),
-    Method,
+    Method { code: Vec<u8>, flags: MethodFlags },
     Mutex,
     Reference(Arc<Object>),
-    OpRegion,
+    OpRegion(OpRegion),
     Package(Vec<Arc<Object>>),
     PowerResource,
     Processor,
@@ -41,3 +42,6 @@ impl Object {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct MethodFlags(pub u8);
