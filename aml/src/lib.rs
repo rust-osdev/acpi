@@ -190,6 +190,59 @@ impl Interpreter {
                             }
                         }
                     }
+                    opcode @ Opcode::CreateBitField
+                    | opcode @ Opcode::CreateByteField
+                    | opcode @ Opcode::CreateWordField
+                    | opcode @ Opcode::CreateDWordField
+                    | opcode @ Opcode::CreateQWordField => {
+                        let [Argument::Object(buffer), Argument::Object(index)] = &op.arguments[..] else {
+                            panic!()
+                        };
+                        let name = context.namestring()?;
+                        let Object::Integer(index) = **index else { panic!() };
+                        println!(
+                            "CreateBitField(or adjacent). buffer = {:?}, bit/byte_index={:?}, name={:?}",
+                            buffer, index, name
+                        );
+                        let (offset, length) = match opcode {
+                            Opcode::CreateBitField => (index, 1),
+                            Opcode::CreateByteField => (index * 8, 8),
+                            Opcode::CreateWordField => (index * 8, 16),
+                            Opcode::CreateDWordField => (index * 8, 32),
+                            Opcode::CreateQWordField => (index * 8, 64),
+                            _ => unreachable!(),
+                        };
+                        self.namespace.lock().insert(
+                            name.resolve(&context.current_scope)?,
+                            Arc::new(Object::BufferField {
+                                buffer: buffer.clone(),
+                                offset: offset as usize,
+                                length,
+                            }),
+                        )?;
+                    }
+                    Opcode::CreateField => {
+                        let [Argument::Object(buffer), Argument::Object(bit_index), Argument::Object(num_bits)] =
+                            &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let name = context.namestring()?;
+                        let Object::Integer(bit_index) = **bit_index else { panic!() };
+                        let Object::Integer(num_bits) = **num_bits else { panic!() };
+                        println!(
+                            "CreateBitField(or adjacent). buffer = {:?}, bit/byte_index={:?}, num_bits={:?}, name={:?}",
+                            buffer, bit_index, num_bits, name
+                        );
+                        self.namespace.lock().insert(
+                            name.resolve(&context.current_scope)?,
+                            Arc::new(Object::BufferField {
+                                buffer: buffer.clone(),
+                                offset: bit_index as usize,
+                                length: num_bits as usize,
+                            }),
+                        )?;
+                    }
                     Opcode::InternalMethodCall => {
                         let Argument::Object(method) = &op.arguments[0] else { panic!() };
 
@@ -403,7 +456,6 @@ impl Interpreter {
                 Opcode::Mutex => todo!(),
                 Opcode::Event => todo!(),
                 Opcode::CondRefOf => todo!(),
-                Opcode::CreateField => todo!(),
                 Opcode::LoadTable => todo!(),
                 Opcode::Load => todo!(),
                 Opcode::Stall => todo!(),
@@ -564,10 +616,13 @@ impl Interpreter {
                 Opcode::SizeOf => todo!(),
                 Opcode::Index => todo!(),
                 Opcode::Match => todo!(),
-                Opcode::CreateDWordField => todo!(),
-                Opcode::CreateWordField => todo!(),
-                Opcode::CreateByteField => todo!(),
-                Opcode::CreateBitField => todo!(),
+
+                Opcode::CreateBitField
+                | Opcode::CreateByteField
+                | Opcode::CreateWordField
+                | Opcode::CreateDWordField
+                | Opcode::CreateQWordField => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
+                Opcode::CreateField => context.start_in_flight_op(OpInFlight::new(Opcode::CreateField, 3)),
                 Opcode::ObjectType => todo!(),
                 Opcode::CreateQWordField => todo!(),
                 Opcode::LAnd => todo!(),

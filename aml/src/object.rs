@@ -6,7 +6,7 @@ use bit_field::BitField;
 pub enum Object {
     Uninitialized,
     Buffer(Vec<u8>),
-    BufferField,
+    BufferField { buffer: Arc<Object>, offset: usize, length: usize },
     Device,
     Event,
     FieldUnit,
