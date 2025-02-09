@@ -9,7 +9,7 @@ pub enum Object {
     BufferField { buffer: Arc<Object>, offset: usize, length: usize },
     Device,
     Event,
-    FieldUnit,
+    FieldUnit(FieldUnit),
     Integer(u64),
     Method { code: Vec<u8>, flags: MethodFlags },
     Mutex,
@@ -42,6 +42,13 @@ impl Object {
             &mut *(self as *const Self as *mut Self)
         }
     }
+}
+
+#[derive(Debug)]
+pub enum FieldUnit {
+    Normal { region: Arc<Object>, bit_index: usize, bit_length: usize },
+    Bank,
+    Index,
 }
 
 #[derive(Clone, Copy, Debug)]

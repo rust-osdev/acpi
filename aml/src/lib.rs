@@ -15,7 +15,7 @@ use bit_field::BitField;
 use core::{mem, str};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{MethodFlags, Object};
-use op_region::RegionSpace;
+use op_region::{OpRegion, RegionSpace};
 use spinning_top::Spinlock;
 
 pub struct Interpreter {
@@ -95,13 +95,11 @@ impl Interpreter {
                                 prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(left + right))));
                             }
                         }
-                        println!("Result: {}", left + right);
                     }
                     Opcode::Name => {
                         let [Argument::Namestring(name), Argument::Object(object)] = &op.arguments[..] else {
                             panic!()
                         };
-                        println!("Making Name with name {} and object: {:?}", name, object);
 
                         let name = name.resolve(&context.current_scope)?;
                         self.namespace.lock().insert(name, object.clone())?;
@@ -116,14 +114,17 @@ impl Interpreter {
                         else {
                             panic!()
                         };
+                        let Object::Integer(region_offset) = **region_offset else { panic!() };
+                        let Object::Integer(region_length) = **region_length else { panic!() };
 
                         let region_space = RegionSpace::from(*region_space);
-                        println!(
-                            "OpRegion. name={}, space={:?}, offset={:?}, length={:?}",
-                            name, region_space, region_offset, region_length
-                        );
-                        // TODO: convert offset and length to integers
-                        // TODO: add to namespace
+
+                        let region = Object::OpRegion(OpRegion {
+                            space: region_space,
+                            base: region_offset,
+                            length: region_length,
+                        });
+                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, Arc::new(region))?;
                     }
                     Opcode::Buffer => {
                         let [
@@ -200,10 +201,6 @@ impl Interpreter {
                         };
                         let name = context.namestring()?;
                         let Object::Integer(index) = **index else { panic!() };
-                        println!(
-                            "CreateBitField(or adjacent). buffer = {:?}, bit/byte_index={:?}, name={:?}",
-                            buffer, index, name
-                        );
                         let (offset, length) = match opcode {
                             Opcode::CreateBitField => (index, 1),
                             Opcode::CreateByteField => (index * 8, 8),
@@ -230,10 +227,6 @@ impl Interpreter {
                         let name = context.namestring()?;
                         let Object::Integer(bit_index) = **bit_index else { panic!() };
                         let Object::Integer(num_bits) = **num_bits else { panic!() };
-                        println!(
-                            "CreateBitField(or adjacent). buffer = {:?}, bit/byte_index={:?}, num_bits={:?}, name={:?}",
-                            buffer, bit_index, num_bits, name
-                        );
                         self.namespace.lock().insert(
                             name.resolve(&context.current_scope)?,
                             Arc::new(Object::BufferField {
@@ -242,6 +235,20 @@ impl Interpreter {
                                 length: num_bits as usize,
                             }),
                         )?;
+                    }
+                    Opcode::Store => {
+                        let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
+                        self.do_store(&mut context, &target, object.clone())?;
+                    }
+                    Opcode::Sleep => {
+                        let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
+                        let Object::Integer(msec) = **msec else { panic!() };
+                        self.handler.sleep(msec);
+                    }
+                    Opcode::Stall => {
+                        let [Argument::Object(usec)] = &op.arguments[..] else { panic!() };
+                        let Object::Integer(usec) = **usec else { panic!() };
+                        self.handler.stall(usec);
                     }
                     Opcode::InternalMethodCall => {
                         let Argument::Object(method) = &op.arguments[0] else { panic!() };
@@ -398,7 +405,6 @@ impl Interpreter {
                     let new_scope = name.resolve(&context.current_scope)?;
                     self.namespace.lock().add_level(new_scope.clone(), NamespaceLevelKind::Scope)?;
 
-                    println!("Scope. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
@@ -417,7 +423,6 @@ impl Interpreter {
                     let num_elements = context.next()?;
 
                     let remaining_length = pkg_length - (context.current_block.pc - start_pc);
-                    println!("Package. num elements = {}", num_elements);
 
                     /*
                      * We now need to interpret an arbitrary number of package elements, bounded by
@@ -442,8 +447,6 @@ impl Interpreter {
                         .to_vec();
                     context.current_block.pc += code_len;
 
-                    println!("Method. Name={:?}, len={}", name, code_len);
-
                     let name = name.resolve(&context.current_scope)?;
                     self.namespace.lock().insert(name, Arc::new(Object::Method { code, flags }))?;
                 }
@@ -451,15 +454,14 @@ impl Interpreter {
                     let _name = context.namestring()?;
                     let _object_type = context.next()?;
                     let _arg_count = context.next()?;
-                    println!("External. Name = {}, typ={}, arg_count={}", _name, _object_type, _arg_count);
                 }
                 Opcode::Mutex => todo!(),
                 Opcode::Event => todo!(),
                 Opcode::CondRefOf => todo!(),
                 Opcode::LoadTable => todo!(),
                 Opcode::Load => todo!(),
-                Opcode::Stall => todo!(),
-                Opcode::Sleep => todo!(),
+                Opcode::Stall => context.start_in_flight_op(OpInFlight::new(Opcode::Stall, 1)),
+                Opcode::Sleep => context.start_in_flight_op(OpInFlight::new(Opcode::Sleep, 1)),
                 Opcode::Acquire => todo!(),
                 Opcode::Signal => todo!(),
                 Opcode::Wait => todo!(),
@@ -483,10 +485,10 @@ impl Interpreter {
                 Opcode::Field => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
-                    let name = context.namestring()?;
+                    let region_name = context.namestring()?;
                     let flags = context.next()?;
 
-                    println!("Parsing field list. NAme = {:?}", name);
+                    let region = self.namespace.lock().get(region_name.resolve(&context.current_scope)?)?.clone();
 
                     const RESERVED_FIELD: u8 = 0x00;
                     const ACCESS_FIELD: u8 = 0x01;
@@ -500,34 +502,41 @@ impl Interpreter {
                             RESERVED_FIELD => {
                                 let length = context.pkglength()?;
                                 field_offset += length;
-                                println!("Reserved field. len={}", length);
                             }
                             ACCESS_FIELD => {
                                 let access_type = context.next()?;
                                 let access_attrib = context.next()?;
-                                println!("Access field. typ={}, attrib={}", access_type, access_attrib);
+                                todo!()
                                 // TODO
                             }
                             CONNECT_FIELD => {
                                 // TODO: either consume a namestring or `BufferData` (it's not
                                 // clear what a buffer data acc is lmao)
-                                println!("Connect field :(");
+                                todo!("Connect field :(");
                             }
                             EXTENDED_ACCESS_FIELD => {
-                                println!("Extended access field :(");
-                                todo!()
+                                todo!("Extended access field :(");
                             }
                             _ => {
                                 context.current_block.pc -= 1;
                                 // TODO: this should only ever be a nameseg really...
                                 let field_name = context.namestring()?;
                                 let field_length = context.pkglength()?;
-                                println!("NAmed field. NAme={:?}, len={}", field_name, field_length);
+                                // TODO: do something with the flags, and also detect when this
+                                // should be a bank or index field
+                                let field = Object::FieldUnit(object::FieldUnit::Normal {
+                                    region: region.clone(),
+                                    bit_index: field_offset,
+                                    bit_length: field_length,
+                                });
+                                self.namespace
+                                    .lock()
+                                    .insert(field_name.resolve(&context.current_scope)?, Arc::new(field))?;
                             }
                         }
                     }
                 }
-                Opcode::Device => {
+                Opcode::Device | Opcode::ThermalZone => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
                     let name = context.namestring()?;
@@ -535,24 +544,32 @@ impl Interpreter {
                     let remaining_length = pkg_length - (context.current_block.pc - start_pc);
 
                     let new_scope = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().add_level(new_scope.clone(), NamespaceLevelKind::Device)?;
+                    let (kind, object) = match opcode {
+                        Opcode::Device => (NamespaceLevelKind::Device, Object::Device),
+                        Opcode::ThermalZone => (NamespaceLevelKind::ThermalZone, Object::ThermalZone),
+                        _ => unreachable!(),
+                    };
+                    let mut namespace = self.namespace.lock();
+                    namespace.add_level(new_scope.clone(), kind)?;
+                    namespace.insert(new_scope.clone(), Arc::new(object))?;
 
-                    println!("Device. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
-                Opcode::PowerRes => todo!(),
-                Opcode::ThermalZone => {
+                Opcode::PowerRes => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
                     let name = context.namestring()?;
+                    let system_level = context.next()?;
+                    let resource_order = context.next_u16()?;
 
                     let remaining_length = pkg_length - (context.current_block.pc - start_pc);
 
                     let new_scope = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().add_level(new_scope.clone(), NamespaceLevelKind::ThermalZone)?;
+                    let mut namespace = self.namespace.lock();
+                    namespace.add_level(new_scope.clone(), NamespaceLevelKind::PowerResource)?;
+                    namespace.insert(new_scope.clone(), Arc::new(Object::PowerResource))?;
 
-                    println!("ThermalZone. length = {}({}), name = {:?}", pkg_length, remaining_length, new_scope);
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
@@ -567,7 +584,7 @@ impl Interpreter {
                     let arg = context.args[arg as usize].clone();
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference(arg))));
                 }
-                Opcode::Store => todo!(),
+                Opcode::Store => context.start_in_flight_op(OpInFlight::new(Opcode::Store, 2)),
                 Opcode::RefOf => todo!(),
 
                 Opcode::DualNamePrefix
@@ -590,28 +607,30 @@ impl Interpreter {
                         context.last_op()?.arguments.push(Argument::Object(object));
                     }
                 }
-                Opcode::Add => {
-                    context.start_in_flight_op(OpInFlight::new(Opcode::Add, 3));
+
+                Opcode::Add
+                | Opcode::Subtract
+                | Opcode::Multiply
+                | Opcode::ShiftLeft
+                | Opcode::ShiftRight
+                | Opcode::Mod
+                | Opcode::Nand
+                | Opcode::And
+                | Opcode::Or
+                | Opcode::Nor
+                | Opcode::Xor
+                | Opcode::Concat => {
+                    context.start_in_flight_op(OpInFlight::new(opcode, 3));
                 }
-                Opcode::Concat => todo!(),
-                Opcode::Subtract => todo!(),
-                Opcode::Increment => todo!(),
-                Opcode::Decrement => todo!(),
-                Opcode::Multiply => todo!(),
-                Opcode::Divide => todo!(),
-                Opcode::ShiftLeft => todo!(),
-                Opcode::ShiftRight => todo!(),
-                Opcode::And => todo!(),
-                Opcode::Nand => todo!(),
-                Opcode::Or => todo!(),
-                Opcode::Nor => todo!(),
-                Opcode::Xor => todo!(),
-                Opcode::Not => todo!(),
-                Opcode::FindSetLeftBit => todo!(),
-                Opcode::FindSetRightBit => todo!(),
+
+                Opcode::Divide => context.start_in_flight_op(OpInFlight::new(Opcode::Divide, 4)),
+                Opcode::Increment | Opcode::Decrement => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
+                Opcode::Not => context.start_in_flight_op(OpInFlight::new(Opcode::Not, 2)),
+                Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
+                    context.start_in_flight_op(OpInFlight::new(opcode, 2))
+                }
                 Opcode::DerefOf => todo!(),
                 Opcode::ConcatRes => todo!(),
-                Opcode::Mod => todo!(),
                 Opcode::Notify => todo!(),
                 Opcode::SizeOf => todo!(),
                 Opcode::Index => todo!(),
@@ -623,24 +642,28 @@ impl Interpreter {
                 | Opcode::CreateDWordField
                 | Opcode::CreateQWordField => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
                 Opcode::CreateField => context.start_in_flight_op(OpInFlight::new(Opcode::CreateField, 3)),
+
+                Opcode::LAnd
+                | Opcode::LOr
+                | Opcode::LNot
+                | Opcode::LNotEqual
+                | Opcode::LLessEqual
+                | Opcode::LGreaterEqual
+                | Opcode::LEqual
+                | Opcode::LGreater
+                | Opcode::LLess => {
+                    context.start_in_flight_op(OpInFlight::new(opcode, 2));
+                }
+
+                Opcode::ToBuffer
+                | Opcode::ToDecimalString
+                | Opcode::ToHexString
+                | Opcode::ToInteger
+                | Opcode::ToString => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
+
                 Opcode::ObjectType => todo!(),
-                Opcode::CreateQWordField => todo!(),
-                Opcode::LAnd => todo!(),
-                Opcode::LOr => todo!(),
-                Opcode::LNot => todo!(),
-                Opcode::LNotEqual => todo!(),
-                Opcode::LLessEqual => todo!(),
-                Opcode::LGreaterEqual => todo!(),
-                Opcode::LEqual => todo!(),
-                Opcode::LGreater => todo!(),
-                Opcode::LLess => todo!(),
-                Opcode::ToBuffer => todo!(),
-                Opcode::ToDecimalString => todo!(),
-                Opcode::ToHexString => todo!(),
-                Opcode::ToInteger => todo!(),
-                Opcode::ToString => todo!(),
                 Opcode::CopyObject => todo!(),
-                Opcode::Mid => todo!(),
+                Opcode::Mid => context.start_in_flight_op(OpInFlight::new(Opcode::Mid, 4)),
                 Opcode::Continue => todo!(),
                 Opcode::If => {
                     let start_pc = context.current_block.pc;
@@ -665,6 +688,24 @@ impl Interpreter {
                 Opcode::InternalMethodCall => panic!(),
             }
         }
+    }
+    fn do_store(
+        &self,
+        context: &mut MethodContext,
+        target: &Argument,
+        object: Arc<Object>,
+    ) -> Result<(), AmlError> {
+        // TODO: find the destination (need to handle references, debug objects, etc.)
+        // TODO: convert object to be of the type of destination, in line with 19.3.5 of the spec
+        // TODO: write the object to the destination, including e.g. field writes that then lead to
+        // literally god knows what.
+        match target {
+            Argument::Object(_) => {}
+            Argument::Namestring(_) => {}
+
+            Argument::ByteData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => panic!(),
+        }
+        Ok(())
     }
 }
 
@@ -1188,7 +1229,7 @@ pub enum AmlError {
 
     InvalidName(Option<AmlName>),
 
-    InvalidNameSeg,
+    InvalidNameSeg([u8; 4]),
     InvalidNormalizedName(AmlName),
     RootHasNoParent,
     EmptyNamesAreInvalid,

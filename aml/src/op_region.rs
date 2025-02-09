@@ -1,8 +1,8 @@
 #[derive(Debug)]
 pub struct OpRegion {
-    space: RegionSpace,
-    base: u64,
-    limit: u64,
+    pub space: RegionSpace,
+    pub base: u64,
+    pub length: u64,
     // parent_device
 }
 

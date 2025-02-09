@@ -66,6 +66,51 @@ impl Namespace {
         }
     }
 
+    /// Search for an object at the given path of the namespace, applying the search rules described in §5.3 of the
+    /// ACPI specification, if they are applicable. Returns the resolved name, and the handle of the first valid
+    /// object, if found.
+    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, Arc<Object>), AmlError> {
+        if path.search_rules_apply() {
+            /*
+             * If search rules apply, we need to recursively look through the namespace. If the
+             * given name does not occur in the current scope, we look at the parent scope, until
+             * we either find the name, or reach the root of the namespace.
+             */
+            let mut scope = starting_scope.clone();
+            assert!(scope.is_absolute());
+            loop {
+                // Search for the name at this namespace level. If we find it, we're done.
+                let name = path.resolve(&scope)?;
+                match self.get_level_for_path(&name) {
+                    Ok((level, last_seg)) => {
+                        if let Some(object) = level.values.get(&last_seg) {
+                            return Ok((name, object.clone()));
+                        }
+                    }
+
+                    Err(err) => return Err(err),
+                }
+
+                // If we don't find it, go up a level in the namespace and search for it there recursively
+                match scope.parent() {
+                    Ok(parent) => scope = parent,
+                    Err(AmlError::RootHasNoParent) => return Err(AmlError::ObjectDoesNotExist(path.clone())),
+                    Err(err) => return Err(err),
+                }
+            }
+        } else {
+            // If search rules don't apply, simply resolve it against the starting scope
+            let name = path.resolve(starting_scope)?;
+            let (level, last_seg) = self.get_level_for_path(&path.resolve(starting_scope)?)?;
+
+            if let Some(object) = level.values.get(&last_seg) {
+                Ok((name, object.clone()))
+            } else {
+                Err(AmlError::ObjectDoesNotExist(path.clone()))
+            }
+        }
+    }
+
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
     /// last segment to index into that level. This must not be called on `\\`.
     fn get_level_for_path(&self, path: &AmlName) -> Result<(&NamespaceLevel, NameSeg), AmlError> {
@@ -342,7 +387,7 @@ impl NameSeg {
     pub fn from_str(string: &str) -> Result<NameSeg, AmlError> {
         // Each NameSeg can only have four chars, and must have at least one
         if string.is_empty() || string.len() > 4 {
-            return Err(AmlError::InvalidNameSeg);
+            return Err(AmlError::InvalidNameSeg([0xff, 0xff, 0xff, 0xff]));
         }
 
         // We pre-fill the array with '_', so it will already be correct if the length is < 4
@@ -351,14 +396,14 @@ impl NameSeg {
 
         // Manually do the first one, because we have to check it's a LeadNameChar
         if !is_lead_name_char(bytes[0]) {
-            return Err(AmlError::InvalidNameSeg);
+            return Err(AmlError::InvalidNameSeg([bytes[0], bytes[1], bytes[2], bytes[3]]));
         }
         seg[0] = bytes[0];
 
         // Copy the rest of the chars, checking that they're NameChars
         for i in 1..bytes.len() {
             if !is_name_char(bytes[i]) {
-                return Err(AmlError::InvalidNameSeg);
+                return Err(AmlError::InvalidNameSeg([bytes[0], bytes[1], bytes[2], bytes[3]]));
             }
             seg[i] = bytes[i];
         }
@@ -368,16 +413,16 @@ impl NameSeg {
 
     pub fn from_bytes(bytes: [u8; 4]) -> Result<NameSeg, AmlError> {
         if !is_lead_name_char(bytes[0]) {
-            return Err(AmlError::InvalidNameSeg);
+            return Err(AmlError::InvalidNameSeg(bytes));
         }
         if !is_name_char(bytes[1]) {
-            return Err(AmlError::InvalidNameSeg);
+            return Err(AmlError::InvalidNameSeg(bytes));
         }
         if !is_name_char(bytes[2]) {
-            return Err(AmlError::InvalidNameSeg);
+            return Err(AmlError::InvalidNameSeg(bytes));
         }
         if !is_name_char(bytes[3]) {
-            return Err(AmlError::InvalidNameSeg);
+            return Err(AmlError::InvalidNameSeg(bytes));
         }
         Ok(NameSeg(bytes))
     }
