@@ -165,6 +165,31 @@ impl Interpreter {
                             }
                         }
                     }
+                    Opcode::If => {
+                        let [
+                            Argument::TrackedPc(start_pc),
+                            Argument::PkgLength(then_length),
+                            Argument::Object(predicate),
+                        ] = &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+
+                        let Object::Integer(predicate) = **predicate else { panic!() };
+                        let remaining_then_length = then_length - (context.current_block.pc - start_pc);
+
+                        if predicate > 0 {
+                            context.start_new_block(BlockKind::IfThenBranch, remaining_then_length);
+                        } else {
+                            context.current_block.pc += remaining_then_length;
+                            // Skip over the prolog to the else branch if present
+                            const DEF_ELSE_OP: u8 = 0xa1;
+                            // TODO: maybe need to handle error here
+                            if context.peek()? == DEF_ELSE_OP {
+                                let _else_length = context.pkglength()?;
+                            }
+                        }
+                    }
                     Opcode::InternalMethodCall => {
                         let Argument::Object(method) = &op.arguments[0] else { panic!() };
 
@@ -247,6 +272,21 @@ impl Interpreter {
                             }
 
                             context.current_block = context.block_stack.pop().unwrap();
+                            continue;
+                        }
+                        BlockKind::IfThenBranch => {
+                            context.current_block = context.block_stack.pop().unwrap();
+
+                            // Check for an else-branch, and skip over it
+                            // TODO: if we run out of stream here, it might just be an IfOp at the
+                            // end I think?
+                            let start_pc = context.current_block.pc;
+                            const DEF_ELSE_OP: u8 = 0xa1;
+                            if context.peek()? == DEF_ELSE_OP {
+                                let else_length = context.pkglength()? - (context.current_block.pc - start_pc);
+                                context.current_block.pc += else_length;
+                            }
+
                             continue;
                         }
                     }
@@ -547,8 +587,17 @@ impl Interpreter {
                 Opcode::CopyObject => todo!(),
                 Opcode::Mid => todo!(),
                 Opcode::Continue => todo!(),
-                Opcode::If => todo!(),
-                Opcode::Else => todo!(),
+                Opcode::If => {
+                    let start_pc = context.current_block.pc;
+                    let then_length = context.pkglength()?;
+                    context.start_in_flight_op(OpInFlight::new_with(
+                        Opcode::If,
+                        vec![Argument::TrackedPc(start_pc), Argument::PkgLength(then_length)],
+                        1,
+                    ));
+                }
+                // TODO: maybe should be a normal error instead
+                Opcode::Else => panic!("Unexpected DefElseOp without corresponding DefIfElseOp"),
                 Opcode::While => todo!(),
                 Opcode::Noop => {}
                 Opcode::Return => context.start_in_flight_op(OpInFlight::new(Opcode::Return, 1)),
@@ -623,6 +672,9 @@ pub enum BlockKind {
         old_scope: AmlName,
     },
     Package,
+    /// Used for executing the then-branch of an `DefIfElse`. After finishing, it will check for
+    /// and skip over an else-branch, if present.
+    IfThenBranch,
 }
 
 impl OpInFlight {
