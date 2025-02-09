@@ -1,5 +1,6 @@
 use crate::op_region::OpRegion;
 use alloc::{sync::Arc, vec::Vec};
+use bit_field::BitField;
 
 #[derive(Debug)]
 pub enum Object {
@@ -45,3 +46,17 @@ impl Object {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MethodFlags(pub u8);
+
+impl MethodFlags {
+    pub fn arg_count(&self) -> usize {
+        self.0.get_bits(0..3) as usize
+    }
+
+    pub fn serialize(&self) -> bool {
+        self.0.get_bit(3)
+    }
+
+    pub fn sync_level(&self) -> u8 {
+        self.0.get_bits(4..8)
+    }
+}

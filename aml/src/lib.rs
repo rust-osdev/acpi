@@ -21,6 +21,7 @@ use spinning_top::Spinlock;
 pub struct Interpreter {
     handler: Box<dyn Handler>,
     pub namespace: Spinlock<Namespace>,
+    context_stack: Spinlock<Vec<MethodContext>>,
 }
 
 impl Interpreter {
@@ -28,7 +29,11 @@ impl Interpreter {
     where
         H: Handler + 'static,
     {
-        Interpreter { namespace: Spinlock::new(Namespace::new()), handler: Box::new(handler) }
+        Interpreter {
+            namespace: Spinlock::new(Namespace::new()),
+            handler: Box::new(handler),
+            context_stack: Spinlock::new(Vec::new()),
+        }
     }
 
     pub fn load_table(&self, stream: &[u8]) -> Result<(), AmlError> {
@@ -37,7 +42,7 @@ impl Interpreter {
     }
 
     pub fn execute_method(&self, stream: &[u8]) -> Result<(), AmlError> {
-        let mut context = MethodContext::new(stream);
+        let mut context = unsafe { MethodContext::new_from_table(stream) };
 
         /*
          * TODO
@@ -134,7 +139,7 @@ impl Interpreter {
                         let buffer_len = pkg_length - (context.current_block.pc - start_pc);
                         let mut buffer = vec![0; buffer_size as usize];
                         buffer[0..buffer_len].copy_from_slice(
-                            &context.current_block.stream
+                            &context.current_block.stream()
                                 [context.current_block.pc..(context.current_block.pc + buffer_len)],
                         );
                         context.current_block.pc += buffer_len;
@@ -160,6 +165,34 @@ impl Interpreter {
                             }
                         }
                     }
+                    Opcode::InternalMethodCall => {
+                        let Argument::Object(method) = &op.arguments[0] else { panic!() };
+
+                        let args = op.arguments[1..]
+                            .iter()
+                            .map(|arg| {
+                                if let Argument::Object(arg) = arg {
+                                    arg.clone()
+                                } else {
+                                    panic!();
+                                }
+                            })
+                            .collect();
+
+                        let new_context = MethodContext::new_from_method(method.clone(), args)?;
+                        let old_context = mem::replace(&mut context, new_context);
+                        self.context_stack.lock().push(old_context);
+                    }
+                    Opcode::Return => {
+                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        context = self.context_stack.lock().pop().unwrap();
+
+                        if let Some(prev_op) = context.in_flight.last_mut() {
+                            if prev_op.arguments.len() < prev_op.expected_arguments {
+                                prev_op.arguments.push(Argument::Object(object.clone()));
+                            }
+                        }
+                    }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -176,8 +209,14 @@ impl Interpreter {
                      * depends on what type of block it was.
                      */
                     match context.current_block.kind {
-                        BlockKind::Normal => {
+                        BlockKind::Table => {
                             break Ok(());
+                        }
+                        BlockKind::Method => {
+                            // TODO: not sure how to handle no explicit return. Result is undefined
+                            // but we might still need to handle sticking it in an in-flight op?
+                            context = self.context_stack.lock().pop().unwrap();
+                            continue;
                         }
                         BlockKind::Scope { old_scope } => {
                             assert!(context.block_stack.len() > 0);
@@ -246,13 +285,11 @@ impl Interpreter {
                     let str_start = context.current_block.pc;
                     while context.next()? != b'\0' {}
                     // TODO: handle err
-                    let str =
-                        str::from_utf8(&context.current_block.stream[str_start..(context.current_block.pc - 1)])
-                            .unwrap();
-                    context
-                        .last_op()?
-                        .arguments
-                        .push(Argument::Object(Arc::new(Object::String(String::from(str)))));
+                    let str = String::from(
+                        str::from_utf8(&context.current_block.stream()[str_start..(context.current_block.pc - 1)])
+                            .unwrap(),
+                    );
+                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::String(str))));
                 }
                 Opcode::QWordPrefix => {
                     let value = context.next_u64()?;
@@ -307,7 +344,9 @@ impl Interpreter {
                     let flags = MethodFlags(context.next()?);
 
                     let code_len = pkg_length - (context.current_block.pc - start_pc);
-                    let code = context.current_block.stream[start_pc..(start_pc + code_len)].to_vec();
+                    let code = context.current_block.stream()
+                        [context.current_block.pc..(context.current_block.pc + code_len)]
+                        .to_vec();
                     context.current_block.pc += code_len;
 
                     println!("Method. Name={:?}, len={}", name, code_len);
@@ -321,10 +360,6 @@ impl Interpreter {
                     let _arg_count = context.next()?;
                     println!("External. Name = {}, typ={}, arg_count={}", _name, _object_type, _arg_count);
                 }
-                Opcode::DualNamePrefix => todo!(),
-                Opcode::MultiNamePrefix => todo!(),
-                Opcode::Digit(_) => todo!(),
-                Opcode::NameChar(_) => todo!(),
                 Opcode::Mutex => todo!(),
                 Opcode::Event => todo!(),
                 Opcode::CondRefOf => todo!(),
@@ -432,15 +467,37 @@ impl Interpreter {
                 Opcode::IndexField => todo!(),
                 Opcode::BankField => todo!(),
                 Opcode::DataRegion => todo!(),
-                Opcode::RootChar => todo!(),
-                Opcode::ParentPrefixChar => todo!(),
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference(local))));
                 }
-                Opcode::Arg(arg) => todo!(),
+                Opcode::Arg(arg) => {
+                    let arg = context.args[arg as usize].clone();
+                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference(arg))));
+                }
                 Opcode::Store => todo!(),
                 Opcode::RefOf => todo!(),
+
+                Opcode::DualNamePrefix
+                | Opcode::MultiNamePrefix
+                | Opcode::Digit(_)
+                | Opcode::NameChar(_)
+                | Opcode::RootChar
+                | Opcode::ParentPrefixChar => {
+                    context.current_block.pc -= 1;
+                    let name = context.namestring()?;
+
+                    let (_, object) = self.namespace.lock().search(&name, &context.current_scope)?;
+                    if let Object::Method { flags, .. } = *object {
+                        context.start_in_flight_op(OpInFlight::new_with(
+                            Opcode::InternalMethodCall,
+                            vec![Argument::Object(object)],
+                            flags.arg_count(),
+                        ))
+                    } else {
+                        context.last_op()?.arguments.push(Argument::Object(object));
+                    }
+                }
                 Opcode::Add => {
                     context.start_in_flight_op(OpInFlight::new(Opcode::Add, 3));
                 }
@@ -494,34 +551,49 @@ impl Interpreter {
                 Opcode::Else => todo!(),
                 Opcode::While => todo!(),
                 Opcode::Noop => {}
-                Opcode::Return => todo!(),
+                Opcode::Return => context.start_in_flight_op(OpInFlight::new(Opcode::Return, 1)),
                 Opcode::Break => todo!(),
                 Opcode::Breakpoint => todo!(),
                 Opcode::Ones => {
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(u64::MAX))));
                 }
+
+                Opcode::InternalMethodCall => panic!(),
             }
         }
     }
 }
 
-pub struct MethodContext<'a> {
-    current_block: Block<'a>,
-    block_stack: Vec<Block<'a>>,
+/// A `MethodContext` represents a piece of running AML code - either a real method, or the
+/// top-level of an AML table.
+///
+/// ### Safety
+/// `MethodContext` does not keep the lifetime of the underlying AML stream, which for tables is
+/// borrowed from the underlying physical mapping. This is because the interpreter needs to
+/// pre-empt method contexts that execute other methods, storing pre-empted contexts.
+///
+/// This is made safe in the case of methods by the context holding a reference to the method
+/// object, but must be handled manually for AML tables.
+struct MethodContext {
+    current_block: Block,
+    block_stack: Vec<Block>,
     in_flight: Vec<OpInFlight>,
+    args: [Arc<Object>; 8],
     locals: [Arc<Object>; 8],
     current_scope: AmlName,
+
+    _method: Option<Arc<Object>>,
 }
 
 #[derive(Debug)]
-pub struct OpInFlight {
+struct OpInFlight {
     op: Opcode,
     expected_arguments: usize,
     arguments: Vec<Argument>,
 }
 
 #[derive(Debug)]
-pub enum Argument {
+enum Argument {
     Object(Arc<Object>),
     Namestring(AmlName),
     ByteData(u8),
@@ -529,16 +601,27 @@ pub enum Argument {
     PkgLength(usize),
 }
 
-pub struct Block<'a> {
-    stream: &'a [u8],
+struct Block {
+    stream: *const [u8],
     pc: usize,
     kind: BlockKind,
 }
 
+// TODO: we might need to impl Send + Sync for Block?
+
+impl Block {
+    fn stream(&self) -> &[u8] {
+        unsafe { &*self.stream }
+    }
+}
+
 #[derive(Debug)]
 pub enum BlockKind {
-    Normal,
-    Scope { old_scope: AmlName },
+    Table,
+    Method,
+    Scope {
+        old_scope: AmlName,
+    },
     Package,
 }
 
@@ -552,34 +635,60 @@ impl OpInFlight {
     }
 }
 
-impl<'a> MethodContext<'a> {
-    pub fn new(stream: &'a [u8]) -> MethodContext<'a> {
-        let block = Block { stream, pc: 0, kind: BlockKind::Normal };
+impl MethodContext {
+    unsafe fn new_from_table(stream: &[u8]) -> MethodContext {
+        let block = Block { stream: stream as *const [u8], pc: 0, kind: BlockKind::Table };
         MethodContext {
             current_block: block,
             block_stack: Vec::new(),
             in_flight: Vec::new(),
+            args: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
             locals: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
             current_scope: AmlName::root(),
+            _method: None,
         }
     }
 
-    pub fn last_op(&mut self) -> Result<&mut OpInFlight, AmlError> {
+    fn new_from_method(method: Arc<Object>, args: Vec<Arc<Object>>) -> Result<MethodContext, AmlError> {
+        if let Object::Method { code, flags } = &*method {
+            if args.len() != flags.arg_count() {
+                return Err(AmlError::MethodArgCountIncorrect);
+            }
+            let block = Block { stream: code as &[u8] as *const [u8], pc: 0, kind: BlockKind::Method };
+            let args = core::array::from_fn(|i| {
+                if let Some(arg) = args.get(i) { arg.clone() } else { Arc::new(Object::Uninitialized) }
+            });
+            let context = MethodContext {
+                current_block: block,
+                block_stack: Vec::new(),
+                in_flight: Vec::new(),
+                args,
+                locals: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
+                current_scope: AmlName::root(),
+                _method: Some(method.clone()),
+            };
+            Ok(context)
+        } else {
+            panic!()
+        }
+    }
+
+    fn last_op(&mut self) -> Result<&mut OpInFlight, AmlError> {
         match self.in_flight.last_mut() {
             Some(op) => Ok(op),
             None => Err(AmlError::NoCurrentOp),
         }
     }
 
-    pub fn start_in_flight_op(&mut self, op: OpInFlight) {
+    fn start_in_flight_op(&mut self, op: OpInFlight) {
         println!("Starting in-flight op of type: {:?}", op);
         self.in_flight.push(op);
     }
 
-    pub fn start_new_block(&mut self, kind: BlockKind, length: usize) {
+    fn start_new_block(&mut self, kind: BlockKind, length: usize) {
         println!("Starting new block at pc={}, length={}, kind={:?}", self.current_block.pc, length, kind);
         let block = Block {
-            stream: &self.current_block.stream[..(self.current_block.pc + length)],
+            stream: &self.current_block.stream()[..(self.current_block.pc + length)] as *const [u8],
             pc: self.current_block.pc,
             kind,
         };
@@ -587,7 +696,7 @@ impl<'a> MethodContext<'a> {
         self.block_stack.push(mem::replace(&mut self.current_block, block));
     }
 
-    pub fn opcode(&mut self) -> Result<Opcode, AmlError> {
+    fn opcode(&mut self) -> Result<Opcode, AmlError> {
         let opcode: u16 = match self.next()? {
             0x5b => {
                 let ext = self.next()?;
@@ -722,11 +831,11 @@ impl<'a> MethodContext<'a> {
             0xcc => Opcode::Breakpoint,
             0xff => Opcode::Ones,
 
-            _ => Err(AmlError::IllegalOpcode)?,
+            _ => Err(AmlError::IllegalOpcode(opcode))?,
         })
     }
 
-    pub fn pkglength(&mut self) -> Result<usize, AmlError> {
+    fn pkglength(&mut self) -> Result<usize, AmlError> {
         let lead_byte = self.next()?;
         let byte_count = lead_byte.get_bits(6..8);
         assert!(byte_count < 4);
@@ -742,7 +851,7 @@ impl<'a> MethodContext<'a> {
         }
     }
 
-    pub fn namestring(&mut self) -> Result<AmlName, AmlError> {
+    fn namestring(&mut self) -> Result<AmlName, AmlError> {
         use namespace::{NameComponent, NameSeg};
 
         /*
@@ -804,26 +913,26 @@ impl<'a> MethodContext<'a> {
         Ok(AmlName::from_components(components))
     }
 
-    pub fn next(&mut self) -> Result<u8, AmlError> {
+    fn next(&mut self) -> Result<u8, AmlError> {
         if self.current_block.pc >= self.current_block.stream.len() {
             return Err(AmlError::RunOutOfStream);
         }
 
-        let byte = self.current_block.stream[self.current_block.pc];
+        let byte = self.current_block.stream()[self.current_block.pc];
         self.current_block.pc += 1;
 
         Ok(byte)
     }
 
-    pub fn next_u16(&mut self) -> Result<u16, AmlError> {
+    fn next_u16(&mut self) -> Result<u16, AmlError> {
         Ok(u16::from_le_bytes([self.next()?, self.next()?]))
     }
 
-    pub fn next_u32(&mut self) -> Result<u32, AmlError> {
+    fn next_u32(&mut self) -> Result<u32, AmlError> {
         Ok(u32::from_le_bytes([self.next()?, self.next()?, self.next()?, self.next()?]))
     }
 
-    pub fn next_u64(&mut self) -> Result<u64, AmlError> {
+    fn next_u64(&mut self) -> Result<u64, AmlError> {
         Ok(u64::from_le_bytes([
             self.next()?,
             self.next()?,
@@ -836,17 +945,17 @@ impl<'a> MethodContext<'a> {
         ]))
     }
 
-    pub fn peek(&self) -> Result<u8, AmlError> {
+    fn peek(&self) -> Result<u8, AmlError> {
         if self.current_block.pc >= self.current_block.stream.len() {
             return Err(AmlError::RunOutOfStream);
         }
 
-        Ok(self.current_block.stream[self.current_block.pc])
+        Ok(self.current_block.stream()[self.current_block.pc])
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Opcode {
+enum Opcode {
     Zero,
     One,
     Alias,
@@ -954,6 +1063,12 @@ pub enum Opcode {
     Break,
     Breakpoint,
     Ones,
+
+    /*
+     * Internal opcodes are not produced from the bytecode, but are used to track special in-flight
+     * ops etc.
+     */
+    InternalMethodCall,
 }
 
 /*
@@ -962,7 +1077,7 @@ pub enum Opcode {
 #[derive(Clone, PartialEq, Debug)]
 pub enum AmlError {
     RunOutOfStream,
-    IllegalOpcode,
+    IllegalOpcode(u16),
 
     InvalidName(Option<AmlName>),
 
@@ -975,6 +1090,8 @@ pub enum AmlError {
     ObjectDoesNotExist(AmlName),
 
     NoCurrentOp,
+
+    MethodArgCountIncorrect,
 }
 
 /// This trait represents the interface from the `Interpreter` to the hosting kernel, and allows
@@ -1068,11 +1185,11 @@ mod tests {
     #[test]
     fn names() {
         assert_eq!(
-            MethodContext::new(b"\\\x2eABC_DEF_\0").namestring(),
+            unsafe { MethodContext::new_from_table(b"\\\x2eABC_DEF_\0") }.namestring(),
             Ok(AmlName::from_str("\\ABC.DEF").unwrap())
         );
         assert_eq!(
-            MethodContext::new(b"\x2eABC_DEF_^_GHI").namestring(),
+            unsafe { MethodContext::new_from_table(b"\x2eABC_DEF_^_GHI") }.namestring(),
             Ok(AmlName::from_str("ABC.DEF.^_GHI").unwrap())
         );
     }
