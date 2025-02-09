@@ -146,7 +146,19 @@ impl Interpreter {
                         }
                     }
                     Opcode::Package => {
-                        // Nothing to do here. The package is created by the block ending.
+                        let mut elements = Vec::with_capacity(op.expected_arguments);
+                        for arg in &op.arguments {
+                            let Argument::Object(object) = arg else { panic!() };
+                            elements.push(object.clone());
+                        }
+
+                        if let Some(prev_op) = context.in_flight.last_mut() {
+                            if prev_op.arguments.len() < prev_op.expected_arguments {
+                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Package(elements))));
+                            } else {
+                                panic!("Random package floating around?");
+                            }
+                        }
                     }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
@@ -175,32 +187,26 @@ impl Interpreter {
                             continue;
                         }
                         BlockKind::Package => {
+                            /*
+                             * We've reached the end of the package. The in-flight op may have
+                             * already been completed in the case of the package specifying all of
+                             * its elements, or reach the end of the block here if it does not.
+                             *
+                             * In the latter case, fill in the rest of the package with
+                             * *distinct* uninitialized objects, and go round again to complete the
+                             * in-flight op.
+                             */
                             assert!(context.block_stack.len() > 0);
 
-                            // Pop the in-flight operation off and make sure it's the package
-                            let package_op = context.in_flight.pop().unwrap();
-                            assert_eq!(package_op.op, Opcode::Package);
-
-                            let mut elements = Vec::with_capacity(package_op.expected_arguments);
-                            for arg in &package_op.arguments {
-                                let Argument::Object(object) = arg else { panic!() };
-                                elements.push(object.clone());
-                            }
-                            for _ in package_op.arguments.len()..package_op.expected_arguments {
-                                // Each uninitialized element must be a distinct object
-                                elements.push(Arc::new(Object::Uninitialized));
-                            }
-
-                            // Add the created package to the last in-flight op's arguments
-                            if let Some(prev_op) = context.in_flight.last_mut() {
-                                if prev_op.arguments.len() < prev_op.expected_arguments {
-                                    prev_op.arguments.push(Argument::Object(Arc::new(Object::Package(elements))));
-                                } else {
-                                    panic!("Random package floating around?");
+                            if let Some(package_op) = context.in_flight.last_mut()
+                                && package_op.op == Opcode::Package
+                            {
+                                let num_elements_left = package_op.expected_arguments - package_op.arguments.len();
+                                for _ in 0..num_elements_left {
+                                    package_op.arguments.push(Argument::Object(Arc::new(Object::Uninitialized)));
                                 }
                             }
 
-                            // End the block, go round the loop again
                             context.current_block = context.block_stack.pop().unwrap();
                             continue;
                         }
