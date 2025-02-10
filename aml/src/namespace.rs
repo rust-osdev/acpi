@@ -170,33 +170,47 @@ impl Namespace {
     }
 }
 
-// TODO: this is fairly unreadable. We should group devices better and maybe use ASCII chars to
-// format the tree better (maybe that should be `Display` instead idk?)
-impl fmt::Debug for Namespace {
+impl fmt::Display for Namespace {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        const INDENT_PER_LEVEL: usize = 4;
+        const STEM: &str = "│   ";
+        const BRANCH: &str = "├── ";
+        const END: &str = "└── ";
 
         fn print_level(
             namespace: &Namespace,
             f: &mut fmt::Formatter<'_>,
-            level_name: &str,
             level: &NamespaceLevel,
-            indent: usize,
+            indent_stack: String,
         ) -> fmt::Result {
-            writeln!(f, "{:indent$}{}:", "", level_name, indent = indent)?;
+            for (i, (name, object)) in level.values.iter().enumerate() {
+                let end = (i == level.values.len() - 1)
+                    && level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).count() == 0;
+                writeln!(f, "{}{}{}: {:?}", &indent_stack, if end { END } else { BRANCH }, name.as_str(), object)?;
 
-            for (name, object) in level.values.iter() {
-                writeln!(f, "{:indent$}{}: {:?}", "", name.as_str(), object, indent = indent + INDENT_PER_LEVEL)?;
+                // If the object has a corresponding scope, print it here
+                if let Some(child_level) = level.children.get(&name) {
+                    print_level(
+                        namespace,
+                        f,
+                        child_level,
+                        if end { indent_stack.clone() + "    " } else { indent_stack.clone() + STEM },
+                    )?;
+                }
             }
 
-            for (name, sub_level) in level.children.iter() {
-                print_level(namespace, f, name.as_str(), sub_level, indent + INDENT_PER_LEVEL)?;
+            let remaining_scopes: Vec<_> =
+                level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).collect();
+            for (i, (name, sub_level)) in remaining_scopes.iter().enumerate() {
+                let end = i == remaining_scopes.len() - 1;
+                writeln!(f, "{}{}{}:", &indent_stack, if end { END } else { BRANCH }, name.as_str())?;
+                print_level(namespace, f, sub_level, indent_stack.clone() + STEM)?;
             }
 
             Ok(())
         }
 
-        print_level(self, f, "\\", &self.root, 0)
+        writeln!(f, "\n    \\:")?;
+        print_level(self, f, &self.root, String::from("    "))
     }
 }
 

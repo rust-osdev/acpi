@@ -192,14 +192,14 @@ fn main() -> std::io::Result<()> {
         match interpreter.load_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
             Ok(()) => {
                 println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
-                println!("Namespace: {:#?}", interpreter.namespace.lock());
+                println!("Namespace: {}", interpreter.namespace.lock());
                 summaries.insert((file_entry, TestResult::Pass));
                 (passed + 1, failed)
             }
 
             Err(err) => {
                 println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
-                println!("Namespace: {:#?}", interpreter.namespace.lock());
+                println!("Namespace: {}", interpreter.namespace.lock());
                 summaries.insert((file_entry, TestResult::ParseFail));
                 (passed, failed + 1)
             }
