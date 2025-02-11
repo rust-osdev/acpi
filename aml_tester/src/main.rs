@@ -13,7 +13,7 @@ use aml::{AmlContext, DebugVerbosity};
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     ffi::OsStr,
     fs::{self, File},
     io::{Read, Write},
