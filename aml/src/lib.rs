@@ -14,7 +14,7 @@ use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use bit_field::BitField;
 use core::{mem, str};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
-use object::{MethodFlags, Object};
+use object::{MethodFlags, Object, ObjectType};
 use op_region::{OpRegion, RegionSpace};
 use spinning_top::Spinlock;
 
@@ -287,6 +287,38 @@ impl Interpreter {
                         if let Some(prev_op) = context.in_flight.last_mut() {
                             if prev_op.arguments.len() < prev_op.expected_arguments {
                                 prev_op.arguments.push(Argument::Object(object.clone()));
+                            }
+                        }
+                    }
+                    Opcode::ObjectType => {
+                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        // TODO: this should technically support scopes as well - this is less easy
+                        // (they should return `0`)
+                        // TODO: calling this on the debug object should should return `16`
+                        let typ = match object.typ() {
+                            ObjectType::Uninitialized => 0,
+                            ObjectType::Integer => 1,
+                            ObjectType::String => 2,
+                            ObjectType::Buffer => 3,
+                            ObjectType::Package => 4,
+                            ObjectType::FieldUnit => 5,
+                            ObjectType::Device => 6,
+                            ObjectType::Event => 7,
+                            ObjectType::Method => 8,
+                            ObjectType::Mutex => 9,
+                            ObjectType::OpRegion => 10,
+                            ObjectType::PowerResource => 11,
+                            ObjectType::Processor => 12,
+                            ObjectType::ThermalZone => 13,
+                            ObjectType::BufferField => 14,
+                            // XXX: 15 is reserved
+                            ObjectType::Reference => panic!(),
+                            ObjectType::RawDataBuffer => todo!(),
+                        };
+
+                        if let Some(prev_op) = context.in_flight.last_mut() {
+                            if prev_op.arguments.len() < prev_op.expected_arguments {
+                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(typ))));
                             }
                         }
                     }
@@ -673,7 +705,7 @@ impl Interpreter {
                 | Opcode::ToInteger
                 | Opcode::ToString => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
 
-                Opcode::ObjectType => todo!(),
+                Opcode::ObjectType => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::CopyObject => todo!(),
                 Opcode::Mid => context.start_in_flight_op(OpInFlight::new(Opcode::Mid, 4)),
                 Opcode::Continue => todo!(),
