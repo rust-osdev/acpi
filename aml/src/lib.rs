@@ -744,8 +744,35 @@ impl Interpreter {
         // TODO: write the object to the destination, including e.g. field writes that then lead to
         // literally god knows what.
         match target {
-            Argument::Object(_) => {}
+            Argument::Object(target) => match target.gain_mut() {
+                Object::Integer(target) => match object.gain_mut() {
+                    Object::Integer(value) => {
+                        *target = *value;
+                    }
+                    Object::BufferField { .. } => {
+                        let mut buffer = [0u8; 8];
+                        object.gain_mut().read_buffer_field(&mut buffer)?;
+                        let value = u64::from_le_bytes(buffer);
+                        *target = value;
+                    }
+                    _ => panic!(),
+                },
+                Object::BufferField { .. } => match object.gain_mut() {
+                    Object::Integer(value) => {
+                        target.gain_mut().write_buffer_field(&value.to_le_bytes())?;
+                    }
+                    Object::Buffer(value) => {
+                        target.gain_mut().write_buffer_field(&value.as_slice())?;
+                    }
+                    _ => panic!(),
+                },
+                _ => panic!("Stores to objects like {:?} are not yet supported", target),
+            },
             Argument::Namestring(_) => {}
+            Argument::UnresolvedObjectPath(_) => {
+                // TODO: do we need to attempt to allow this somehow??
+                todo!("Is this allowed here?");
+            }
 
             Argument::ByteData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => panic!(),
         }
@@ -804,7 +831,7 @@ impl Block {
     }
 }
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub enum BlockKind {
     Table,
     Method,
@@ -1284,6 +1311,8 @@ pub enum AmlError {
     NoCurrentOp,
 
     MethodArgCountIncorrect,
+
+    InvalidOperationOnObject,
 }
 
 /// This trait represents the interface from the `Interpreter` to the hosting kernel, and allows

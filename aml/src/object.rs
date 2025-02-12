@@ -1,4 +1,4 @@
-use crate::op_region::OpRegion;
+use crate::{AmlError, op_region::OpRegion};
 use alloc::{sync::Arc, vec::Vec};
 use bit_field::BitField;
 
@@ -40,6 +40,27 @@ impl Object {
         #[allow(invalid_reference_casting)]
         unsafe {
             &mut *(self as *const Self as *mut Self)
+        }
+    }
+
+    pub fn read_buffer_field(&self, dst: &mut [u8]) -> Result<(), AmlError> {
+        if let Self::BufferField { buffer, offset, length } = self {
+            let Object::Buffer(ref buffer) = **buffer else { panic!() };
+            // TODO: assert length of buffer is sufficient
+            copy_bits(buffer.as_slice(), *offset, dst, 0, *length);
+            Ok(())
+        } else {
+            Err(AmlError::InvalidOperationOnObject)
+        }
+    }
+
+    pub fn write_buffer_field(&mut self, value: &[u8]) -> Result<(), AmlError> {
+        if let Self::BufferField { buffer, offset, length } = self {
+            let Object::Buffer(buffer) = buffer.gain_mut() else { panic!() };
+            copy_bits(value, 0, buffer.as_mut_slice(), *offset, *length);
+            Ok(())
+        } else {
+            Err(AmlError::InvalidOperationOnObject)
         }
     }
 
@@ -111,4 +132,57 @@ pub enum ObjectType {
     RawDataBuffer,
     String,
     ThermalZone,
+}
+
+/// Copy an arbitrary bit range of `src` to an arbitrary bit range of `dst`. This is used for
+/// buffer fields. Data is zero-extended if `src` does not cover `length` bits, matching the
+/// expected behaviour for buffer fields.
+fn copy_bits(src: &[u8], mut src_index: usize, dst: &mut [u8], mut dst_index: usize, mut length: usize) {
+    while length > 0 {
+        let src_shift = src_index & 7;
+        let mut src_bits = src.get(src_index / 8).unwrap_or(&0x00) >> src_shift;
+        if src_shift > 0 && length > (8 - src_shift) {
+            src_bits |= src.get(src_index / 8 + 1).unwrap_or(&0x00) << (8 - src_shift);
+        }
+
+        if length < 8 {
+            src_bits &= (1 << length) - 1;
+        }
+
+        let dst_shift = dst_index & 7;
+        let mut dst_mask: u16 = if length < 8 { ((1 << length) - 1) as u16 } else { 0xff as u16 } << dst_shift;
+        dst[dst_index / 8] =
+            (dst[dst_index / 8] & !(dst_mask as u8)) | ((src_bits << dst_shift) & (dst_mask as u8));
+
+        if dst_shift > 0 && length > (8 - dst_shift) {
+            dst_mask >>= 8;
+            dst[dst_index / 8 + 1] &= !(dst_mask as u8);
+            dst[dst_index / 8 + 1] |= (src_bits >> (8 - dst_shift)) & (dst_mask as u8);
+        }
+
+        if length < 8 {
+            length = 0;
+        } else {
+            length -= 8;
+            src_index += 8;
+            dst_index += 8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_copy_bits() {
+        let src = [0b1011_1111, 0b1111_0111, 0b1111_1111, 0b1111_1111, 0b1111_1111];
+        let mut dst = [0b1110_0001, 0, 0, 0, 0];
+
+        copy_bits(&src, 0, &mut dst, 2, 15);
+        for i in 0..dst.len() {
+            print!("{:08b} ", dst[i]);
+        }
+        assert_eq!(dst, [0b1111_1101, 0b1101_1110, 0b0000_0001, 0b0000_0000, 0b0000_0000]);
+    }
 }
