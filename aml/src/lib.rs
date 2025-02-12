@@ -96,6 +96,18 @@ impl Interpreter {
                             }
                         }
                     }
+                    Opcode::Increment | Opcode::Decrement => {
+                        let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
+                        let Object::Integer(operand) = operand.gain_mut() else { panic!() };
+
+                        let new_value = match op.op {
+                            Opcode::Increment => operand.wrapping_add(1),
+                            Opcode::Decrement => operand.wrapping_sub(1),
+                            _ => unreachable!(),
+                        };
+
+                        *operand = new_value;
+                    }
                     Opcode::Name => {
                         let [Argument::Namestring(name), Argument::Object(object)] = &op.arguments[..] else {
                             panic!()
@@ -624,7 +636,7 @@ impl Interpreter {
                 }
 
                 Opcode::Divide => context.start_in_flight_op(OpInFlight::new(Opcode::Divide, 4)),
-                Opcode::Increment | Opcode::Decrement => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
+                Opcode::Increment | Opcode::Decrement => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Not => context.start_in_flight_op(OpInFlight::new(Opcode::Not, 2)),
                 Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
                     context.start_in_flight_op(OpInFlight::new(opcode, 2))
