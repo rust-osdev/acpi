@@ -56,16 +56,22 @@ fn main() -> std::io::Result<()> {
     // Get an initial list of files - may not work correctly on non-UTF8 OsString
     let files: Vec<String> = if matches.contains_id("path") {
         let dir_path = Path::new(matches.get_one::<String>("path").unwrap());
-        println!("Running tests in directory: {:?}", dir_path);
-        fs::read_dir(dir_path)?
-            .filter_map(|entry| {
-                if entry.is_ok() {
-                    Some(entry.unwrap().path().to_string_lossy().to_string())
-                } else {
-                    None
-                }
-            })
-            .collect()
+
+        if std::fs::metadata(&dir_path).unwrap().is_dir() {
+            println!("Running tests in directory: {:?}", dir_path);
+            fs::read_dir(dir_path)?
+                .filter_map(|entry| {
+                    if entry.is_ok() {
+                        Some(entry.unwrap().path().to_string_lossy().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            println!("Running single test: {:?}", dir_path);
+            vec![dir_path.to_string_lossy().to_string()]
+        }
     } else {
         matches.get_many::<String>("files").unwrap_or_default().map(|name| name.to_string()).collect()
     };
