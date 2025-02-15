@@ -1,5 +1,5 @@
 use crate::{AmlError, op_region::OpRegion};
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -16,8 +16,8 @@ pub enum Object {
     Reference(Arc<Object>),
     OpRegion(OpRegion),
     Package(Vec<Arc<Object>>),
-    PowerResource,
-    Processor,
+    PowerResource { system_level: u8, resource_order: u16 },
+    Processor { proc_id: u8, pblk_address: u32, pblk_length: u8 },
     RawDataBuffer,
     String(String),
     ThermalZone,
@@ -80,8 +80,8 @@ impl Object {
             Object::Reference(object) => object.typ(),
             Object::OpRegion(_) => ObjectType::OpRegion,
             Object::Package(_) => ObjectType::Package,
-            Object::PowerResource => ObjectType::PowerResource,
-            Object::Processor => ObjectType::Processor,
+            Object::PowerResource { .. } => ObjectType::PowerResource,
+            Object::Processor { .. } => ObjectType::Processor,
             Object::RawDataBuffer => ObjectType::RawDataBuffer,
             Object::String(_) => ObjectType::String,
             Object::ThermalZone => ObjectType::ThermalZone,

@@ -616,6 +616,25 @@ impl Interpreter {
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
+                Opcode::Processor => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let name = context.namestring()?;
+                    let proc_id = context.next()?;
+                    let pblk_address = context.next_u32()?;
+                    let pblk_length = context.next()?;
+
+                    let remaining_length = pkg_length - (context.current_block.pc - start_pc);
+
+                    let new_scope = name.resolve(&context.current_scope)?;
+                    let object = Object::Processor { proc_id, pblk_address, pblk_length };
+                    let mut namespace = self.namespace.lock();
+                    namespace.add_level(new_scope.clone(), NamespaceLevelKind::Processor)?;
+                    namespace.insert(new_scope.clone(), Arc::new(object))?;
+
+                    let old_scope = mem::replace(&mut context.current_scope, new_scope);
+                    context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
+                }
                 Opcode::PowerRes => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
@@ -626,9 +645,10 @@ impl Interpreter {
                     let remaining_length = pkg_length - (context.current_block.pc - start_pc);
 
                     let new_scope = name.resolve(&context.current_scope)?;
+                    let object = Object::PowerResource { system_level, resource_order };
                     let mut namespace = self.namespace.lock();
                     namespace.add_level(new_scope.clone(), NamespaceLevelKind::PowerResource)?;
-                    namespace.insert(new_scope.clone(), Arc::new(Object::PowerResource))?;
+                    namespace.insert(new_scope.clone(), Arc::new(object))?;
 
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
@@ -982,6 +1002,7 @@ impl MethodContext {
             0x5b80 => Opcode::OpRegion,
             0x5b81 => Opcode::Field,
             0x5b82 => Opcode::Device,
+            0x5b83 => Opcode::Processor,
             0x5b84 => Opcode::PowerRes,
             0x5b85 => Opcode::ThermalZone,
             0x5b86 => Opcode::IndexField,
@@ -1232,6 +1253,7 @@ enum Opcode {
     OpRegion,
     Field,
     Device,
+    Processor,
     PowerRes,
     ThermalZone,
     IndexField,
