@@ -170,6 +170,21 @@ impl Interpreter {
                             elements.push(object.clone());
                         }
 
+                        /*
+                         * We can end up completing a package's in-flight op in two circumstances:
+                         *    - If the correct number of elements are supplied, we end up here
+                         *      first, and then later in the block's finishing logic.
+                         *    - If less elements are supplied, we end up in the block's finishing
+                         *      logic to add some `Uninitialized`s, then go round again to complete
+                         *      the in-flight operation.
+                         *
+                         * To make these consistent, we always remove the block here, making sure
+                         * we've finished it as a sanity check.
+                         */
+                        assert_eq!(context.current_block.kind, BlockKind::Package);
+                        assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
+                        context.current_block = context.block_stack.pop().unwrap();
+
                         if let Some(prev_op) = context.in_flight.last_mut() {
                             if prev_op.arguments.len() < prev_op.expected_arguments {
                                 prev_op.arguments.push(Argument::Object(Arc::new(Object::Package(elements))));
@@ -375,7 +390,8 @@ impl Interpreter {
                                 }
                             }
 
-                            context.current_block = context.block_stack.pop().unwrap();
+                            // XXX: don't remove the package's block. Refer to completion of
+                            // package ops for rationale here.
                             continue;
                         }
                         BlockKind::IfThenBranch => {
