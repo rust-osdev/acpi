@@ -77,24 +77,19 @@ impl Interpreter {
              */
             while let Some(op) = context.in_flight.pop_if(|op| op.arguments.len() == op.expected_arguments) {
                 match op.op {
-                    Opcode::Add => {
-                        let [Argument::Object(left), Argument::Object(right), Argument::Object(target)] =
-                            &op.arguments[..]
-                        else {
-                            panic!()
-                        };
-                        let Object::Integer(left) = **left else { panic!() };
-                        let Object::Integer(right) = **right else { panic!() };
-
-                        *target.gain_mut() = Object::Integer(left + right);
-
-                        // TODO: this is probs a slightly scuffed way of working out if the
-                        // prev op wants our result
-                        if let Some(prev_op) = context.in_flight.last_mut() {
-                            if prev_op.arguments.len() < prev_op.expected_arguments {
-                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(left + right))));
-                            }
-                        }
+                    Opcode::Add
+                    | Opcode::Subtract
+                    | Opcode::Multiply
+                    | Opcode::Divide
+                    | Opcode::ShiftLeft
+                    | Opcode::ShiftRight
+                    | Opcode::Mod
+                    | Opcode::Nand
+                    | Opcode::And
+                    | Opcode::Or
+                    | Opcode::Nor
+                    | Opcode::Xor => {
+                        self.do_binary_maths(&mut context, op)?;
                     }
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
@@ -780,6 +775,59 @@ impl Interpreter {
                 Opcode::InternalMethodCall => panic!(),
             }
         }
+    }
+
+    fn do_binary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(left), Argument::Object(right), Argument::Object(target)] = &op.arguments[0..2]
+        else {
+            Err(AmlError::InvalidOperationOnObject)?
+        };
+        let target2 = if op.op == Opcode::Divide {
+            let Argument::Object(target2) = &op.arguments[3] else { panic!() };
+            Some(target2)
+        } else {
+            None
+        };
+
+        let Object::Integer(left) = *left.clone().unwrap_transparent_reference() else {
+            Err(AmlError::InvalidOperationOnObject)?
+        };
+        let Object::Integer(right) = *right.clone().unwrap_transparent_reference() else {
+            Err(AmlError::InvalidOperationOnObject)?
+        };
+
+        let value = match op.op {
+            Opcode::Add => left.wrapping_add(right),
+            Opcode::Subtract => left.wrapping_sub(right),
+            Opcode::Multiply => left.wrapping_mul(right),
+            Opcode::Divide => {
+                if let Some(remainder) = target2 {
+                    *remainder.gain_mut() = Object::Integer(left.wrapping_rem(right));
+                }
+                left.wrapping_div_euclid(right)
+            }
+            Opcode::ShiftLeft => left.wrapping_shl(right as u32),
+            Opcode::ShiftRight => left.wrapping_shr(right as u32),
+            Opcode::Mod => left.wrapping_rem(right),
+            Opcode::Nand => !(left & right),
+            Opcode::And => left & right,
+            Opcode::Or => left | right,
+            Opcode::Nor => !(left | right),
+            Opcode::Xor => left ^ right,
+            _ => panic!(),
+        };
+
+        *target.gain_mut() = Object::Integer(value);
+
+        // TODO: this is probs a slightly scuffed way of working out if the
+        // prev op wants our result
+        if let Some(prev_op) = context.in_flight.last_mut() {
+            if prev_op.arguments.len() < prev_op.expected_arguments {
+                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(left + right))));
+            }
+        }
+
+        Ok(())
     }
     fn do_store(
         &self,
