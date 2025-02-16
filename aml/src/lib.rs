@@ -214,6 +214,7 @@ impl Interpreter {
                             const DEF_ELSE_OP: u8 = 0xa1;
                             // TODO: maybe need to handle error here
                             if context.peek()? == DEF_ELSE_OP {
+                                context.next()?;
                                 let _else_length = context.pkglength()?;
                             }
                         }
@@ -400,11 +401,12 @@ impl Interpreter {
                             // Check for an else-branch, and skip over it
                             // TODO: if we run out of stream here, it might just be an IfOp at the
                             // end I think?
-                            let start_pc = context.current_block.pc;
                             const DEF_ELSE_OP: u8 = 0xa1;
                             if context.peek()? == DEF_ELSE_OP {
-                                let else_length = context.pkglength()? - (context.current_block.pc - start_pc);
-                                context.current_block.pc += else_length;
+                                context.next()?;
+                                let start_pc = context.current_block.pc;
+                                let else_length = context.pkglength()?;
+                                context.current_block.pc += else_length - (context.current_block.pc - start_pc);
                             }
 
                             continue;
@@ -754,8 +756,7 @@ impl Interpreter {
                         1,
                     ));
                 }
-                // TODO: maybe should be a normal error instead
-                Opcode::Else => panic!("Unexpected DefElseOp without corresponding DefIfElseOp"),
+                Opcode::Else => return Err(AmlError::ElseFoundWithoutCorrespondingIf),
                 Opcode::While => todo!(),
                 Opcode::Noop => {}
                 Opcode::Return => context.start_in_flight_op(OpInFlight::new(Opcode::Return, 1)),
@@ -1347,6 +1348,7 @@ pub enum AmlError {
     ObjectDoesNotExist(AmlName),
 
     NoCurrentOp,
+    ElseFoundWithoutCorrespondingIf,
 
     MethodArgCountIncorrect,
 
