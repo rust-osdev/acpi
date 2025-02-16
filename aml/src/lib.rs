@@ -517,8 +517,19 @@ impl Interpreter {
                     let _object_type = context.next()?;
                     let _arg_count = context.next()?;
                 }
-                Opcode::Mutex => todo!(),
-                Opcode::Event => todo!(),
+                Opcode::Mutex => {
+                    let name = context.namestring()?;
+                    let sync_level = context.next()?;
+
+                    let name = name.resolve(&context.current_scope)?;
+                    self.namespace.lock().insert(name, Arc::new(Object::Mutex { sync_level }))?;
+                }
+                Opcode::Event => {
+                    let name = context.namestring()?;
+
+                    let name = name.resolve(&context.current_scope)?;
+                    self.namespace.lock().insert(name, Arc::new(Object::Event))?;
+                }
                 Opcode::CondRefOf => todo!(),
                 Opcode::LoadTable => todo!(),
                 Opcode::Load => todo!(),
@@ -806,11 +817,6 @@ impl Interpreter {
                 _ => panic!("Stores to objects like {:?} are not yet supported", target),
             },
             Argument::Namestring(_) => {}
-            Argument::UnresolvedObjectPath(_) => {
-                // TODO: do we need to attempt to allow this somehow??
-                todo!("Is this allowed here?");
-            }
-
             Argument::ByteData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => panic!(),
         }
         Ok(())
