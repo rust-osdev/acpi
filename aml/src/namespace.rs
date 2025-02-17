@@ -44,6 +44,20 @@ impl Namespace {
         Ok(())
     }
 
+    pub fn remove_level(&mut self, path: AmlName) -> Result<(), AmlError> {
+        assert!(path.is_absolute());
+        let path = path.normalize()?;
+
+        // Don't try to remove the root scope
+        // TODO: we probably shouldn't be able to remove the pre-defined scopes either?
+        if path != AmlName::root() {
+            let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+            level.children.remove(&last_seg);
+        }
+
+        Ok(())
+    }
+
     pub fn insert(&mut self, path: AmlName, object: Arc<Object>) -> Result<(), AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
@@ -221,7 +235,7 @@ pub enum NamespaceLevelKind {
     Processor,
     PowerResource,
     ThermalZone,
-    //MethodLocals,
+    MethodLocals,
 }
 
 pub struct NamespaceLevel {

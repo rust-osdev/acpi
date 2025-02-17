@@ -1,8 +1,15 @@
 DefinitionBlock("method.aml", "DSDT", 1, "RSACPI", "METHOD", 1) {
+    Name(X, 5)
+
     Method(FOO, 0, NotSerialized) {
-        Return (0xff)
+        If (X > 1) {
+            Noop
+        } Else {
+            Return (0x55)
+        }
+        Return (0x3f)
     }
 
-    Name(X, 0)
-    X = FOO()
+    Name(Y, 0)
+    Y = FOO()
 }

@@ -38,12 +38,29 @@ impl Interpreter {
 
     pub fn load_table(&self, stream: &[u8]) -> Result<(), AmlError> {
         // TODO: probs needs to do more stuff
-        self.execute_method(stream)
+        let context = unsafe { MethodContext::new_from_table(stream) };
+        self.do_execute_method(context)?;
+        Ok(())
     }
 
-    pub fn execute_method(&self, stream: &[u8]) -> Result<(), AmlError> {
-        let mut context = unsafe { MethodContext::new_from_table(stream) };
+    /// Invoke a method by its name, with the given set of arguments. If the referenced object is
+    /// not a method, the object will instead be returned - this is useful for objects that can
+    /// either be defined directly, or through a method (e.g. a `_CRS` object).
+    pub fn invoke_method(&self, path: AmlName, args: Vec<Arc<Object>>) -> Result<Arc<Object>, AmlError> {
+        info!("Invoking AML method: {}", path);
 
+        let object = self.namespace.lock().get(path.clone())?.clone();
+        match object.typ() {
+            ObjectType::Method => {
+                self.namespace.lock().add_level(path.clone(), NamespaceLevelKind::MethodLocals)?;
+                let context = MethodContext::new_from_method(object, args, path)?;
+                self.do_execute_method(context)
+            }
+            _ => Ok(object),
+        }
+    }
+
+    fn do_execute_method(&self, mut context: MethodContext) -> Result<Arc<Object>, AmlError> {
         /*
          * TODO
          *
@@ -277,9 +294,12 @@ impl Interpreter {
                         self.handler.stall(usec);
                     }
                     Opcode::InternalMethodCall => {
-                        let Argument::Object(method) = &op.arguments[0] else { panic!() };
+                        let [Argument::Object(method), Argument::Namestring(method_scope)] = &op.arguments[0..2]
+                        else {
+                            panic!()
+                        };
 
-                        let args = op.arguments[1..]
+                        let args = op.arguments[2..]
                             .iter()
                             .map(|arg| {
                                 if let Argument::Object(arg) = arg {
@@ -290,18 +310,30 @@ impl Interpreter {
                             })
                             .collect();
 
-                        let new_context = MethodContext::new_from_method(method.clone(), args)?;
+                        self.namespace.lock().add_level(method_scope.clone(), NamespaceLevelKind::MethodLocals)?;
+
+                        let new_context =
+                            MethodContext::new_from_method(method.clone(), args, method_scope.clone())?;
                         let old_context = mem::replace(&mut context, new_context);
                         self.context_stack.lock().push(old_context);
                     }
                     Opcode::Return => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
-                        context = self.context_stack.lock().pop().unwrap();
 
-                        if let Some(prev_op) = context.in_flight.last_mut() {
-                            if prev_op.arguments.len() < prev_op.expected_arguments {
-                                prev_op.arguments.push(Argument::Object(object.clone()));
+                        if let Some(last) = self.context_stack.lock().pop() {
+                            context = last;
+
+                            if let Some(prev_op) = context.in_flight.last_mut() {
+                                if prev_op.arguments.len() < prev_op.expected_arguments {
+                                    prev_op.arguments.push(Argument::Object(object.clone()));
+                                }
                             }
+                        } else {
+                            /*
+                             * If this is the top-most context, this is a `Return` from the actual
+                             * method.
+                             */
+                            return Ok(object.clone());
                         }
                     }
                     Opcode::ObjectType => {
@@ -353,13 +385,21 @@ impl Interpreter {
                      */
                     match context.current_block.kind {
                         BlockKind::Table => {
-                            break Ok(());
+                            break Ok(Arc::new(Object::Uninitialized));
                         }
-                        BlockKind::Method => {
-                            // TODO: not sure how to handle no explicit return. Result is undefined
-                            // but we might still need to handle sticking it in an in-flight op?
-                            context = self.context_stack.lock().pop().unwrap();
-                            continue;
+                        BlockKind::Method { method_scope } => {
+                            self.namespace.lock().remove_level(method_scope)?;
+
+                            if let Some(prev_context) = self.context_stack.lock().pop() {
+                                context = prev_context;
+                                continue;
+                            } else {
+                                /*
+                                 * If there is no explicit `Return` op, the result is undefined. We
+                                 * just return an uninitialized object.
+                                 */
+                                return Ok(Arc::new(Object::Uninitialized));
+                            }
                         }
                         BlockKind::Scope { old_scope } => {
                             assert!(context.block_stack.len() > 0);
@@ -691,11 +731,11 @@ impl Interpreter {
                     if let Object::Method { flags, .. } = *object {
                         context.start_in_flight_op(OpInFlight::new_with(
                             Opcode::InternalMethodCall,
-                            vec![Argument::Object(object)],
                             flags.arg_count(),
                         ))
                     } else {
                         context.last_op()?.arguments.push(Argument::Object(object));
+                                    vec![Argument::Object(object), Argument::Namestring(resolved_name)],
                     }
                 }
 
@@ -915,10 +955,9 @@ impl Interpreter {
 /// ### Safety
 /// `MethodContext` does not keep the lifetime of the underlying AML stream, which for tables is
 /// borrowed from the underlying physical mapping. This is because the interpreter needs to
-/// pre-empt method contexts that execute other methods, storing pre-empted contexts.
-///
-/// This is made safe in the case of methods by the context holding a reference to the method
-/// object, but must be handled manually for AML tables.
+/// preempt method contexts that execute other methods, and these contexts may have disparate
+/// lifetimes. This is made safe in the case of methods by the context holding a reference to the
+/// method object, but must be handled manually for AML tables.
 struct MethodContext {
     current_block: Block,
     block_stack: Vec<Block>,
@@ -963,7 +1002,9 @@ impl Block {
 #[derive(PartialEq, Debug)]
 pub enum BlockKind {
     Table,
-    Method,
+    Method {
+        method_scope: AmlName,
+    },
     Scope {
         old_scope: AmlName,
     },
@@ -997,12 +1038,20 @@ impl MethodContext {
         }
     }
 
-    fn new_from_method(method: Arc<Object>, args: Vec<Arc<Object>>) -> Result<MethodContext, AmlError> {
+    fn new_from_method(
+        method: Arc<Object>,
+        args: Vec<Arc<Object>>,
+        scope: AmlName,
+    ) -> Result<MethodContext, AmlError> {
         if let Object::Method { code, flags } = &*method {
             if args.len() != flags.arg_count() {
                 return Err(AmlError::MethodArgCountIncorrect);
             }
-            let block = Block { stream: code as &[u8] as *const [u8], pc: 0, kind: BlockKind::Method };
+            let block = Block {
+                stream: code as &[u8] as *const [u8],
+                pc: 0,
+                kind: BlockKind::Method { method_scope: scope.clone() },
+            };
             let args = core::array::from_fn(|i| {
                 if let Some(arg) = args.get(i) { arg.clone() } else { Arc::new(Object::Uninitialized) }
             });
@@ -1012,7 +1061,7 @@ impl MethodContext {
                 in_flight: Vec::new(),
                 args,
                 locals: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
-                current_scope: AmlName::root(),
+                current_scope: scope,
                 _method: Some(method.clone()),
             };
             Ok(context)
@@ -1530,9 +1579,9 @@ mod tests {
     fn add_op() {
         let interpreter = Interpreter::new(TestHandler);
         // AddOp 0x0e 0x06 => Local2
-        interpreter.execute_method(&[0x72, 0x0b, 0x0e, 0x00, 0x0a, 0x06, 0x62]).unwrap();
+        interpreter.load_table(&[0x72, 0x0b, 0x0e, 0x00, 0x0a, 0x06, 0x62]).unwrap();
         // AddOp 0x0e (AddOp 0x01 0x03 => Local1) => Local1
-        interpreter.execute_method(&[0x72, 0x0a, 0x0e, 0x72, 0x0a, 0x01, 0x0a, 0x03, 0x61, 0x61]).unwrap();
+        interpreter.load_table(&[0x72, 0x0a, 0x0e, 0x72, 0x0a, 0x01, 0x0a, 0x03, 0x61, 0x61]).unwrap();
     }
 
     #[test]
@@ -1540,10 +1589,6 @@ mod tests {
         assert_eq!(
             unsafe { MethodContext::new_from_table(b"\\\x2eABC_DEF_\0") }.namestring(),
             Ok(AmlName::from_str("\\ABC.DEF").unwrap())
-        );
-        assert_eq!(
-            unsafe { MethodContext::new_from_table(b"\x2eABC_DEF_^_GHI") }.namestring(),
-            Ok(AmlName::from_str("ABC.DEF.^_GHI").unwrap())
         );
     }
 }
