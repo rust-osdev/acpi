@@ -91,6 +91,9 @@ impl Interpreter {
                     | Opcode::Xor => {
                         self.do_binary_maths(&mut context, op)?;
                     }
+                    Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
+                        self.do_unary_maths(&mut context, op)?;
+                    }
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
                         let Object::Integer(operand) = operand.gain_mut() else { panic!() };
@@ -824,6 +827,41 @@ impl Interpreter {
         if let Some(prev_op) = context.in_flight.last_mut() {
             if prev_op.arguments.len() < prev_op.expected_arguments {
                 prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(left + right))));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn do_unary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(operand)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let Object::Integer(operand) = **operand else { Err(AmlError::InvalidOperationOnObject)? };
+
+        let result = match op.op {
+            Opcode::FindSetLeftBit => {
+                if operand == 0 {
+                    0
+                } else {
+                    /*
+                     * TODO: this is a particular instance where not respecting integers being
+                     * 32-bit on revision 1 tables does cause properly incorrect behaviour...
+                     */
+                    operand.leading_zeros() + 1
+                }
+            }
+            Opcode::FindSetRightBit => {
+                if operand == 0 {
+                    0
+                } else {
+                    operand.trailing_zeros() + 1
+                }
+            }
+            _ => panic!(),
+        };
+
+        if let Some(prev_op) = context.in_flight.last_mut() {
+            if prev_op.arguments.len() < prev_op.expected_arguments {
+                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(result as u64))));
             }
         }
 
