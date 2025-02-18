@@ -193,6 +193,9 @@ pub struct AcpiTables<H: AcpiHandler> {
     handler: H,
 }
 
+unsafe impl<H> Send for AcpiTables<H> where H: AcpiHandler + Send {}
+unsafe impl<H> Sync for AcpiTables<H> where H: AcpiHandler + Send {}
+
 impl<H> AcpiTables<H>
 where
     H: AcpiHandler,

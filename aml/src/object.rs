@@ -180,9 +180,6 @@ mod tests {
         let mut dst = [0b1110_0001, 0, 0, 0, 0];
 
         copy_bits(&src, 0, &mut dst, 2, 15);
-        for i in 0..dst.len() {
-            print!("{:08b} ", dst[i]);
-        }
         assert_eq!(dst, [0b1111_1101, 0b1101_1110, 0b0000_0001, 0b0000_0000, 0b0000_0000]);
     }
 }

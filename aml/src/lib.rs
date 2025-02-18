@@ -1,8 +1,6 @@
 #![no_std]
-#![feature(let_chains, vec_pop_if)]
+#![feature(let_chains, inherent_str_constructors)]
 
-#[cfg(test)]
-extern crate std;
 
 extern crate alloc;
 
@@ -10,11 +8,17 @@ pub mod namespace;
 pub mod object;
 pub mod op_region;
 
-use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
 use bit_field::BitField;
-use core::{mem, str};
+use core::mem;
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
-use object::{MethodFlags, Object, ObjectType};
+use object::{MethodFlags, Object, ObjectType, ReferenceKind};
 use op_region::{OpRegion, RegionSpace};
 use spinning_top::Spinlock;
 
@@ -23,6 +27,9 @@ pub struct Interpreter {
     pub namespace: Spinlock<Namespace>,
     context_stack: Spinlock<Vec<MethodContext>>,
 }
+
+unsafe impl Send for Interpreter {}
+unsafe impl Sync for Interpreter {}
 
 impl Interpreter {
     pub fn new<H>(handler: H) -> Interpreter
@@ -172,11 +179,7 @@ impl Interpreter {
                         );
                         context.current_block.pc += buffer_len;
 
-                        if let Some(prev_op) = context.in_flight.last_mut() {
-                            if prev_op.arguments.len() < prev_op.expected_arguments {
-                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Buffer(buffer))));
-                            }
-                        }
+                        context.contribute_arg(Argument::Object(Arc::new(Object::Buffer(buffer))));
                     }
                     Opcode::Package => {
                         let mut elements = Vec::with_capacity(op.expected_arguments);
@@ -199,14 +202,7 @@ impl Interpreter {
                         assert_eq!(context.current_block.kind, BlockKind::Package);
                         assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
                         context.current_block = context.block_stack.pop().unwrap();
-
-                        if let Some(prev_op) = context.in_flight.last_mut() {
-                            if prev_op.arguments.len() < prev_op.expected_arguments {
-                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Package(elements))));
-                            } else {
-                                panic!("Random package floating around?");
-                            }
-                        }
+                        context.contribute_arg(Argument::Object(Arc::new(Object::Package(elements))));
                     }
                     Opcode::If => {
                         let [
@@ -322,12 +318,7 @@ impl Interpreter {
 
                         if let Some(last) = self.context_stack.lock().pop() {
                             context = last;
-
-                            if let Some(prev_op) = context.in_flight.last_mut() {
-                                if prev_op.arguments.len() < prev_op.expected_arguments {
-                                    prev_op.arguments.push(Argument::Object(object.clone()));
-                                }
-                            }
+                            context.contribute_arg(Argument::Object(object.clone()));
                         } else {
                             /*
                              * If this is the top-most context, this is a `Return` from the actual
@@ -362,11 +353,7 @@ impl Interpreter {
                             ObjectType::RawDataBuffer => todo!(),
                         };
 
-                        if let Some(prev_op) = context.in_flight.last_mut() {
-                            if prev_op.arguments.len() < prev_op.expected_arguments {
-                                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(typ))));
-                            }
-                        }
+                        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(typ))));
                     }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
@@ -861,15 +848,7 @@ impl Interpreter {
         };
 
         *target.gain_mut() = Object::Integer(value);
-
-        // TODO: this is probs a slightly scuffed way of working out if the
-        // prev op wants our result
-        if let Some(prev_op) = context.in_flight.last_mut() {
-            if prev_op.arguments.len() < prev_op.expected_arguments {
-                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(left + right))));
-            }
-        }
-
+        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(value))));
         Ok(())
     }
 
@@ -899,9 +878,7 @@ impl Interpreter {
             _ => panic!(),
         };
 
-        if let Some(prev_op) = context.in_flight.last_mut() {
-            if prev_op.arguments.len() < prev_op.expected_arguments {
-                prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(result as u64))));
+        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
             }
         }
 
@@ -929,7 +906,7 @@ impl Interpreter {
                         let value = u64::from_le_bytes(buffer);
                         *target = value;
                     }
-                    _ => panic!(),
+                    _ => panic!("Store to integer from unsupported object: {:?}", object),
                 },
                 Object::BufferField { .. } => match object.gain_mut() {
                     Object::Integer(value) => {
@@ -990,8 +967,6 @@ struct Block {
     pc: usize,
     kind: BlockKind,
 }
-
-// TODO: we might need to impl Send + Sync for Block?
 
 impl Block {
     fn stream(&self) -> &[u8] {
@@ -1077,13 +1052,19 @@ impl MethodContext {
         }
     }
 
+    fn contribute_arg(&mut self, arg: Argument) {
+        if let Some(in_flight) = self.in_flight.last_mut() {
+            if in_flight.arguments.len() < in_flight.expected_arguments {
+                in_flight.arguments.push(arg);
+            }
+        }
+    }
+
     fn start_in_flight_op(&mut self, op: OpInFlight) {
-        println!("Starting in-flight op of type: {:?}", op);
         self.in_flight.push(op);
     }
 
     fn start_new_block(&mut self, kind: BlockKind, length: usize) {
-        println!("Starting new block at pc={}, length={}, kind={:?}", self.current_block.pc, length, kind);
         let block = Block {
             stream: &self.current_block.stream()[..(self.current_block.pc + length)] as *const [u8],
             pc: self.current_block.pc,
@@ -1546,7 +1527,7 @@ pub trait Handler: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
+    use core::str::FromStr;
 
     struct TestHandler;
     #[rustfmt::skip]

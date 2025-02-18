@@ -330,7 +330,7 @@ impl Madt {
     }
 
     pub fn supports_8259(&self) -> bool {
-        self.flags.get_bit(0)
+        { self.flags }.get_bit(0)
     }
 }
 
