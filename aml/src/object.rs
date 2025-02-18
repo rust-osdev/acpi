@@ -13,7 +13,7 @@ pub enum Object {
     Integer(u64),
     Method { code: Vec<u8>, flags: MethodFlags },
     Mutex { sync_level: u8 },
-    Reference(Arc<Object>),
+    Reference { kind: ReferenceKind, inner: Arc<Object> },
     OpRegion(OpRegion),
     Package(Vec<Arc<Object>>),
     PowerResource { system_level: u8, resource_order: u16 },
@@ -77,7 +77,7 @@ impl Object {
             Object::Integer(_) => ObjectType::Integer,
             Object::Method { .. } => ObjectType::Method,
             Object::Mutex { .. } => ObjectType::Mutex,
-            Object::Reference(object) => object.typ(),
+            Object::Reference { inner, .. } => inner.typ(),
             Object::OpRegion(_) => ObjectType::OpRegion,
             Object::Package(_) => ObjectType::Package,
             Object::PowerResource { .. } => ObjectType::PowerResource,
@@ -85,6 +85,35 @@ impl Object {
             Object::RawDataBuffer => ObjectType::RawDataBuffer,
             Object::String(_) => ObjectType::String,
             Object::ThermalZone => ObjectType::ThermalZone,
+        }
+    }
+
+    pub fn unwrap_reference(self: Arc<Object>) -> Arc<Object> {
+        let mut object = self;
+        loop {
+            if let Object::Reference { ref inner, .. } = *object {
+                object = inner.clone();
+            } else {
+                return object.clone();
+            }
+        }
+    }
+
+    /// Unwraps 'transparent' references (e.g. locals, arguments, and internal usage of reference-type objects), but maintain 'real'
+    /// references deliberately created by AML.
+    pub fn unwrap_transparent_reference(self: Arc<Self>) -> Arc<Object> {
+        let mut object = self;
+        loop {
+            // TODO: what should this do with unresolved namestrings? It would need namespace
+            // access to resolve them (and then this would probs have to move to a method on
+            // `Interpreter`)?
+            if let Object::Reference { kind, ref inner } = *object
+                && kind == ReferenceKind::LocalOrArg
+            {
+                object = inner.clone();
+            } else {
+                return object.clone();
+            }
         }
     }
 }
@@ -111,6 +140,12 @@ impl MethodFlags {
     pub fn sync_level(&self) -> u8 {
         self.0.get_bits(4..8)
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ReferenceKind {
+    LocalOrArg,
+    Unresolved,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

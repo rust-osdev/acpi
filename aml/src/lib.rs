@@ -707,11 +707,17 @@ impl Interpreter {
                 Opcode::DataRegion => todo!(),
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference(local))));
+                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference {
+                        kind: ReferenceKind::LocalOrArg,
+                        inner: local,
+                    })));
                 }
                 Opcode::Arg(arg) => {
                     let arg = context.args[arg as usize].clone();
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference(arg))));
+                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference {
+                        kind: ReferenceKind::LocalOrArg,
+                        inner: arg,
+                    })));
                 }
                 Opcode::Store => context.start_in_flight_op(OpInFlight::new(Opcode::Store, 2)),
                 Opcode::RefOf => todo!(),
@@ -725,15 +731,28 @@ impl Interpreter {
                     context.current_block.pc -= 1;
                     let name = context.namestring()?;
 
-                    let (_, object) = self.namespace.lock().search(&name, &context.current_scope)?;
-                    if let Object::Method { flags, .. } = *object {
-                        context.start_in_flight_op(OpInFlight::new_with(
-                            Opcode::InternalMethodCall,
-                            flags.arg_count(),
-                        ))
-                    } else {
-                        context.last_op()?.arguments.push(Argument::Object(object));
+                    match self.namespace.lock().search(&name, &context.current_scope) {
+                        Ok((resolved_name, object)) => {
+                            if let Object::Method { flags, .. } = *object {
+                                context.start_in_flight_op(OpInFlight::new_with(
+                                    Opcode::InternalMethodCall,
                                     vec![Argument::Object(object), Argument::Namestring(resolved_name)],
+                                    flags.arg_count(),
+                                ))
+                            } else {
+                                context.last_op()?.arguments.push(Argument::Object(object));
+                            }
+                        }
+                        Err(AmlError::ObjectDoesNotExist(_)) => {
+                            if context.current_block.kind == BlockKind::Package {
+                                let reference = Object::Reference {
+                                    kind: ReferenceKind::Unresolved,
+                                    inner: Arc::new(Object::String(name.to_string())),
+                                };
+                                context.last_op()?.arguments.push(Argument::Object(Arc::new(reference)));
+                            }
+                        }
+                        Err(other) => Err(other)?,
                     }
                 }
 
@@ -946,6 +965,7 @@ impl Interpreter {
         // TODO: convert object to be of the type of destination, in line with 19.3.5 of the spec
         // TODO: write the object to the destination, including e.g. field writes that then lead to
         // literally god knows what.
+        let object = object.unwrap_transparent_reference();
         match target {
             Argument::Object(target) => match target.gain_mut() {
                 Object::Integer(target) => match object.gain_mut() {
