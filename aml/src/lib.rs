@@ -130,6 +130,17 @@ impl Interpreter {
 
                         *operand = new_value;
                     }
+                    Opcode::LAnd
+                    | Opcode::LOr
+                    | Opcode::LNot
+                    | Opcode::LNotEqual
+                    | Opcode::LLessEqual
+                    | Opcode::LGreaterEqual
+                    | Opcode::LEqual
+                    | Opcode::LGreater
+                    | Opcode::LLess => {
+                        self.do_logical_op(&mut context, op)?;
+                    }
                     Opcode::Name => {
                         let [Argument::Namestring(name), Argument::Object(object)] = &op.arguments[..] else {
                             panic!()
@@ -797,7 +808,9 @@ impl Interpreter {
                 Opcode::Noop => {}
                 Opcode::Return => context.start_in_flight_op(OpInFlight::new(Opcode::Return, 1)),
                 Opcode::Break => todo!(),
-                Opcode::Breakpoint => todo!(),
+                Opcode::Breakpoint => {
+                    self.handler.breakpoint();
+                }
                 Opcode::Ones => {
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(u64::MAX))));
                 }
@@ -879,9 +892,48 @@ impl Interpreter {
         };
 
         context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
+        Ok(())
+    }
+
+    fn do_logical_op(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        if op.op == Opcode::LNot {
+            let [Argument::Object(operand)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+            let Object::Integer(operand) = **operand else { Err(AmlError::InvalidOperationOnObject)? };
+            let result = if operand == 0 { u64::MAX } else { 0 };
+
+            if let Some(prev_op) = context.in_flight.last_mut() {
+                if prev_op.arguments.len() < prev_op.expected_arguments {
+                    prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(result))));
+                }
             }
+
+            return Ok(());
         }
 
+        let [Argument::Object(left), Argument::Object(right)] = &op.arguments[..] else {
+            Err(AmlError::InvalidOperationOnObject)?
+        };
+
+        // TODO: for some of the ops, strings and buffers are also allowed :(
+        // TODO: apparently when doing this conversion (^), NT's interpreter just takes the first 4
+        // bytes of the string/buffer and casts them to an integer lmao
+        let Object::Integer(left) = **left else { Err(AmlError::InvalidOperationOnObject)? };
+        let Object::Integer(right) = **right else { Err(AmlError::InvalidOperationOnObject)? };
+
+        let result = match op.op {
+            Opcode::LAnd => (left > 0) && (right > 0),
+            Opcode::LOr => (left > 0) || (right > 0),
+            Opcode::LNotEqual => left != right,
+            Opcode::LLessEqual => left <= right,
+            Opcode::LGreaterEqual => left >= right,
+            Opcode::LEqual => left == right,
+            Opcode::LGreater => left > right,
+            Opcode::LLess => left < right,
+            _ => panic!(),
+        };
+        let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
+
+        context.contribute_arg(Argument::Object(Arc::new(result)));
         Ok(())
     }
     fn do_store(
@@ -1515,6 +1567,8 @@ pub trait Handler: Send + Sync {
     /// Sleep for at least the given number of **milliseconds**. An implementation may round to the closest sleep
     /// time supported, and should relinquish the processor.
     fn sleep(&self, milliseconds: u64);
+
+    fn breakpoint(&self) {}
 
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
         panic!(
