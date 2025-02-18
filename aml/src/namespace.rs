@@ -125,6 +125,31 @@ impl Namespace {
         }
     }
 
+    pub fn search_for_level(&self, level_name: &AmlName, starting_scope: &AmlName) -> Result<AmlName, AmlError> {
+        if level_name.search_rules_apply() {
+            let mut scope = starting_scope.clone().normalize()?;
+            assert!(scope.is_absolute());
+
+            loop {
+                let name = level_name.resolve(&scope)?;
+                if let Ok((level, last_seg)) = self.get_level_for_path(&name) {
+                    if level.children.contains_key(&last_seg) {
+                        return Ok(name);
+                    }
+                }
+
+                // If we don't find it, move the scope up a level and search for it there recursively
+                match scope.parent() {
+                    Ok(parent) => scope = parent,
+                    Err(AmlError::RootHasNoParent) => return Err(AmlError::LevelDoesNotExist(level_name.clone())),
+                    Err(err) => return Err(err),
+                }
+            }
+        } else {
+            Ok(level_name.clone())
+        }
+    }
+
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
     /// last segment to index into that level. This must not be called on `\\`.
     fn get_level_for_path(&self, path: &AmlName) -> Result<(&NamespaceLevel, NameSeg), AmlError> {

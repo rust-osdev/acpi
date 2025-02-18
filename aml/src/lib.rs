@@ -7,6 +7,8 @@ extern crate alloc;
 pub mod namespace;
 pub mod object;
 pub mod op_region;
+pub mod pci_routing;
+pub mod resource;
 
 use alloc::{
     boxed::Box,
@@ -1547,6 +1549,15 @@ pub enum AmlError {
     MethodArgCountIncorrect,
 
     InvalidOperationOnObject,
+
+    InvalidResourceDescriptor,
+    UnexpectedResourceType,
+
+    PrtInvalidAddress,
+    PrtInvalidPin,
+    PrtInvalidGsi,
+    PrtInvalidSource,
+    PrtNoEntry,
 }
 
 /// This trait represents the interface from the `Interpreter` to the hosting kernel, and allows
