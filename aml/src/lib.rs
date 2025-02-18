@@ -368,6 +368,7 @@ impl Interpreter {
 
                         context.contribute_arg(Argument::Object(Arc::new(Object::Integer(typ))));
                     }
+                    Opcode::SizeOf => self.do_size_of(&mut context, op)?,
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -782,7 +783,7 @@ impl Interpreter {
                 Opcode::DerefOf => todo!(),
                 Opcode::ConcatRes => todo!(),
                 Opcode::Notify => todo!(),
-                Opcode::SizeOf => todo!(),
+                Opcode::SizeOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Index => todo!(),
                 Opcode::Match => todo!(),
 
@@ -955,6 +956,21 @@ impl Interpreter {
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
 
         context.contribute_arg(Argument::Object(Arc::new(result)));
+        Ok(())
+    }
+
+    fn do_size_of(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(object)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let object = object.clone().unwrap_reference();
+
+        let result = match *object {
+            Object::Buffer(ref buffer) => buffer.len(),
+            Object::String(ref str) => str.len(),
+            Object::Package(ref package) => package.len(),
+            _ => Err(AmlError::InvalidOperationOnObject)?,
+        };
+
+        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
         Ok(())
     }
     fn do_store(
