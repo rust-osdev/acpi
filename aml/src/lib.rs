@@ -11,7 +11,6 @@ pub mod pci_routing;
 pub mod resource;
 
 use alloc::{
-    boxed::Box,
     string::{String, ToString},
     sync::Arc,
     vec,
@@ -24,23 +23,26 @@ use object::{MethodFlags, Object, ObjectType, ReferenceKind};
 use op_region::{OpRegion, RegionSpace};
 use spinning_top::Spinlock;
 
-pub struct Interpreter {
-    handler: Box<dyn Handler>,
+pub struct Interpreter<H>
+where
+    H: Handler,
+{
+    handler: H,
     pub namespace: Spinlock<Namespace>,
     context_stack: Spinlock<Vec<MethodContext>>,
 }
 
-unsafe impl Send for Interpreter {}
-unsafe impl Sync for Interpreter {}
+unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
+unsafe impl<H> Sync for Interpreter<H> where H: Handler + Send {}
 
-impl Interpreter {
-    pub fn new<H>(handler: H) -> Interpreter
-    where
-        H: Handler + 'static,
-    {
+impl<H> Interpreter<H>
+where
+    H: Handler,
+{
+    pub fn new(handler: H) -> Interpreter<H> {
         Interpreter {
+            handler,
             namespace: Spinlock::new(Namespace::new()),
-            handler: Box::new(handler),
             context_stack: Spinlock::new(Vec::new()),
         }
     }

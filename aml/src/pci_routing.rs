@@ -1,5 +1,6 @@
 use crate::{
     AmlError,
+    Handler,
     Interpreter,
     namespace::AmlName,
     object::{Object, ReferenceKind},
@@ -56,7 +57,10 @@ impl PciRoutingTable {
     /// `AmlError::InvalidOperationOnObject` if the value passed is not a package, or if any of the
     /// values within it are not packages. Returns the various `AmlError::Prt*` errors if the
     /// internal structure of the entries is invalid.
-    pub fn from_prt_path(prt_path: AmlName, interpreter: &Interpreter) -> Result<PciRoutingTable, AmlError> {
+    pub fn from_prt_path(
+        prt_path: AmlName,
+        interpreter: &Interpreter<impl Handler>,
+    ) -> Result<PciRoutingTable, AmlError> {
         let mut entries = Vec::new();
 
         let prt = interpreter.invoke_method(prt_path.clone(), vec![])?;
@@ -149,7 +153,7 @@ impl PciRoutingTable {
         device: u16,
         function: u16,
         pin: Pin,
-        interpreter: &Interpreter,
+        interpreter: &Interpreter<impl Handler>,
     ) -> Result<IrqDescriptor, AmlError> {
         let entry = self
             .entries
