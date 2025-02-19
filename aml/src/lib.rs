@@ -1,7 +1,6 @@
 #![no_std]
 #![feature(let_chains, inherent_str_constructors)]
 
-
 extern crate alloc;
 
 pub mod namespace;
@@ -148,6 +147,8 @@ where
                     | Opcode::LLess => {
                         self.do_logical_op(&mut context, op)?;
                     }
+                    Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
+                    Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
                     Opcode::Name => {
                         let [Argument::Namestring(name), Argument::Object(object)] = &op.arguments[..] else {
                             panic!()
@@ -593,8 +594,7 @@ where
                 Opcode::Wait => todo!(),
                 Opcode::Reset => todo!(),
                 Opcode::Release => todo!(),
-                Opcode::FromBCD => todo!(),
-                Opcode::ToBCD => todo!(),
+                Opcode::FromBCD | Opcode::ToBCD => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
                 Opcode::Revision => {
                     context.contribute_arg(Argument::Object(Arc::new(Object::Integer(INTERPRETER_REVISION))));
                 }
@@ -986,6 +986,38 @@ where
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
 
         context.contribute_arg(Argument::Object(Arc::new(result)));
+        Ok(())
+    }
+
+    fn do_from_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(value)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let Object::Integer(mut value) = **value else { Err(AmlError::InvalidOperationOnObject)? };
+
+        let mut result = 0;
+        let mut i = 1;
+        while value > 0 {
+            result += (value & 0x0f) * i;
+            i *= 10;
+            value >>= 4;
+        }
+
+        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result))));
+        Ok(())
+    }
+
+    fn do_to_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(value)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let Object::Integer(mut value) = **value else { Err(AmlError::InvalidOperationOnObject)? };
+
+        let mut result = 0;
+        let mut i = 0;
+        while value > 0 {
+            result |= (value % 10) << (4 * i);
+            value /= 10;
+            i += 1;
+        }
+
+        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result))));
         Ok(())
     }
 
