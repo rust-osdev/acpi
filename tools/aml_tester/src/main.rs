@@ -387,6 +387,10 @@ impl aml::Handler for Handler {
         println!("write_pci_u32 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})<-{value:#x}");
     }
 
+    fn nanos_since_boot(&self) -> u64 {
+        0
+    }
+
     fn stall(&self, microseconds: u64) {
         println!("Stalling for {}us", microseconds);
     }

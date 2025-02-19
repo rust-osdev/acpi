@@ -35,6 +35,9 @@ where
 unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
 unsafe impl<H> Sync for Interpreter<H> where H: Handler + Send {}
 
+/// The value returned by the `Revision` opcode.
+const INTERPRETER_REVISION: u64 = 1;
+
 impl<H> Interpreter<H>
 where
     H: Handler,
@@ -152,6 +155,15 @@ where
 
                         let name = name.resolve(&context.current_scope)?;
                         self.namespace.lock().insert(name, object.clone())?;
+                    }
+                    Opcode::Fatal => {
+                        let [Argument::ByteData(typ), Argument::DWordData(code), Argument::Object(arg)] =
+                            &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let Object::Integer(arg) = **arg else { panic!() };
+                        self.handler.handle_fatal_error(*typ, *code, arg);
                     }
                     Opcode::OpRegion => {
                         let [
@@ -346,7 +358,6 @@ where
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
                         // TODO: this should technically support scopes as well - this is less easy
                         // (they should return `0`)
-                        // TODO: calling this on the debug object should should return `16`
                         let typ = match object.typ() {
                             ObjectType::Uninitialized => 0,
                             ObjectType::Integer => 1,
@@ -364,6 +375,7 @@ where
                             ObjectType::ThermalZone => 13,
                             ObjectType::BufferField => 14,
                             // XXX: 15 is reserved
+                            ObjectType::Debug => 16,
                             ObjectType::Reference => panic!(),
                             ObjectType::RawDataBuffer => todo!(),
                         };
@@ -583,10 +595,26 @@ where
                 Opcode::Release => todo!(),
                 Opcode::FromBCD => todo!(),
                 Opcode::ToBCD => todo!(),
-                Opcode::Revision => todo!(),
-                Opcode::Debug => todo!(),
-                Opcode::Fatal => todo!(),
-                Opcode::Timer => todo!(),
+                Opcode::Revision => {
+                    context.contribute_arg(Argument::Object(Arc::new(Object::Integer(INTERPRETER_REVISION))));
+                }
+                Opcode::Debug => {
+                    context.contribute_arg(Argument::Object(Arc::new(Object::Debug)));
+                }
+                Opcode::Fatal => {
+                    let typ = context.next()?;
+                    let code = context.next_u32()?;
+                    context.start_in_flight_op(OpInFlight::new_with(
+                        Opcode::Fatal,
+                        vec![Argument::ByteData(typ), Argument::DWordData(code)],
+                        1,
+                    ));
+                }
+                Opcode::Timer => {
+                    // Time has to be monotonically-increasing, in 100ns units
+                    let time = self.handler.nanos_since_boot() / 100;
+                    context.contribute_arg(Argument::Object(Arc::new(Object::Integer(time))));
+                }
                 Opcode::OpRegion => {
                     let name = context.namestring()?;
                     let region_space = context.next()?;
@@ -1009,10 +1037,16 @@ where
                     }
                     _ => panic!(),
                 },
+                Object::Debug => {
+                    self.handler.handle_debug(&*object);
+                }
                 _ => panic!("Stores to objects like {:?} are not yet supported", target),
             },
+
             Argument::Namestring(_) => {}
-            Argument::ByteData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => panic!(),
+            Argument::ByteData(_) | Argument::DWordData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => {
+                panic!()
+            }
         }
         Ok(())
     }
@@ -1050,6 +1084,7 @@ enum Argument {
     Object(Arc<Object>),
     Namestring(AmlName),
     ByteData(u8),
+    DWordData(u32),
     TrackedPc(usize),
     PkgLength(usize),
 }
@@ -1608,6 +1643,9 @@ pub trait Handler: Send + Sync {
     fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16);
     fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
 
+    /// Returns a monotonically-increasing value of nanoseconds.
+    fn nanos_since_boot(&self) -> u64;
+
     /// Stall for at least the given number of **microseconds**. An implementation should not relinquish control of
     /// the processor during the stall, and for this reason, firmwares should not stall for periods of more than
     /// 100 microseconds.
@@ -1619,9 +1657,11 @@ pub trait Handler: Send + Sync {
 
     fn breakpoint(&self) {}
 
+    fn handle_debug(&self, _object: &Object) {}
+
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
         panic!(
-            "Fatal error while executing AML (encountered DefFatalOp). fatal_type = {:?}, fatal_code = {:?}, fatal_arg = {:?}",
+            "Fatal error while executing AML (encountered DefFatalOp). fatal_type = {}, fatal_code = {}, fatal_arg = {}",
             fatal_type, fatal_code, fatal_arg
         );
     }
@@ -1655,6 +1695,7 @@ mod tests {
         fn write_pci_u8(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u8) {}
         fn write_pci_u16(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u16) {}
         fn write_pci_u32(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u32) {}
+        fn nanos_since_boot(&self) -> u64 {0}
         fn stall(&self, _microseconds: u64) {}
         fn sleep(&self, _milliseconds: u64) {}
     }

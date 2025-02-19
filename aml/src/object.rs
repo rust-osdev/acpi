@@ -21,6 +21,7 @@ pub enum Object {
     RawDataBuffer,
     String(String),
     ThermalZone,
+    Debug,
 }
 
 impl Object {
@@ -85,6 +86,7 @@ impl Object {
             Object::RawDataBuffer => ObjectType::RawDataBuffer,
             Object::String(_) => ObjectType::String,
             Object::ThermalZone => ObjectType::ThermalZone,
+            Object::Debug => ObjectType::Debug,
         }
     }
 
@@ -167,6 +169,7 @@ pub enum ObjectType {
     RawDataBuffer,
     String,
     ThermalZone,
+    Debug,
 }
 
 /// Copy an arbitrary bit range of `src` to an arbitrary bit range of `dst`. This is used for
