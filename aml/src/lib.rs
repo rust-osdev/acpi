@@ -18,7 +18,7 @@ use alloc::{
 use bit_field::BitField;
 use core::mem;
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
-use object::{MethodFlags, Object, ObjectType, ReferenceKind};
+use object::{FieldFlags, FieldUnit, FieldUnitKind, MethodFlags, Object, ObjectType, ReferenceKind};
 use op_region::{OpRegion, RegionSpace};
 use spinning_top::Spinlock;
 
@@ -384,6 +384,31 @@ where
                         context.contribute_arg(Argument::Object(Arc::new(Object::Integer(typ))));
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
+                    Opcode::BankField => {
+                        let [
+                            Argument::TrackedPc(start_pc),
+                            Argument::PkgLength(pkg_length),
+                            Argument::Namestring(region_name),
+                            Argument::Namestring(bank_name),
+                            Argument::Object(bank_value),
+                        ] = &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let Object::Integer(bank_value) = **bank_value else { panic!() };
+
+                        let field_flags = context.next()?;
+
+                        let (region, bank) = {
+                            let namespace = self.namespace.lock();
+                            let (_, region) = namespace.search(region_name, &context.current_scope)?;
+                            let (_, bank) = namespace.search(bank_name, &context.current_scope)?;
+                            (region, bank)
+                        };
+
+                        let kind = FieldUnitKind::Bank { region, bank, bank_value };
+                        self.parse_field_list(&mut context, kind, *start_pc, *pkg_length, field_flags)?;
+                    }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -628,55 +653,44 @@ where
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
                     let region_name = context.namestring()?;
-                    let flags = context.next()?;
+                    let field_flags = context.next()?;
 
                     let region = self.namespace.lock().get(region_name.resolve(&context.current_scope)?)?.clone();
+                    let kind = FieldUnitKind::Normal { region };
+                    self.parse_field_list(&mut context, kind, start_pc, pkg_length, field_flags)?;
+                }
+                Opcode::BankField => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let region_name = context.namestring()?;
+                    let bank_name = context.namestring()?;
 
-                    const RESERVED_FIELD: u8 = 0x00;
-                    const ACCESS_FIELD: u8 = 0x01;
-                    const CONNECT_FIELD: u8 = 0x02;
-                    const EXTENDED_ACCESS_FIELD: u8 = 0x03;
+                    context.start_in_flight_op(OpInFlight::new_with(
+                        Opcode::BankField,
+                        vec![
+                            Argument::TrackedPc(start_pc),
+                            Argument::PkgLength(pkg_length),
+                            Argument::Namestring(region_name),
+                            Argument::Namestring(bank_name),
+                        ],
+                        1,
+                    ));
+                }
+                Opcode::IndexField => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let index_name = context.namestring()?;
+                    let data_name = context.namestring()?;
+                    let field_flags = context.next()?;
 
-                    let mut field_offset = 0;
-
-                    while context.current_block.pc < (start_pc + pkg_length) {
-                        match context.next()? {
-                            RESERVED_FIELD => {
-                                let length = context.pkglength()?;
-                                field_offset += length;
-                            }
-                            ACCESS_FIELD => {
-                                let access_type = context.next()?;
-                                let access_attrib = context.next()?;
-                                todo!()
-                                // TODO
-                            }
-                            CONNECT_FIELD => {
-                                // TODO: either consume a namestring or `BufferData` (it's not
-                                // clear what a buffer data acc is lmao)
-                                todo!("Connect field :(");
-                            }
-                            EXTENDED_ACCESS_FIELD => {
-                                todo!("Extended access field :(");
-                            }
-                            _ => {
-                                context.current_block.pc -= 1;
-                                // TODO: this should only ever be a nameseg really...
-                                let field_name = context.namestring()?;
-                                let field_length = context.pkglength()?;
-                                // TODO: do something with the flags, and also detect when this
-                                // should be a bank or index field
-                                let field = Object::FieldUnit(object::FieldUnit::Normal {
-                                    region: region.clone(),
-                                    bit_index: field_offset,
-                                    bit_length: field_length,
-                                });
-                                self.namespace
-                                    .lock()
-                                    .insert(field_name.resolve(&context.current_scope)?, Arc::new(field))?;
-                            }
-                        }
-                    }
+                    let (index, data) = {
+                        let namespace = self.namespace.lock();
+                        let (_, index) = namespace.search(&index_name, &context.current_scope)?;
+                        let (_, data) = namespace.search(&data_name, &context.current_scope)?;
+                        (index, data)
+                    };
+                    let kind = FieldUnitKind::Index { index, data };
+                    self.parse_field_list(&mut context, kind, start_pc, pkg_length, field_flags)?;
                 }
                 Opcode::Device | Opcode::ThermalZone => {
                     let start_pc = context.current_block.pc;
@@ -735,8 +749,6 @@ where
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
-                Opcode::IndexField => todo!(),
-                Opcode::BankField => todo!(),
                 Opcode::DataRegion => todo!(),
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
@@ -870,6 +882,63 @@ where
                 Opcode::InternalMethodCall => panic!(),
             }
         }
+    }
+
+    fn parse_field_list(
+        &self,
+        context: &mut MethodContext,
+        kind: FieldUnitKind,
+        start_pc: usize,
+        pkg_length: usize,
+        flags: u8,
+    ) -> Result<(), AmlError> {
+        const RESERVED_FIELD: u8 = 0x00;
+        const ACCESS_FIELD: u8 = 0x01;
+        const CONNECT_FIELD: u8 = 0x02;
+        const EXTENDED_ACCESS_FIELD: u8 = 0x03;
+
+        let mut field_offset = 0;
+
+        while context.current_block.pc < (start_pc + pkg_length) {
+            match context.next()? {
+                RESERVED_FIELD => {
+                    let length = context.pkglength()?;
+                    field_offset += length;
+                }
+                ACCESS_FIELD => {
+                    let access_type = context.next()?;
+                    let access_attrib = context.next()?;
+                    todo!()
+                    // TODO
+                }
+                CONNECT_FIELD => {
+                    // TODO: either consume a namestring or `BufferData` (it's not
+                    // clear what a buffer data acc is lmao)
+                    todo!("Connect field :(");
+                }
+                EXTENDED_ACCESS_FIELD => {
+                    todo!("Extended access field :(");
+                }
+                _ => {
+                    context.current_block.pc -= 1;
+                    // TODO: this should only ever be a nameseg really...
+                    let field_name = context.namestring()?;
+                    let field_length = context.pkglength()?;
+
+                    let field = Object::FieldUnit(FieldUnit {
+                        kind: kind.clone(),
+                        bit_index: field_offset,
+                        bit_length: field_length,
+                        flags: FieldFlags(flags),
+                    });
+                    self.namespace.lock().insert(field_name.resolve(&context.current_scope)?, Arc::new(field))?;
+
+                    field_offset += field_length;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn do_binary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {

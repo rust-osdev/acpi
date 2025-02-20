@@ -121,11 +121,22 @@ impl Object {
 }
 
 #[derive(Debug)]
-pub enum FieldUnit {
-    Normal { region: Arc<Object>, bit_index: usize, bit_length: usize },
-    Bank,
-    Index,
+pub struct FieldUnit {
+    pub kind: FieldUnitKind,
+    pub flags: FieldFlags,
+    pub bit_index: usize,
+    pub bit_length: usize,
 }
+
+#[derive(Clone, Debug)]
+pub enum FieldUnitKind {
+    Normal { region: Arc<Object> },
+    Bank { region: Arc<Object>, bank: Arc<Object>, bank_value: u64 },
+    Index { index: Arc<Object>, data: Arc<Object> },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FieldFlags(pub u8);
 
 #[derive(Clone, Copy, Debug)]
 pub struct MethodFlags(pub u8);
