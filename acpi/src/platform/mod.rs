@@ -1,15 +1,7 @@
 pub mod interrupt;
 
 use crate::{
-    address::GenericAddress,
-    fadt::Fadt,
-    madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
-    AcpiError,
-    AcpiHandler,
-    AcpiResult,
-    AcpiTables,
-    ManagedSlice,
-    PowerProfile,
+    address::GenericAddress, fadt::Fadt, madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox}, slit::Slit, AcpiError, AcpiHandler, AcpiResult, AcpiTables, ManagedSlice, PowerProfile
 };
 use core::{alloc::Allocator, mem, ptr};
 use interrupt::InterruptModel;
@@ -64,6 +56,24 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SystemLocalityInfo<'a, A>
+where
+    A: Allocator,
+{
+    pub nr_system_localities: u64,
+    pub distance_matrix: ManagedSlice<'a, ManagedSlice<'a, u8, A>, A>,
+}
+
+impl <'a, A> SystemLocalityInfo<'a, A>
+where
+    A: Allocator,
+{
+    pub(crate) fn new(nr_system_localities: u64, distance_matrix: ManagedSlice<'a, ManagedSlice<'a, u8, A>, A>) -> Self {
+        Self { nr_system_localities, distance_matrix }
+    }
+}
+
 /// Information about the ACPI Power Management Timer (ACPI PM Timer).
 #[derive(Debug, Clone)]
 pub struct PmTimer {
@@ -95,6 +105,7 @@ where
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo<'a, A>>,
+    pub system_locality_info: Option<SystemLocalityInfo<'a, A>>,
     pub pm_timer: Option<PmTimer>,
     /*
      * TODO: we could provide a nice view of the hardware register blocks in the FADT here.
@@ -124,12 +135,16 @@ where
 
         let madt = tables.find_table::<Madt>();
         let (interrupt_model, processor_info) = match madt {
-            Ok(madt) => madt.get().parse_interrupt_model_in(allocator)?,
+            Ok(madt) => madt.get().parse_interrupt_model_in(allocator.clone())?,
             Err(_) => (InterruptModel::Unknown, None),
+        };
+        let system_locality_info = {
+            let slit = tables.find_table::<Slit>();
+            slit.and_then(|slit| slit.get().parse_system_locality_in(allocator)).ok()
         };
         let pm_timer = PmTimer::new(&fadt)?;
 
-        Ok(PlatformInfo { power_profile, interrupt_model, processor_info, pm_timer })
+        Ok(PlatformInfo { power_profile, interrupt_model, processor_info, system_locality_info, pm_timer })
     }
 }
 
