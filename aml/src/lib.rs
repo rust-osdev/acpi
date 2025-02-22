@@ -121,12 +121,17 @@ where
                     | Opcode::Xor => {
                         self.do_binary_maths(&mut context, op)?;
                     }
-                    Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
+                    Opcode::Not | Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
                         self.do_unary_maths(&mut context, op)?;
                     }
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
-                        let Object::Integer(operand) = operand.gain_mut() else { panic!() };
+                        let Object::Integer(operand) = operand.gain_mut() else {
+                            Err(AmlError::ObjectNotOfExpectedType {
+                                expected: ObjectType::Integer,
+                                got: operand.typ(),
+                            })?
+                        };
 
                         let new_value = match op.op {
                             Opcode::Increment => operand.wrapping_add(1),
@@ -163,7 +168,7 @@ where
                         else {
                             panic!()
                         };
-                        let Object::Integer(arg) = **arg else { panic!() };
+                        let arg = arg.as_integer()?;
                         self.handler.handle_fatal_error(*typ, *code, arg);
                     }
                     Opcode::OpRegion => {
@@ -176,9 +181,8 @@ where
                         else {
                             panic!()
                         };
-                        let Object::Integer(region_offset) = **region_offset else { panic!() };
-                        let Object::Integer(region_length) = **region_length else { panic!() };
-
+                        let region_offset = region_offset.as_integer()?;
+                        let region_length = region_length.as_integer()?;
                         let region_space = RegionSpace::from(*region_space);
 
                         let region = Object::OpRegion(OpRegion {
@@ -197,7 +201,7 @@ where
                         else {
                             panic!()
                         };
-                        let Object::Integer(buffer_size) = **buffer_size else { panic!() };
+                        let buffer_size = buffer_size.as_integer()?;
 
                         let buffer_len = pkg_length - (context.current_block.pc - start_pc);
                         let mut buffer = vec![0; buffer_size as usize];
@@ -242,7 +246,7 @@ where
                             panic!()
                         };
 
-                        let Object::Integer(predicate) = **predicate else { panic!() };
+                        let predicate = predicate.as_integer()?;
                         let remaining_then_length = then_length - (context.current_block.pc - start_pc);
 
                         if predicate > 0 {
@@ -267,7 +271,7 @@ where
                             panic!()
                         };
                         let name = context.namestring()?;
-                        let Object::Integer(index) = **index else { panic!() };
+                        let index = index.as_integer()?;
                         let (offset, length) = match opcode {
                             Opcode::CreateBitField => (index, 1),
                             Opcode::CreateByteField => (index * 8, 8),
@@ -292,8 +296,9 @@ where
                             panic!()
                         };
                         let name = context.namestring()?;
-                        let Object::Integer(bit_index) = **bit_index else { panic!() };
-                        let Object::Integer(num_bits) = **num_bits else { panic!() };
+                        let bit_index = bit_index.as_integer()?;
+                        let num_bits = num_bits.as_integer()?;
+
                         self.namespace.lock().insert(
                             name.resolve(&context.current_scope)?,
                             Arc::new(Object::BufferField {
@@ -309,13 +314,11 @@ where
                     }
                     Opcode::Sleep => {
                         let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
-                        let Object::Integer(msec) = **msec else { panic!() };
-                        self.handler.sleep(msec);
+                        self.handler.sleep(msec.as_integer()?);
                     }
                     Opcode::Stall => {
                         let [Argument::Object(usec)] = &op.arguments[..] else { panic!() };
-                        let Object::Integer(usec) = **usec else { panic!() };
-                        self.handler.stall(usec);
+                        self.handler.stall(usec.as_integer()?);
                     }
                     Opcode::InternalMethodCall => {
                         let [Argument::Object(method), Argument::Namestring(method_scope)] = &op.arguments[0..2]
@@ -396,8 +399,7 @@ where
                         else {
                             panic!()
                         };
-                        let Object::Integer(bank_value) = **bank_value else { panic!() };
-
+                        let bank_value = bank_value.as_integer()?;
                         let field_flags = context.next()?;
 
                         let (region, bank) = {
@@ -954,12 +956,8 @@ where
             None
         };
 
-        let Object::Integer(left) = *left.clone().unwrap_transparent_reference() else {
-            Err(AmlError::InvalidOperationOnObject)?
-        };
-        let Object::Integer(right) = *right.clone().unwrap_transparent_reference() else {
-            Err(AmlError::InvalidOperationOnObject)?
-        };
+        let left = left.clone().unwrap_transparent_reference().as_integer()?;
+        let right = right.clone().unwrap_transparent_reference().as_integer()?;
 
         let value = match op.op {
             Opcode::Add => left.wrapping_add(right),
@@ -989,7 +987,7 @@ where
 
     fn do_unary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(operand)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
-        let Object::Integer(operand) = **operand else { Err(AmlError::InvalidOperationOnObject)? };
+        let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
 
         let result = match op.op {
             Opcode::FindSetLeftBit => {
@@ -1000,27 +998,34 @@ where
                      * TODO: this is a particular instance where not respecting integers being
                      * 32-bit on revision 1 tables does cause properly incorrect behaviour...
                      */
-                    operand.leading_zeros() + 1
+                    (operand.leading_zeros() + 1) as u64
                 }
             }
             Opcode::FindSetRightBit => {
                 if operand == 0 {
                     0
                 } else {
-                    operand.trailing_zeros() + 1
+                    (operand.trailing_zeros() + 1) as u64
+                }
+            }
+            Opcode::Not => {
+                if operand == 0 {
+                    u64::MAX
+                } else {
+                    0
                 }
             }
             _ => panic!(),
         };
 
-        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
+        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result))));
         Ok(())
     }
 
     fn do_logical_op(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         if op.op == Opcode::LNot {
             let [Argument::Object(operand)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
-            let Object::Integer(operand) = **operand else { Err(AmlError::InvalidOperationOnObject)? };
+            let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
             let result = if operand == 0 { u64::MAX } else { 0 };
 
             if let Some(prev_op) = context.in_flight.last_mut() {
@@ -1039,8 +1044,8 @@ where
         // TODO: for some of the ops, strings and buffers are also allowed :(
         // TODO: apparently when doing this conversion (^), NT's interpreter just takes the first 4
         // bytes of the string/buffer and casts them to an integer lmao
-        let Object::Integer(left) = **left else { Err(AmlError::InvalidOperationOnObject)? };
-        let Object::Integer(right) = **right else { Err(AmlError::InvalidOperationOnObject)? };
+        let left = left.clone().unwrap_transparent_reference().as_integer()?;
+        let right = right.clone().unwrap_transparent_reference().as_integer()?;
 
         let result = match op.op {
             Opcode::LAnd => (left > 0) && (right > 0),
@@ -1061,7 +1066,7 @@ where
 
     fn do_from_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(value)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
-        let Object::Integer(mut value) = **value else { Err(AmlError::InvalidOperationOnObject)? };
+        let mut value = value.clone().unwrap_transparent_reference().as_integer()?;
 
         let mut result = 0;
         let mut i = 1;
@@ -1077,7 +1082,7 @@ where
 
     fn do_to_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(value)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
-        let Object::Integer(mut value) = **value else { Err(AmlError::InvalidOperationOnObject)? };
+        let mut value = value.clone().unwrap_transparent_reference().as_integer()?;
 
         let mut result = 0;
         let mut i = 0;
@@ -1110,9 +1115,7 @@ where
         let [Argument::Object(object), Argument::Object(index_value), target] = &op.arguments[..] else {
             panic!()
         };
-        let Object::Integer(index_value) = **index_value else {
-            Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: index_value.typ() })?
-        };
+        let index_value = index_value.as_integer()?;
 
         let result = Arc::new(match **object {
             Object::Buffer(ref buffer) => {
@@ -1319,7 +1322,7 @@ impl MethodContext {
             };
             Ok(context)
         } else {
-            panic!()
+            Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Method, got: method.typ() })
         }
     }
 

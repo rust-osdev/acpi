@@ -44,6 +44,14 @@ impl Object {
         }
     }
 
+    pub fn as_integer(&self) -> Result<u64, AmlError> {
+        if let Object::Integer(value) = self {
+            Ok(*value)
+        } else {
+            Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: self.typ() })
+        }
+    }
+
     pub fn read_buffer_field(&self, dst: &mut [u8]) -> Result<(), AmlError> {
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match **buffer {
