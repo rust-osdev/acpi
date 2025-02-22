@@ -46,9 +46,13 @@ impl Object {
 
     pub fn read_buffer_field(&self, dst: &mut [u8]) -> Result<(), AmlError> {
         if let Self::BufferField { buffer, offset, length } = self {
-            let Object::Buffer(ref buffer) = **buffer else { panic!() };
-            // TODO: assert length of buffer is sufficient
-            copy_bits(buffer.as_slice(), *offset, dst, 0, *length);
+            let buffer = match **buffer {
+                Object::Buffer(ref buffer) => buffer.as_slice(),
+                Object::String(ref string) => string.as_bytes(),
+                _ => panic!(),
+            };
+            // TODO: bounds check the buffer first to avoid panicking
+            copy_bits(buffer, *offset, dst, 0, *length);
             Ok(())
         } else {
             Err(AmlError::InvalidOperationOnObject)
@@ -56,9 +60,16 @@ impl Object {
     }
 
     pub fn write_buffer_field(&mut self, value: &[u8]) -> Result<(), AmlError> {
+        // TODO: bounds check the buffer first to avoid panicking
         if let Self::BufferField { buffer, offset, length } = self {
-            let Object::Buffer(buffer) = buffer.gain_mut() else { panic!() };
-            copy_bits(value, 0, buffer.as_mut_slice(), *offset, *length);
+            let buffer = match buffer.gain_mut() {
+                Object::Buffer(buffer) => buffer.as_mut_slice(),
+                // XXX: this unfortunately requires us to trust AML to keep the string as valid
+                // UTF8... maybe there is a better way?
+                Object::String(string) => unsafe { string.as_bytes_mut() },
+                _ => panic!(),
+            };
+            copy_bits(value, 0, buffer, *offset, *length);
             Ok(())
         } else {
             Err(AmlError::InvalidOperationOnObject)
@@ -157,6 +168,7 @@ impl MethodFlags {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ReferenceKind {
+    RefOf,
     LocalOrArg,
     Unresolved,
 }

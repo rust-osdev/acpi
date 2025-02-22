@@ -384,6 +384,7 @@ where
                         context.contribute_arg(Argument::Object(Arc::new(Object::Integer(typ))));
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
+                    Opcode::Index => self.do_index(&mut context, op)?,
                     Opcode::BankField => {
                         let [
                             Argument::TrackedPc(start_pc),
@@ -826,7 +827,7 @@ where
                 Opcode::ConcatRes => todo!(),
                 Opcode::Notify => todo!(),
                 Opcode::SizeOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
-                Opcode::Index => todo!(),
+                Opcode::Index => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
                 Opcode::Match => todo!(),
 
                 Opcode::CreateBitField
@@ -1102,6 +1103,55 @@ where
         };
 
         context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
+        Ok(())
+    }
+
+    fn do_index(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(object), Argument::Object(index_value), target] = &op.arguments[..] else {
+            panic!()
+        };
+        let Object::Integer(index_value) = **index_value else {
+            Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: index_value.typ() })?
+        };
+
+        let result = Arc::new(match **object {
+            Object::Buffer(ref buffer) => {
+                if index_value as usize >= buffer.len() {
+                    Err(AmlError::IndexOutOfBounds)?
+                }
+
+                Object::Reference {
+                    kind: ReferenceKind::RefOf,
+                    inner: Arc::new(Object::BufferField {
+                        buffer: object.clone(),
+                        offset: index_value as usize * 8,
+                        length: 8,
+                    }),
+                }
+            }
+            Object::String(ref string) => {
+                if index_value as usize >= string.len() {
+                    Err(AmlError::IndexOutOfBounds)?
+                }
+
+                Object::Reference {
+                    kind: ReferenceKind::RefOf,
+                    inner: Arc::new(Object::BufferField {
+                        buffer: object.clone(),
+                        offset: index_value as usize * 8,
+                        length: 8,
+                    }),
+                }
+            }
+            Object::Package(ref package) => {
+                let Some(element) = package.get(index_value as usize) else { Err(AmlError::IndexOutOfBounds)? };
+                Object::Reference { kind: ReferenceKind::RefOf, inner: element.clone() }
+            }
+            _ => Err(AmlError::IndexOutOfBounds)?,
+        });
+
+        self.do_store(context, target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
         Ok(())
     }
     fn do_store(
@@ -1703,6 +1753,8 @@ pub enum AmlError {
     MethodArgCountIncorrect,
 
     InvalidOperationOnObject,
+    IndexOutOfBounds,
+    ObjectNotOfExpectedType { expected: ObjectType, got: ObjectType },
 
     InvalidResourceDescriptor,
     UnexpectedResourceType,
