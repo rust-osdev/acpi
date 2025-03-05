@@ -312,6 +312,24 @@ where
                         let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
                         self.do_store(&mut context, &target, object.clone())?;
                     }
+                    Opcode::RefOf => {
+                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        let reference =
+                            Arc::new(Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() });
+                        context.contribute_arg(Argument::Object(reference));
+                    }
+                    Opcode::CondRefOf => {
+                        let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
+                        let result = if let Object::Reference { kind: ReferenceKind::Unresolved, .. } = **object {
+                            Object::Integer(0)
+                        } else {
+                            let reference =
+                                Arc::new(Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() });
+                            self.do_store(&mut context, target, reference)?;
+                            Object::Integer(u64::MAX)
+                        };
+                        context.contribute_arg(Argument::Object(Arc::new(result)));
+                    }
                     Opcode::Sleep => {
                         let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
                         self.handler.sleep(msec.as_integer()?);
@@ -642,7 +660,6 @@ where
                     let name = name.resolve(&context.current_scope)?;
                     self.namespace.lock().insert(name, Arc::new(Object::Event))?;
                 }
-                Opcode::CondRefOf => todo!(),
                 Opcode::LoadTable => todo!(),
                 Opcode::Load => todo!(),
                 Opcode::Stall => context.start_in_flight_op(OpInFlight::new(Opcode::Stall, 1)),
@@ -798,7 +815,8 @@ where
                     })));
                 }
                 Opcode::Store => context.start_in_flight_op(OpInFlight::new(Opcode::Store, 2)),
-                Opcode::RefOf => todo!(),
+                Opcode::RefOf => context.start_in_flight_op(OpInFlight::new(Opcode::RefOf, 1)),
+                Opcode::CondRefOf => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
 
                 Opcode::DualNamePrefix
                 | Opcode::MultiNamePrefix
@@ -822,7 +840,9 @@ where
                             }
                         }
                         Err(AmlError::ObjectDoesNotExist(_)) => {
-                            if context.current_block.kind == BlockKind::Package {
+                            let allow_unresolved = context.current_block.kind == BlockKind::Package
+                                || context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false);
+                            if allow_unresolved {
                                 let reference = Object::Reference {
                                     kind: ReferenceKind::Unresolved,
                                     inner: Arc::new(Object::String(name.to_string())),
