@@ -412,6 +412,19 @@ where
                         let kind = FieldUnitKind::Bank { region, bank, bank_value };
                         self.parse_field_list(&mut context, kind, *start_pc, *pkg_length, field_flags)?;
                     }
+                    Opcode::While => {
+                        /*
+                         * We've just evaluated the predicate for an iteration of a while loop. If
+                         * false, skip over the rest of the loop, otherwise carry on.
+                         */
+                        let [Argument::Object(predicate)] = &op.arguments[..] else { panic!() };
+                        let predicate = predicate.as_integer()?;
+
+                        if predicate == 0 {
+                            // Exit from the while loop by skipping out of the current block
+                            context.current_block = context.block_stack.pop().unwrap();
+                        }
+                    }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -491,6 +504,15 @@ where
                                 context.current_block.pc += else_length - (context.current_block.pc - start_pc);
                             }
 
+                            continue;
+                        }
+                        BlockKind::While { start_pc } => {
+                            /*
+                             * Go round again, and create a new in-flight op to have a look at the
+                             * predicate.
+                             */
+                            context.current_block.pc = start_pc;
+                            context.start_in_flight_op(OpInFlight::new(Opcode::While, 1));
                             continue;
                         }
                     }
@@ -868,7 +890,6 @@ where
                 Opcode::ObjectType => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::CopyObject => todo!(),
                 Opcode::Mid => context.start_in_flight_op(OpInFlight::new(Opcode::Mid, 4)),
-                Opcode::Continue => todo!(),
                 Opcode::If => {
                     let start_pc = context.current_block.pc;
                     let then_length = context.pkglength()?;
@@ -879,10 +900,43 @@ where
                     ));
                 }
                 Opcode::Else => return Err(AmlError::ElseFoundWithoutCorrespondingIf),
-                Opcode::While => todo!(),
-                Opcode::Noop => {}
+                Opcode::While => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let remaining_length = pkg_length - (context.current_block.pc - start_pc);
+                    context.start_new_block(
+                        BlockKind::While { start_pc: context.current_block.pc },
+                        remaining_length,
+                    );
+                    context.start_in_flight_op(OpInFlight::new(Opcode::While, 1));
+                }
+                Opcode::Continue => {
+                    let BlockKind::While { start_pc } = &context.current_block.kind else {
+                        Err(AmlError::ContinueOutsideOfWhile)?
+                    };
+                    context.current_block.pc = *start_pc;
+                    context.start_in_flight_op(OpInFlight::new(Opcode::While, 1));
+                }
+                Opcode::Break => {
+                    /*
+                     * Break out of the innermost `DefWhile`.
+                     */
+                    if let BlockKind::While { .. } = &context.current_block.kind {
+                        context.current_block = context.block_stack.pop().unwrap();
+                    } else {
+                        loop {
+                            let Some(block) = context.block_stack.pop() else {
+                                Err(AmlError::BreakOutsideOfWhile)?
+                            };
+                            if let BlockKind::While { .. } = block.kind {
+                                break;
+                            }
+                        }
+                        context.current_block = context.block_stack.pop().unwrap();
+                    }
+                }
                 Opcode::Return => context.start_in_flight_op(OpInFlight::new(Opcode::Return, 1)),
-                Opcode::Break => todo!(),
+                Opcode::Noop => {}
                 Opcode::Breakpoint => {
                     self.handler.breakpoint();
                 }
@@ -1276,6 +1330,9 @@ pub enum BlockKind {
     /// Used for executing the then-branch of an `DefIfElse`. After finishing, it will check for
     /// and skip over an else-branch, if present.
     IfThenBranch,
+    While {
+        start_pc: usize,
+    },
 }
 
 impl OpInFlight {
@@ -1760,6 +1817,8 @@ pub enum AmlError {
 
     NoCurrentOp,
     ElseFoundWithoutCorrespondingIf,
+    ContinueOutsideOfWhile,
+    BreakOutsideOfWhile,
 
     MethodArgCountIncorrect,
 
