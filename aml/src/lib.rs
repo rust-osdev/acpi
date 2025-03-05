@@ -932,16 +932,22 @@ where
                     context.start_in_flight_op(OpInFlight::new(Opcode::While, 1));
                 }
                 Opcode::Continue => {
-                    let BlockKind::While { start_pc } = &context.current_block.kind else {
-                        Err(AmlError::ContinueOutsideOfWhile)?
-                    };
-                    context.current_block.pc = *start_pc;
+                    if let BlockKind::While { start_pc } = &context.current_block.kind {
+                        context.current_block.pc = *start_pc;
+                    } else {
+                        loop {
+                            let Some(block) = context.block_stack.pop() else {
+                                Err(AmlError::ContinueOutsideOfWhile)?
+                            };
+                            if let BlockKind::While { start_pc } = block.kind {
+                                context.current_block.pc = start_pc;
+                                break;
+                            }
+                        }
+                    }
                     context.start_in_flight_op(OpInFlight::new(Opcode::While, 1));
                 }
                 Opcode::Break => {
-                    /*
-                     * Break out of the innermost `DefWhile`.
-                     */
                     if let BlockKind::While { .. } = &context.current_block.kind {
                         context.current_block = context.block_stack.pop().unwrap();
                     } else {
@@ -950,10 +956,10 @@ where
                                 Err(AmlError::BreakOutsideOfWhile)?
                             };
                             if let BlockKind::While { .. } = block.kind {
+                                context.current_block = context.block_stack.pop().unwrap();
                                 break;
                             }
                         }
-                        context.current_block = context.block_stack.pop().unwrap();
                     }
                 }
                 Opcode::Return => context.start_in_flight_op(OpInFlight::new(Opcode::Return, 1)),
