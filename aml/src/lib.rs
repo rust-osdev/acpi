@@ -152,6 +152,7 @@ where
                     | Opcode::LLess => {
                         self.do_logical_op(&mut context, op)?;
                     }
+                    Opcode::Mid => self.do_mid(&mut context, op)?,
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
                     Opcode::Name => {
@@ -1143,6 +1144,43 @@ where
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
 
         context.contribute_arg(Argument::Object(Arc::new(result)));
+        Ok(())
+    }
+
+    fn do_mid(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(source), Argument::Object(index), Argument::Object(length), target] =
+            &op.arguments[..]
+        else {
+            panic!()
+        };
+        let index = index.as_integer()? as usize;
+        let length = length.as_integer()? as usize;
+
+        let result = Arc::new(match **source {
+            Object::String(ref string) => {
+                if index >= string.len() {
+                    Object::String(String::new())
+                } else {
+                    let upper = usize::min(index + length, index + string.len());
+                    let chars = &string[index..upper];
+                    Object::String(String::from(chars))
+                }
+            }
+            Object::Buffer(ref buffer) => {
+                if index >= buffer.len() {
+                    Object::Buffer(vec![])
+                } else {
+                    let upper = usize::min(index + length, index + buffer.len());
+                    let bytes = &buffer[index..upper];
+                    Object::Buffer(bytes.to_vec())
+                }
+            }
+            _ => Err(AmlError::InvalidOperationOnObject)?,
+        });
+
+        self.do_store(context, target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
+
         Ok(())
     }
 
