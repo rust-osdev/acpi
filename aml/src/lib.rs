@@ -1130,11 +1130,47 @@ where
             Err(AmlError::InvalidOperationOnObject)?
         };
 
-        // TODO: for some of the ops, strings and buffers are also allowed :(
-        // TODO: apparently when doing this conversion (^), NT's interpreter just takes the first 4
-        // bytes of the string/buffer and casts them to an integer lmao
-        let left = left.clone().unwrap_transparent_reference().as_integer()?;
-        let right = right.clone().unwrap_transparent_reference().as_integer()?;
+        /*
+         * Some of these operations allow strings and buffers to be used as operands. Apparently
+         * NT's interpreter just takes the first 4 bytes of the string/buffer and casts them as an
+         * integer...
+         */
+        let left = left.clone().unwrap_transparent_reference();
+        let right = right.clone().unwrap_transparent_reference();
+        let (left, right) = match *left {
+            Object::Integer(left) => (left, right.as_integer()?),
+            Object::String(ref left) => {
+                let left = {
+                    let mut bytes = [0u8; 4];
+                    let left_bytes = left.as_bytes();
+                    (bytes[0..left_bytes.len()]).copy_from_slice(left_bytes);
+                    u32::from_le_bytes(bytes) as u64
+                };
+                let right = {
+                    let mut bytes = [0u8; 4];
+                    let right = right.as_string()?;
+                    let right_bytes = right.as_bytes();
+                    (bytes[0..right_bytes.len()]).copy_from_slice(right_bytes);
+                    u32::from_le_bytes(bytes) as u64
+                };
+                (left, right)
+            }
+            Object::Buffer(ref left) => {
+                let Object::Buffer(ref right) = *right else { panic!() };
+                let left = {
+                    let mut bytes = [0u8; 4];
+                    (bytes[0..left.len()]).copy_from_slice(left);
+                    u32::from_le_bytes(bytes) as u64
+                };
+                let right = {
+                    let mut bytes = [0u8; 4];
+                    (bytes[0..right.len()]).copy_from_slice(right);
+                    u32::from_le_bytes(bytes) as u64
+                };
+                (left, right)
+            }
+            _ => panic!(),
+        };
 
         let result = match op.op {
             Opcode::LAnd => (left > 0) && (right > 0),
