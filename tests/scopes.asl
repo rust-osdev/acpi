@@ -10,5 +10,10 @@ DefinitionBlock("scopes.aml", "DSDT", 1, "RSACPI", "SCOPES", 1) {
                 Name(Z, 413)
             }
         }
+
+        Device(FOO) {
+            Name (_HID, EisaId ("PNP0A03"))
+            Alias (\_SB.PCI0.Y, MY_Y)
+        }
     }
 }

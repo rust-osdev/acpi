@@ -504,7 +504,15 @@ where
                 Opcode::One => {
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(1))));
                 }
-                Opcode::Alias => todo!(),
+                Opcode::Alias => {
+                    let source = context.namestring()?;
+                    let alias = context.namestring()?;
+
+                    let mut namespace = self.namespace.lock();
+                    let object = namespace.get(source.resolve(&context.current_scope)?)?.clone();
+                    let alias = alias.resolve(&context.current_scope)?;
+                    namespace.create_alias(alias, object)?;
+                }
                 Opcode::Name => {
                     let name = context.namestring()?;
                     context.start_in_flight_op(OpInFlight::new_with(

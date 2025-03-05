@@ -6,6 +6,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use bit_field::BitField;
 use core::{fmt, str, str::FromStr};
 
 pub struct Namespace {
@@ -63,7 +64,18 @@ impl Namespace {
         let path = path.normalize()?;
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
-        match level.values.insert(last_seg, object) {
+        match level.values.insert(last_seg, (ObjectFlags::new(false), object)) {
+            None => Ok(()),
+            Some(_) => Err(AmlError::NameCollision(path)),
+        }
+    }
+
+    pub fn create_alias(&mut self, path: AmlName, object: Arc<Object>) -> Result<(), AmlError> {
+        assert!(path.is_absolute());
+        let path = path.normalize()?;
+
+        let (level, last_seg) = self.get_level_for_path_mut(&path)?;
+        match level.values.insert(last_seg, (ObjectFlags::new(true), object)) {
             None => Ok(()),
             Some(_) => Err(AmlError::NameCollision(path)),
         }
@@ -75,7 +87,7 @@ impl Namespace {
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
         match level.values.get(&last_seg) {
-            Some(object) => Ok(object.clone()),
+            Some((_, object)) => Ok(object.clone()),
             None => Err(AmlError::ObjectDoesNotExist(path.clone())),
         }
     }
@@ -97,7 +109,7 @@ impl Namespace {
                 let name = path.resolve(&scope)?;
                 match self.get_level_for_path(&name) {
                     Ok((level, last_seg)) => {
-                        if let Some(object) = level.values.get(&last_seg) {
+                        if let Some((_, object)) = level.values.get(&last_seg) {
                             return Ok((name, object.clone()));
                         }
                     }
@@ -117,7 +129,7 @@ impl Namespace {
             let name = path.resolve(starting_scope)?;
             let (level, last_seg) = self.get_level_for_path(&path.resolve(starting_scope)?)?;
 
-            if let Some(object) = level.values.get(&last_seg) {
+            if let Some((_, object)) = level.values.get(&last_seg) {
                 Ok((name, object.clone()))
             } else {
                 Err(AmlError::ObjectDoesNotExist(path.clone()))
@@ -207,6 +219,35 @@ impl Namespace {
 
         Ok((current_level, *last_seg))
     }
+
+    /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError>` -
+    /// errors terminate the traversal and are propagated, and the `bool` on the successful path marks whether the
+    /// children of the level should also be traversed.
+    pub fn traverse<F>(&mut self, mut f: F) -> Result<(), AmlError>
+    where
+        F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+    {
+        fn traverse_level<F>(level: &NamespaceLevel, scope: &AmlName, f: &mut F) -> Result<(), AmlError>
+        where
+            F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+        {
+            for (name, child) in level.children.iter() {
+                let name = AmlName::from_name_seg(*name).resolve(scope)?;
+
+                if f(&name, child)? {
+                    traverse_level(child, &name, f)?;
+                }
+            }
+
+            Ok(())
+        }
+
+        if f(&AmlName::root(), &self.root)? {
+            traverse_level(&self.root, &AmlName::root(), &mut f)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl fmt::Display for Namespace {
@@ -221,10 +262,18 @@ impl fmt::Display for Namespace {
             level: &NamespaceLevel,
             indent_stack: String,
         ) -> fmt::Result {
-            for (i, (name, object)) in level.values.iter().enumerate() {
+            for (i, (name, (flags, object))) in level.values.iter().enumerate() {
                 let end = (i == level.values.len() - 1)
                     && level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).count() == 0;
-                writeln!(f, "{}{}{}: {:?}", &indent_stack, if end { END } else { BRANCH }, name.as_str(), object)?;
+                writeln!(
+                    f,
+                    "{}{}{}: {}{:?}",
+                    &indent_stack,
+                    if end { END } else { BRANCH },
+                    name.as_str(),
+                    if flags.is_alias() { "[A] " } else { "" },
+                    object
+                )?;
 
                 // If the object has a corresponding scope, print it here
                 if let Some(child_level) = level.children.get(&name) {
@@ -265,8 +314,23 @@ pub enum NamespaceLevelKind {
 
 pub struct NamespaceLevel {
     pub kind: NamespaceLevelKind,
-    pub values: BTreeMap<NameSeg, Arc<Object>>,
+    pub values: BTreeMap<NameSeg, (ObjectFlags, Arc<Object>)>,
     pub children: BTreeMap<NameSeg, NamespaceLevel>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ObjectFlags(u8);
+
+impl ObjectFlags {
+    pub fn new(is_alias: bool) -> ObjectFlags {
+        let mut flags = 0;
+        flags.set_bit(0, is_alias);
+        ObjectFlags(flags)
+    }
+
+    pub fn is_alias(&self) -> bool {
+        self.0.get_bit(0)
+    }
 }
 
 impl NamespaceLevel {
