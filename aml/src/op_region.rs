@@ -1,3 +1,5 @@
+use crate::AmlError;
+
 #[derive(Debug)]
 pub struct OpRegion {
     pub space: RegionSpace,
@@ -6,7 +8,12 @@ pub struct OpRegion {
     // parent_device
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+pub trait RegionHandler {
+    fn read(&self, region: &OpRegion) -> Result<(), AmlError>;
+    fn write(&self, region: &OpRegion) -> Result<(), AmlError>;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum RegionSpace {
     SystemMemory,
     SystemIO,

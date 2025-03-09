@@ -9,7 +9,7 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::Interpreter;
+use aml::{namespace::AmlName, AmlError, Interpreter};
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
     collections::HashSet,
@@ -18,6 +18,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
+    str::FromStr,
 };
 
 enum CompilationOutcome {
@@ -53,40 +54,6 @@ fn main() -> std::io::Result<()> {
 
     let matches = cmd.get_matches();
 
-    // Get an initial list of files - may not work correctly on non-UTF8 OsString
-    let files: Vec<String> = if matches.contains_id("path") {
-        let dir_path = Path::new(matches.get_one::<String>("path").unwrap());
-
-        if std::fs::metadata(&dir_path).unwrap().is_dir() {
-            println!("Running tests in directory: {:?}", dir_path);
-            fs::read_dir(dir_path)?
-                .filter_map(|entry| {
-                    if entry.is_ok() {
-                        Some(entry.unwrap().path().to_string_lossy().to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            println!("Running single test: {:?}", dir_path);
-            vec![dir_path.to_string_lossy().to_string()]
-        }
-    } else {
-        matches.get_many::<String>("files").unwrap_or_default().map(|name| name.to_string()).collect()
-    };
-
-    // Make sure all files exist, propagate error if it occurs
-    files.iter().fold(Ok(()), |result: std::io::Result<()>, file| {
-        let path = Path::new(file);
-        if !path.is_file() {
-            println!("Not a regular file: {}", file);
-            // Get the io error if there is one
-            path.metadata()?;
-        }
-        result
-    })?;
-
     // Make sure we have the ability to compile ASL -> AML, if user wants it
     let user_wants_compile = !matches.get_flag("no_compile");
     let can_compile = user_wants_compile &&
@@ -99,8 +66,9 @@ fn main() -> std::io::Result<()> {
             Err(_) => false,
     };
 
+    let tests = find_tests(&matches)?;
     let compiled_files: Vec<CompilationOutcome> =
-        files.iter().map(|name| resolve_and_compile(name, can_compile).unwrap()).collect();
+        tests.iter().map(|name| resolve_and_compile(name, can_compile).unwrap()).collect();
 
     // Check if compilation should have happened but did not
     if user_wants_compile
@@ -176,7 +144,7 @@ fn main() -> std::io::Result<()> {
 
     let combined_test = matches.get_flag("combined");
 
-    let mut interpreter = Interpreter::new(Handler);
+    let mut interpreter = Interpreter::new(Handler, 2);
 
     let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry);
@@ -189,13 +157,14 @@ fn main() -> std::io::Result<()> {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents).unwrap();
 
-        const AML_TABLE_HEADER_LENGTH: usize = 36;
-
         if !combined_test {
-            interpreter = Interpreter::new(Handler);
+            interpreter = Interpreter::new(Handler, 2);
         }
 
-        match interpreter.load_table(&contents[AML_TABLE_HEADER_LENGTH..]) {
+        const AML_TABLE_HEADER_LENGTH: usize = 36;
+        let stream = &contents[AML_TABLE_HEADER_LENGTH..];
+
+        match run_test(stream, &mut interpreter) {
             Ok(()) => {
                 println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
                 println!("Namespace: {}", interpreter.namespace.lock());
@@ -243,16 +212,60 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
+fn run_test(stream: &[u8], interpreter: &mut Interpreter<Handler>) -> Result<(), AmlError> {
+    interpreter.load_table(stream)?;
+
+    match interpreter.invoke_method(AmlName::from_str("\\MAIN").unwrap(), vec![]) {
+        Ok(_) => Ok(()),
+        Err(AmlError::ObjectDoesNotExist(name)) => {
+            if name == AmlName::from_str("\\MAIN").unwrap() {
+                Ok(())
+            } else {
+                Err(AmlError::ObjectDoesNotExist(name))
+            }
+        }
+        Err(other) => Err(other),
+    }
+}
+
+fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
+    // Get an initial list of files - may not work correctly on non-UTF8 OsString
+    let files: Vec<PathBuf> = if matches.contains_id("path") {
+        let dir_path = Path::new(matches.get_one::<String>("path").unwrap());
+
+        if std::fs::metadata(&dir_path).unwrap().is_dir() {
+            println!("Running tests in directory: {:?}", dir_path);
+            fs::read_dir(dir_path)?
+                .filter_map(|entry| if entry.is_ok() { Some(entry.unwrap().path().to_path_buf()) } else { None })
+                .collect()
+        } else {
+            println!("Running single test: {:?}", dir_path);
+            vec![dir_path.to_path_buf()]
+        }
+    } else {
+        matches.get_many::<PathBuf>("files").unwrap_or_default().cloned().collect()
+    };
+
+    // Make sure all files exist, propagate error if it occurs
+    files.iter().fold(Ok(()), |result: std::io::Result<()>, path| {
+        if !path.is_file() {
+            println!("Not a regular file: {}", path.display());
+            path.metadata()?;
+        }
+        result
+    })?;
+
+    Ok(files)
+}
+
 /// Determine what to do with this file - ignore, compile and parse, or just parse.
 /// If ".aml" does not exist, or if ".asl" is newer, compiles the file.
 /// If the ".aml" file is newer, indicate it is ready to parse.
-fn resolve_and_compile(name: &str, can_compile: bool) -> std::io::Result<CompilationOutcome> {
-    let path = PathBuf::from(name);
-
+fn resolve_and_compile(path: &PathBuf, can_compile: bool) -> std::io::Result<CompilationOutcome> {
     // If this file is aml and it exists, it's ready for parsing
     // metadata() will error if the file does not exist
     if path.extension() == Some(OsStr::new("aml")) && path.metadata()?.is_file() {
-        return Ok(CompilationOutcome::IsAml(path));
+        return Ok(CompilationOutcome::IsAml(path.clone()));
     }
 
     // If this file is not asl, it's not interesting. Error if the file does not exist.
@@ -273,20 +286,20 @@ fn resolve_and_compile(name: &str, can_compile: bool) -> std::io::Result<Compila
     }
 
     if !can_compile {
-        return Ok(CompilationOutcome::NotCompiled(path));
+        return Ok(CompilationOutcome::NotCompiled(path.clone()));
     }
 
     // Compile the ASL file using `iasl`
-    println!("Compiling file: {}", name);
-    let output = Command::new("iasl").arg(name).output()?;
+    println!("Compiling file: {}", path.display());
+    let output = Command::new("iasl").arg(path).output()?;
 
     if !output.status.success() {
         println!(
             "Failed to compile ASL file: {}. Output from iasl:\n {}",
-            name,
+            path.display(),
             String::from_utf8_lossy(&output.stderr)
         );
-        Ok(CompilationOutcome::Failed(path))
+        Ok(CompilationOutcome::Failed(path.clone()))
     } else {
         Ok(CompilationOutcome::Succeeded(aml_path))
     }

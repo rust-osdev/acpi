@@ -158,6 +158,64 @@ pub enum FieldUnitKind {
 pub struct FieldFlags(pub u8);
 
 #[derive(Clone, Copy, Debug)]
+pub enum FieldAccessType {
+    Any,
+    Byte,
+    Word,
+    DWord,
+    QWord,
+    Buffer,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum FieldUpdateRule {
+    Preserve,
+    WriteAsOnes,
+    WriteAsZeros,
+}
+
+impl FieldFlags {
+    pub fn access_type(&self) -> Result<FieldAccessType, AmlError> {
+        match self.0.get_bits(0..4) {
+            0 => Ok(FieldAccessType::Any),
+            1 => Ok(FieldAccessType::Byte),
+            2 => Ok(FieldAccessType::Word),
+            3 => Ok(FieldAccessType::DWord),
+            4 => Ok(FieldAccessType::QWord),
+            5 => Ok(FieldAccessType::Buffer),
+            _ => Err(AmlError::InvalidFieldFlags),
+        }
+    }
+
+    pub fn access_type_bytes(&self) -> Result<usize, AmlError> {
+        match self.access_type()? {
+            FieldAccessType::Any => {
+                // TODO: given more info about the field, we might be able to make a more efficient
+                // read, since all are valid in this case
+                Ok(1)
+            }
+            FieldAccessType::Byte | FieldAccessType::Buffer => Ok(1),
+            FieldAccessType::Word => Ok(2),
+            FieldAccessType::DWord => Ok(4),
+            FieldAccessType::QWord => Ok(8),
+        }
+    }
+
+    pub fn lock_rule(&self) -> bool {
+        self.0.get_bit(4)
+    }
+
+    pub fn update_rule(&self) -> FieldUpdateRule {
+        match self.0.get_bits(5..7) {
+            0 => FieldUpdateRule::Preserve,
+            1 => FieldUpdateRule::WriteAsOnes,
+            2 => FieldUpdateRule::WriteAsZeros,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub struct MethodFlags(pub u8);
 
 impl MethodFlags {
@@ -206,7 +264,13 @@ pub enum ObjectType {
 /// Copy an arbitrary bit range of `src` to an arbitrary bit range of `dst`. This is used for
 /// buffer fields. Data is zero-extended if `src` does not cover `length` bits, matching the
 /// expected behaviour for buffer fields.
-fn copy_bits(src: &[u8], mut src_index: usize, dst: &mut [u8], mut dst_index: usize, mut length: usize) {
+pub(crate) fn copy_bits(
+    src: &[u8],
+    mut src_index: usize,
+    dst: &mut [u8],
+    mut dst_index: usize,
+    mut length: usize,
+) {
     while length > 0 {
         let src_shift = src_index & 7;
         let mut src_bits = src.get(src_index / 8).unwrap_or(&0x00) >> src_shift;
@@ -236,6 +300,26 @@ fn copy_bits(src: &[u8], mut src_index: usize, dst: &mut [u8], mut dst_index: us
             src_index += 8;
             dst_index += 8;
         }
+    }
+}
+
+#[inline]
+pub(crate) fn align_down(value: usize, align: usize) -> usize {
+    assert!(align == 0 || align.is_power_of_two());
+
+    if align == 0 {
+        value
+    } else {
+        /*
+         * Alignment must be a power of two.
+         *
+         * E.g.
+         * align       =   0b00001000
+         * align-1     =   0b00000111
+         * !(align-1)  =   0b11111000
+         * ^^^ Masks the value to the one below it with the correct align
+         */
+        value & !(align - 1)
     }
 }
 

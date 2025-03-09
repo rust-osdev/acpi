@@ -1,4 +1,14 @@
 DefinitionBlock("fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
+    OperationRegion(MEM, SystemMemory, 0x40000, 0x1000)
+    Field(MEM, WordAcc, NoLock, Preserve) {
+        , 7,
+        A, 15,
+        , 8,
+        B, 1,
+        , 1,
+        C, 35
+    }
+
     OperationRegion(GIO0, SystemIO, 0x125, 0x100)
 
     Field(GIO0, ByteAcc, NoLock, Preserve) {
@@ -30,5 +40,14 @@ DefinitionBlock("fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
         Offset(0x2f),
         , 7,
         FET4, 1
+    }
+
+    Name(RESA, 0)
+    Name(RESB, 0)
+    Name(RESC, 0)
+    Method(MAIN, 0, NotSerialized) {
+        RESA = A
+        RESB = B
+        RESC = C
     }
 }

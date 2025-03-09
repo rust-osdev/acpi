@@ -10,6 +10,8 @@ pub mod pci_routing;
 pub mod resource;
 
 use alloc::{
+    boxed::Box,
+    collections::btree_map::BTreeMap,
     string::{String, ToString},
     sync::Arc,
     vec,
@@ -17,9 +19,10 @@ use alloc::{
 };
 use bit_field::BitField;
 use core::mem;
+use log::{info, trace};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{FieldFlags, FieldUnit, FieldUnitKind, MethodFlags, Object, ObjectType, ReferenceKind};
-use op_region::{OpRegion, RegionSpace};
+use op_region::{OpRegion, RegionHandler, RegionSpace};
 use spinning_top::Spinlock;
 
 pub struct Interpreter<H>
@@ -29,6 +32,8 @@ where
     handler: H,
     pub namespace: Spinlock<Namespace>,
     context_stack: Spinlock<Vec<MethodContext>>,
+    dsdt_revision: u8,
+    region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
 }
 
 unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
@@ -41,11 +46,15 @@ impl<H> Interpreter<H>
 where
     H: Handler,
 {
-    pub fn new(handler: H) -> Interpreter<H> {
+    pub fn new(handler: H, dsdt_revision: u8) -> Interpreter<H> {
+        info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
         Interpreter {
             handler,
             namespace: Spinlock::new(Namespace::new()),
             context_stack: Spinlock::new(Vec::new()),
+            dsdt_revision,
+            ops_interpreted: AtomicUsize::new(0),
+            region_handlers: Spinlock::new(BTreeMap::new()),
         }
     }
 
@@ -71,6 +80,15 @@ where
             }
             _ => Ok(object),
         }
+    }
+
+    pub fn install_region_handler<RH>(&self, space: RegionSpace, handler: RH)
+    where
+        RH: RegionHandler + 'static,
+    {
+        let mut handlers = self.region_handlers.lock();
+        assert!(handlers.get(&space).is_none(), "Tried to install handler for same space twice!");
+        handlers.insert(space, Box::new(handler));
     }
 
     fn do_execute_method(&self, mut context: MethodContext) -> Result<Arc<Object>, AmlError> {
@@ -1342,6 +1360,10 @@ where
                         let value = u64::from_le_bytes(buffer);
                         *target = value;
                     }
+                    Object::FieldUnit(field) => {
+                        // TODO: not sure if we should convert buffers to integers if needed here?
+                        *target = self.do_field_read(field)?.as_integer()?;
+                    }
                     _ => panic!("Store to integer from unsupported object: {:?}", object),
                 },
                 Object::BufferField { .. } => match object.gain_mut() {
@@ -1365,6 +1387,131 @@ where
             }
         }
         Ok(())
+    }
+
+    /// Do a read from a field by performing one or more well-formed accesses to the underlying
+    /// operation regions, and then shifting and masking the resulting value as appropriate. Will
+    /// return either an `Integer` or `Buffer` as appropriate, guided by the size of the field
+    /// and expected integer size (as per the DSDT revision).
+    fn do_field_read(&self, field: &FieldUnit) -> Result<Arc<Object>, AmlError> {
+        let needs_buffer = if self.dsdt_revision >= 2 { field.bit_length > 64 } else { field.bit_length > 32 };
+        let access_width_bits = field.flags.access_type_bytes()? * 8;
+
+        trace!("AML field read. Field = {:?}", field);
+
+        // TODO: if the field needs to be locked, acquire/release a global mutex?
+
+        enum Output {
+            Integer([u8; 8]),
+            Buffer(Vec<u8>),
+        }
+        let mut output = if needs_buffer {
+            Output::Buffer(vec![0; field.bit_length.next_multiple_of(8)])
+        } else {
+            Output::Integer([0; 8])
+        };
+        let output_bytes = match &mut output {
+            Output::Buffer(bytes) => bytes.as_mut_slice(),
+            Output::Integer(value) => value,
+        };
+
+        match field.kind {
+            FieldUnitKind::Normal { ref region } => {
+                let Object::OpRegion(ref region) = **region else { panic!() };
+
+                /*
+                 * TODO: it might be worth having a fast path here for reads that don't do weird
+                 * unaligned accesses, which I'm guessing might be relatively common on real
+                 * hardware? Eg. single native read + mask
+                 */
+
+                /*
+                 * Break the field read into native reads that respect the region's access width.
+                 * Copy each potentially-unaligned part into the destination's bit range.
+                 */
+                let native_accesses_needed = (field.bit_length + (field.bit_index % access_width_bits))
+                    .next_multiple_of(access_width_bits)
+                    / access_width_bits;
+                let mut read_so_far = 0;
+                for i in 0..native_accesses_needed {
+                    let aligned_offset =
+                        object::align_down(field.bit_index + i * access_width_bits, access_width_bits);
+                    let raw = self.do_native_region_read(region, aligned_offset / 8, access_width_bits / 8)?;
+                    let src_index = if i == 0 { field.bit_index % access_width_bits } else { 0 };
+                    let remaining_length = field.bit_length - read_so_far;
+                    let length = if i == 0 {
+                        usize::min(remaining_length, access_width_bits - (field.bit_index % access_width_bits))
+                    } else {
+                        usize::min(remaining_length, access_width_bits)
+                    };
+
+                    trace!(
+                        "Extracting bits {}..{} from native read to bits {}..{}",
+                        src_index,
+                        src_index + length,
+                        read_so_far,
+                        read_so_far + length,
+                    );
+                    object::copy_bits(&raw.to_le_bytes(), src_index, output_bytes, read_so_far, length);
+
+                    read_so_far += length;
+                }
+
+                match output {
+                    Output::Buffer(bytes) => Ok(Arc::new(Object::Buffer(bytes))),
+                    Output::Integer(value) => Ok(Arc::new(Object::Integer(u64::from_le_bytes(value)))),
+                }
+            }
+            FieldUnitKind::Bank { ref region, ref bank, bank_value } => todo!(),
+            FieldUnitKind::Index { ref index, ref data } => todo!(),
+        }
+    }
+
+    /// Performs an actual read from an operation region. `offset` and `length` must respect the
+    /// access requirements of the field being read, and are supplied in **bytes**. This may call
+    /// AML methods if required, and may invoke user-supplied handlers.
+    fn do_native_region_read(&self, region: &OpRegion, offset: usize, length: usize) -> Result<u64, AmlError> {
+        trace!("Native field read. Region = {:?}, offset = {:#x}, length={:#x}", region, offset, length);
+
+        match region.space {
+            RegionSpace::SystemMemory => Ok({
+                let address = region.base as usize + offset;
+                match length {
+                    1 => self.handler.read_u8(address) as u64,
+                    2 => self.handler.read_u16(address) as u64,
+                    4 => self.handler.read_u32(address) as u64,
+                    8 => self.handler.read_u64(address) as u64,
+                    _ => panic!(),
+                }
+            }),
+            RegionSpace::SystemIO => Ok({
+                let address = region.base as u16 + offset as u16;
+                match length {
+                    1 => self.handler.read_io_u8(address) as u64,
+                    2 => self.handler.read_io_u16(address) as u64,
+                    4 => self.handler.read_io_u32(address) as u64,
+                    _ => panic!(),
+                }
+            }),
+            RegionSpace::PciConfig => todo!(),
+
+            RegionSpace::EmbeddedControl
+            | RegionSpace::SmBus
+            | RegionSpace::SystemCmos
+            | RegionSpace::PciBarTarget
+            | RegionSpace::Ipmi
+            | RegionSpace::GeneralPurposeIo
+            | RegionSpace::GenericSerialBus
+            | RegionSpace::Pcc
+            | RegionSpace::Oem(_) => {
+                if let Some(handler) = self.region_handlers.lock().get(&region.space) {
+                    todo!("Utilise handler");
+                } else {
+                    // TODO: panic or normal error here??
+                    panic!("Unhandled region space that needs handler!");
+                }
+            }
+        }
     }
 }
 
@@ -1904,6 +2051,7 @@ enum Opcode {
 pub enum AmlError {
     RunOutOfStream,
     IllegalOpcode(u16),
+    InvalidFieldFlags,
 
     InvalidName(Option<AmlName>),
 
@@ -2025,7 +2173,7 @@ mod tests {
 
     #[test]
     fn add_op() {
-        let interpreter = Interpreter::new(TestHandler);
+        let interpreter = Interpreter::new(TestHandler, 2);
         // AddOp 0x0e 0x06 => Local2
         interpreter.load_table(&[0x72, 0x0b, 0x0e, 0x00, 0x0a, 0x06, 0x62]).unwrap();
         // AddOp 0x0e (AddOp 0x01 0x03 => Local1) => Local1
