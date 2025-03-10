@@ -560,7 +560,7 @@ impl Args {
         }
 
         let mut args: Vec<Option<AmlValue>> = list.into_iter().map(Option::Some).collect();
-        args.extend(core::iter::repeat(None).take(7 - args.len()));
+        args.extend(core::iter::repeat_n(None, 7 - args.len()));
         Ok(Args(args.try_into().unwrap()))
     }
 
