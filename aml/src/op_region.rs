@@ -1,11 +1,11 @@
-use crate::AmlError;
+use crate::{AmlError, namespace::AmlName};
 
 #[derive(Debug)]
 pub struct OpRegion {
     pub space: RegionSpace,
     pub base: u64,
     pub length: u64,
-    // parent_device
+    pub parent_device_path: AmlName,
 }
 
 pub trait RegionHandler {

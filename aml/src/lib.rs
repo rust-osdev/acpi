@@ -9,6 +9,8 @@ pub mod op_region;
 pub mod pci_routing;
 pub mod resource;
 
+pub use pci_types::PciAddress;
+
 use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
@@ -79,6 +81,24 @@ where
                 self.do_execute_method(context)
             }
             _ => Ok(object),
+        }
+    }
+
+    pub fn invoke_method_if_present(
+        &self,
+        path: AmlName,
+        args: Vec<Arc<Object>>,
+    ) -> Result<Option<Arc<Object>>, AmlError> {
+        match self.invoke_method(path.clone(), args) {
+            Ok(result) => Ok(Some(result)),
+            Err(AmlError::ObjectDoesNotExist(not_present)) => {
+                if path == not_present {
+                    Ok(None)
+                } else {
+                    Err(AmlError::ObjectDoesNotExist(not_present))
+                }
+            }
+            Err(other) => Err(other),
         }
     }
 
@@ -200,14 +220,13 @@ where
                         else {
                             panic!()
                         };
-                        let region_offset = region_offset.as_integer()?;
-                        let region_length = region_length.as_integer()?;
-                        let region_space = RegionSpace::from(*region_space);
 
                         let region = Object::OpRegion(OpRegion {
-                            space: region_space,
-                            base: region_offset,
-                            length: region_length,
+                            space: RegionSpace::from(*region_space),
+                            base: region_offset.as_integer()?,
+                            length: region_length.as_integer()?,
+                            parent_device_path: context.current_scope.clone(),
+                        });
                         });
                         self.namespace.lock().insert(name.resolve(&context.current_scope)?, Arc::new(region))?;
                     }
@@ -1493,7 +1512,45 @@ where
                     _ => panic!(),
                 }
             }),
-            RegionSpace::PciConfig => todo!(),
+            RegionSpace::PciConfig => {
+                /*
+                 * TODO: it's not ideal to do these reads for every native access. See if we can
+                 * cache them somewhere?
+                 */
+                let seg = match self.invoke_method_if_present(
+                    AmlName::from_str("_SEG").unwrap().resolve(&region.parent_device_path)?,
+                    vec![],
+                )? {
+                    Some(value) => value.as_integer()?,
+                    None => 0,
+                };
+                let bus = match self.invoke_method_if_present(
+                    AmlName::from_str("_BBR").unwrap().resolve(&region.parent_device_path)?,
+                    vec![],
+                )? {
+                    Some(value) => value.as_integer()?,
+                    None => 0,
+                };
+                let (device, function) = {
+                    let adr = self.invoke_method_if_present(
+                        AmlName::from_str("_ADR").unwrap().resolve(&region.parent_device_path)?,
+                        vec![],
+                    )?;
+                    let adr = match adr {
+                        Some(adr) => adr.as_integer()?,
+                        None => 0,
+                    };
+                    (adr.get_bits(16..32), adr.get_bits(0..16))
+                };
+
+                let address = PciAddress::new(seg as u16, bus as u8, device as u8, function as u8);
+                match length {
+                    1 => Ok(self.handler.read_pci_u8(address, offset as u16) as u64),
+                    2 => Ok(self.handler.read_pci_u16(address, offset as u16) as u64),
+                    4 => Ok(self.handler.read_pci_u32(address, offset as u16) as u64),
+                    _ => panic!(),
+                }
+            }
 
             RegionSpace::EmbeddedControl
             | RegionSpace::SmBus
@@ -2086,7 +2143,10 @@ pub enum AmlError {
 
 /// This trait represents the interface from the `Interpreter` to the hosting kernel, and allows
 /// AML to interact with the underlying hardware.
-// TODO: maybe use `pci_types::PciAddress` to simplify PCI address passing here
+///
+/// ### Implementation notes
+/// Reads and writes to PCI devices must succeed for devices that are not detected during
+/// enumeration of the PCI bus / do not exist.
 pub trait Handler: Send + Sync {
     fn read_u8(&self, address: usize) -> u8;
     fn read_u16(&self, address: usize) -> u16;
@@ -2106,13 +2166,13 @@ pub trait Handler: Send + Sync {
     fn write_io_u16(&self, port: u16, value: u16);
     fn write_io_u32(&self, port: u16, value: u32);
 
-    fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8;
-    fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16;
-    fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32;
+    fn read_pci_u8(&self, address: PciAddress, offset: u16) -> u8;
+    fn read_pci_u16(&self, address: PciAddress, offset: u16) -> u16;
+    fn read_pci_u32(&self, address: PciAddress, offset: u16) -> u32;
 
-    fn write_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u8);
-    fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16);
-    fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32);
+    fn write_pci_u8(&self, address: PciAddress, offset: u16, value: u8);
+    fn write_pci_u16(&self, address: PciAddress, offset: u16, value: u16);
+    fn write_pci_u32(&self, address: PciAddress, offset: u16, value: u32);
 
     /// Returns a monotonically-increasing value of nanoseconds.
     fn nanos_since_boot(&self) -> u64;
@@ -2160,12 +2220,12 @@ mod tests {
         fn write_io_u8(&self, _port: u16, _value: u8) {}
         fn write_io_u16(&self, _port: u16, _value: u16) {}
         fn write_io_u32(&self, _port: u16, _value: u32) {}
-        fn read_pci_u8(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16) -> u8 {0}
-        fn read_pci_u16(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16) -> u16 {0}
-        fn read_pci_u32(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16) -> u32 {0}
-        fn write_pci_u8(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u8) {}
-        fn write_pci_u16(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u16) {}
-        fn write_pci_u32(&self, _segment: u16, _bus: u8, _device: u8, _function: u8, _offset: u16, _value: u32) {}
+        fn read_pci_u8(&self, _address: PciAddress, _offset: u16) -> u8 {0}
+        fn read_pci_u16(&self, _address: PciAddress, _offset: u16) -> u16 {0}
+        fn read_pci_u32(&self, _address: PciAddress, _offset: u16) -> u32 {0}
+        fn write_pci_u8(&self, _address: PciAddress, _offset: u16, _value: u8) {}
+        fn write_pci_u16(&self, _address: PciAddress, _offset: u16, _value: u16) {}
+        fn write_pci_u32(&self, _address: PciAddress, _offset: u16, _value: u32) {}
         fn nanos_since_boot(&self) -> u64 {0}
         fn stall(&self, _microseconds: u64) {}
         fn sleep(&self, _milliseconds: u64) {}

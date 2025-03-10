@@ -9,7 +9,7 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::{namespace::AmlName, AmlError, Interpreter};
+use aml::{namespace::AmlName, AmlError, Interpreter, PciAddress};
 use clap::{Arg, ArgAction, ArgGroup};
 use std::{
     collections::HashSet,
@@ -377,27 +377,27 @@ impl aml::Handler for Handler {
         println!("write_io_u32 {port:#x}<-{value:#x}");
     }
 
-    fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16) -> u8 {
-        println!("read_pci_u8 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})");
+    fn read_pci_u8(&self, address: PciAddress, _offset: u16) -> u8 {
+        println!("read_pci_u8 ({address})");
         0
     }
-    fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16) -> u16 {
-        println!("read_pci_u16 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})");
+    fn read_pci_u16(&self, address: PciAddress, _offset: u16) -> u16 {
+        println!("read_pci_u16 ({address})");
         0
     }
-    fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16) -> u32 {
-        println!("read_pci_32 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})");
+    fn read_pci_u32(&self, address: PciAddress, _offset: u16) -> u32 {
+        println!("read_pci_u32 ({address})");
         0
     }
 
-    fn write_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16, value: u8) {
-        println!("write_pci_u8 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})<-{value:#x}");
+    fn write_pci_u8(&self, address: PciAddress, _offset: u16, value: u8) {
+        println!("write_pci_u8 ({address})<-{value}");
     }
-    fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16, value: u16) {
-        println!("write_pci_u16 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})<-{value:#x}");
+    fn write_pci_u16(&self, address: PciAddress, _offset: u16, value: u16) {
+        println!("write_pci_u16 ({address})<-{value}");
     }
-    fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, _offset: u16, value: u32) {
-        println!("write_pci_u32 ({segment:#x}, {bus:#x}, {device:#x}, {function:#x})<-{value:#x}");
+    fn write_pci_u32(&self, address: PciAddress, _offset: u16, value: u32) {
+        println!("write_pci_u32 ({address})<-{value}");
     }
 
     fn nanos_since_boot(&self) -> u64 {
