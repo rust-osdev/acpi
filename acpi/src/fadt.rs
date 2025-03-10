@@ -20,6 +20,20 @@ pub enum PowerProfile {
     Reserved(u8),
 }
 
+/// PM1x status and enable registers. These registers are part of PM1x event blocks and provide
+/// access to fixed hardware status/enable features like power button, power management timer etc.
+#[derive(Debug, Clone)]
+pub struct Pm1Registers {
+    /// PM1a fixed hardware status register
+    pub x_pm1a_status: GenericAddress,
+    /// PM1a fixed hardware enable register
+    pub x_pm1a_enable: GenericAddress,
+    /// PM1b fixed hardware status register
+    pub x_pm1b_status: Option<GenericAddress>,
+    /// PM1b fixed hardware enable register
+    pub x_pm1b_enable: Option<GenericAddress>,
+}
+
 /// Represents the Fixed ACPI Description Table (FADT). This table contains various fixed hardware
 /// details, such as the addresses of the hardware register blocks. It also contains a pointer to
 /// the Differentiated Definition Block (DSDT).
@@ -345,6 +359,73 @@ impl Fadt {
         } else {
             Ok(None)
         }
+    }
+
+    /// Returns the PM1x fixed hardware feature registers
+    pub fn pm1_registers(&self) -> Result<Pm1Registers, AcpiError> {
+        let pm1a_event_block = self.pm1a_event_block()?;
+        let pm1b_event_block = self.pm1b_event_block()?;
+        let pm1_byte_width = pm1a_event_block.bit_width / 16;
+
+        let x_pm1a_status = GenericAddress {
+            address_space: pm1a_event_block.address_space,
+            address: pm1a_event_block.address,
+            bit_width: pm1_byte_width * 8,
+            bit_offset: 0,
+            access_size: AccessSize::Undefined,
+        };
+        let x_pm1a_enable = GenericAddress {
+            address_space: pm1a_event_block.address_space,
+            address: pm1a_event_block.address + pm1_byte_width as u64,
+            bit_width: pm1_byte_width * 8,
+            bit_offset: 0,
+            access_size: AccessSize::Undefined,
+        };
+
+        let (x_pm1b_status, x_pm1b_enable) = if let Some(pm1b) = pm1b_event_block {
+            (
+                Some(GenericAddress {
+                    address_space: pm1b.address_space,
+                    address: pm1b.address,
+                    bit_width: pm1_byte_width * 8,
+                    bit_offset: 0,
+                    access_size: AccessSize::Undefined,
+                }),
+                Some({
+                    GenericAddress {
+                        address_space: pm1b.address_space,
+                        address: pm1b.address + pm1_byte_width as u64,
+                        bit_width: pm1_byte_width * 8,
+                        bit_offset: 0,
+                        access_size: AccessSize::Undefined,
+                    }
+                }),
+            )
+        } else {
+            (None, None)
+        };
+
+        Ok(Pm1Registers { x_pm1a_status, x_pm1a_enable, x_pm1b_status, x_pm1b_enable })
+    }
+
+    /// Returns the length of General-Purpose Event register block 0 in bytes.
+    ///
+    /// # Note
+    ///
+    /// The GPE blocks are optional, their presence first needs to be checked through gpe0_block().
+    #[inline]
+    pub const fn gpe0_block_length(&self) -> u8 {
+        self.gpe0_block_length
+    }
+
+    /// Returns the length of General-Purpose Event register block 1 in bytes.
+    ///
+    /// # Note
+    ///
+    /// The GPE blocks are optional, their presence first needs to be checked through gpe0_block().
+    #[inline]
+    pub const fn gpe1_block_length(&self) -> u8 {
+        self.gpe1_block_length
     }
 }
 
