@@ -1,5 +1,5 @@
 use crate::{AmlError, op_region::OpRegion};
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 
 #[derive(Debug)]
@@ -49,6 +49,50 @@ impl Object {
             Ok(*value)
         } else {
             Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: self.typ() })
+        }
+    }
+
+    pub fn as_string(&self) -> Result<Cow<str>, AmlError> {
+        if let Object::String(value) = self {
+            Ok(Cow::from(value))
+        } else {
+            Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::String, got: self.typ() })
+        }
+    }
+
+    pub fn as_buffer(&self) -> Result<&[u8], AmlError> {
+        if let Object::Buffer(bytes) = self {
+            Ok(bytes)
+        } else {
+            Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Buffer, got: self.typ() })
+        }
+    }
+
+    pub fn to_integer(&self, allowed_bytes: usize) -> Result<u64, AmlError> {
+        match self {
+            Object::Integer(value) => Ok(*value),
+            Object::Buffer(value) => {
+                let length = usize::min(value.len(), allowed_bytes);
+                let mut bytes = [0u8; 8];
+                bytes[0..length].copy_from_slice(&value[0..length]);
+                Ok(u64::from_le_bytes(bytes))
+            }
+            // TODO: how should we handle invalid inputs? What does NT do here?
+            Object::String(value) => Ok(value.parse::<u64>().unwrap_or(0)),
+            _ => Ok(0),
+        }
+    }
+
+    pub fn to_buffer(&self, allowed_bytes: usize) -> Result<Vec<u8>, AmlError> {
+        match self {
+            Object::Buffer(bytes) => Ok(bytes.clone()),
+            Object::Integer(value) => match allowed_bytes {
+                4 => Ok((*value as u32).to_le_bytes().to_vec()),
+                8 => Ok(value.to_le_bytes().to_vec()),
+                _ => panic!(),
+            },
+            Object::String(value) => Ok(value.as_bytes().to_vec()),
+            _ => Err(AmlError::InvalidOperationOnObject),
         }
     }
 

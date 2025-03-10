@@ -191,6 +191,27 @@ where
                         self.do_logical_op(&mut context, op)?;
                     }
                     Opcode::Mid => self.do_mid(&mut context, op)?,
+                    Opcode::Concat => self.do_concat(&mut context, op)?,
+                    Opcode::ConcatRes => {
+                        let [Argument::Object(source1), Argument::Object(source2), target] = &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let source1 = source1.as_buffer()?;
+                        let source2 = source2.as_buffer()?;
+                        let result = {
+                            let mut buffer = Vec::from(source1);
+                            buffer.extend_from_slice(source2);
+                            // Add a new end-tag
+                            buffer.push(0x78);
+                            // Don't calculate the new real checksum - just use 0
+                            buffer.push(0x00);
+                            Arc::new(Object::Buffer(buffer))
+                        };
+                        // TODO: use potentially-updated result for return value here
+                        self.do_store(&mut context, target, result.clone())?;
+                        context.contribute_arg(Argument::Object(result));
+                    }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
                     Opcode::Name => {
@@ -914,8 +935,8 @@ where
                     context.start_in_flight_op(OpInFlight::new(opcode, 2))
                 }
                 Opcode::DerefOf => todo!(),
-                Opcode::ConcatRes => todo!(),
                 Opcode::Notify => todo!(),
+                Opcode::ConcatRes => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
                 Opcode::SizeOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Index => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
                 Opcode::Match => todo!(),
@@ -1260,6 +1281,62 @@ where
         self.do_store(context, target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
 
+        Ok(())
+    }
+
+    fn do_concat(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(source1), Argument::Object(source2), target] = &op.arguments[..] else { panic!() };
+        fn resolve_as_string(obj: &Object) -> String {
+            match obj {
+                Object::Uninitialized => "[Uninitialized Object]".to_string(),
+                Object::Buffer(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                Object::BufferField { .. } => "[Buffer Field]".to_string(),
+                Object::Device => "[Device]".to_string(),
+                Object::Event => "[Event]".to_string(),
+                Object::FieldUnit(_) => "[Field]".to_string(),
+                Object::Integer(value) => value.to_string(),
+                Object::Method { .. } => "[Control Method]".to_string(),
+                Object::Mutex { .. } => "[Mutex]".to_string(),
+                Object::Reference { inner, .. } => resolve_as_string(&*(inner.clone().unwrap_reference())),
+                Object::OpRegion(_) => "[Operation Region]".to_string(),
+                Object::Package(_) => "[Package]".to_string(),
+                Object::PowerResource { .. } => "[Power Resource]".to_string(),
+                Object::Processor { .. } => "[Processor]".to_string(),
+                // TODO: what even is one of these??
+                Object::RawDataBuffer => todo!(),
+                Object::String(value) => value.clone(),
+                Object::ThermalZone => "[Thermal Zone]".to_string(),
+                Object::Debug => "[Debug Object]".to_string(),
+            }
+        }
+        let result = match source1.typ() {
+            ObjectType::Integer => {
+                let source1 = source1.as_integer()?;
+                let source2 = source2.to_integer(if self.dsdt_revision >= 2 { 8 } else { 4 })?;
+                let mut buffer = Vec::new();
+                if self.dsdt_revision >= 2 {
+                    buffer.extend_from_slice(&source1.to_le_bytes());
+                    buffer.extend_from_slice(&source2.to_le_bytes());
+                } else {
+                    buffer.extend_from_slice(&(source1 as u32).to_le_bytes());
+                    buffer.extend_from_slice(&(source2 as u32).to_le_bytes());
+                }
+                Arc::new(Object::Buffer(buffer))
+            }
+            ObjectType::Buffer => {
+                let mut buffer = source1.as_buffer()?.to_vec();
+                buffer.extend(source2.to_buffer(if self.dsdt_revision >= 2 { 8 } else { 4 })?);
+                Arc::new(Object::Buffer(buffer))
+            }
+            ObjectType::String | _ => {
+                let source1 = resolve_as_string(&source1);
+                let source2 = resolve_as_string(&source2);
+                Arc::new(Object::String(source1 + &source2))
+            }
+        };
+        // TODO: use result of store
+        self.do_store(context, target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
         Ok(())
     }
 
