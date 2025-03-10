@@ -33,6 +33,10 @@ where
     ///   than `region_length`, due to requirements of the paging system or other reasoning.
     /// - `handler` should be the same `AcpiHandler` that created the mapping. When the `PhysicalMapping` is
     ///   dropped, it will be used to unmap the structure.
+    ///
+    /// # Safety
+    ///
+    /// The caller must make sure that the parameters correctly represent an existing mapping.
     pub unsafe fn new(
         physical_start: usize,
         virtual_start: NonNull<T>,

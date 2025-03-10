@@ -67,6 +67,8 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: "-Dwarnings"
     steps:
     - uses: actions/checkout@v2
       with:
@@ -79,14 +81,8 @@ jobs:
         profile: minimal
         components: clippy
 
-    - name: Run clippy (ACPI)
-      run: cargo clippy -p acpi
+    - name: Run clippy
+      run: cargo clippy --all
 
-    - name: Run clippy (ACPI tests)
-      run: cargo clippy -p acpi --tests
-
-    - name: Run clippy (AML)
-      run: cargo clippy -p aml
-
-    - name: Run clippy (AML tests)
-      run: cargo clippy -p aml --tests
+    - name: Run clippy (tests)
+      run: cargo clippy --all --tests
