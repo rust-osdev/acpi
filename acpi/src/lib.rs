@@ -346,7 +346,7 @@ where
             let dsdt_address = fadt.dsdt_address()?;
             let dsdt = unsafe { read_table::<H, Dsdt>(self.handler.clone(), dsdt_address)? };
 
-            Ok(AmlTable::new(dsdt_address, dsdt.header().length))
+            Ok(AmlTable::new(dsdt_address, dsdt.header().length, dsdt.header().revision))
         })
     }
 
@@ -393,14 +393,16 @@ pub struct AmlTable {
     pub address: usize,
     /// Length (in bytes) of the AML stream.
     pub length: u32,
+    pub revision: u8,
 }
 
 impl AmlTable {
     /// Create an `AmlTable` from the address and length of the table **including the SDT header**.
-    pub(crate) fn new(address: usize, length: u32) -> AmlTable {
+    pub(crate) fn new(address: usize, length: u32, revision: u8) -> AmlTable {
         AmlTable {
             address: address + mem::size_of::<SdtHeader>(),
             length: length - mem::size_of::<SdtHeader>() as u32,
+            revision,
         }
     }
 }
@@ -458,7 +460,11 @@ where
         self.tables_phys_ptrs.find_map(|table_phys_ptr| {
             // SAFETY: Table guarantees its contained addresses to be valid.
             match unsafe { read_table::<_, Ssdt>(handler.clone(), table_phys_ptr as usize) } {
-                Ok(ssdt_mapping) => Some(AmlTable::new(ssdt_mapping.physical_start(), ssdt_mapping.header.length)),
+                Ok(ssdt_mapping) => Some(AmlTable::new(
+                    ssdt_mapping.physical_start(),
+                    ssdt_mapping.header.length,
+                    ssdt_mapping.header.revision,
+                )),
                 Err(AcpiError::SdtInvalidSignature(_)) => None,
                 Err(e) => {
                     log::warn!("Found invalid SSDT at physical address {:p}: {:?}", table_phys_ptr, e);
