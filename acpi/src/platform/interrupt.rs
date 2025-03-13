@@ -1,4 +1,4 @@
-use crate::ManagedSlice;
+use crate::managed_slice::ManagedSlice;
 use core::alloc::Allocator;
 
 #[derive(Debug, Clone, Copy)]

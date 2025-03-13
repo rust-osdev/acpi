@@ -53,8 +53,7 @@
  */
 
 #![no_std]
-#![deny(unsafe_op_in_unsafe_fn)]
-#![cfg_attr(feature = "allocator_api", feature(allocator_api))]
+#![feature(allocator_api)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -69,35 +68,28 @@ pub mod fadt;
 pub mod handler;
 pub mod hpet;
 pub mod madt;
+pub mod managed_slice;
 pub mod mcfg;
+pub mod platform;
 pub mod rsdp;
 pub mod sdt;
 pub mod spcr;
 
-#[cfg(feature = "allocator_api")]
-mod managed_slice;
-#[cfg(feature = "allocator_api")]
-pub use managed_slice::*;
-
-#[cfg(feature = "allocator_api")]
-pub mod platform;
-#[cfg(feature = "allocator_api")]
-pub use crate::platform::{interrupt::InterruptModel, PlatformInfo};
-
-#[cfg(feature = "allocator_api")]
-pub use crate::mcfg::PciConfigRegions;
-
+pub use crate::{
+    mcfg::PciConfigRegions,
+    platform::{interrupt::InterruptModel, PlatformInfo},
+};
 pub use fadt::PowerProfile;
 pub use handler::{AcpiHandler, PhysicalMapping};
 pub use hpet::HpetInfo;
 pub use madt::MadtError;
 
 use crate::sdt::{SdtHeader, Signature};
-use core::mem;
+use core::{alloc::Allocator, mem};
 use rsdp::Rsdp;
 
 /// Result type used by error-returning functions.
-pub type AcpiResult<T> = core::result::Result<T, AcpiError>;
+pub type AcpiResult<T> = Result<T, AcpiError>;
 
 /// All types representing ACPI tables should implement this trait.
 ///
@@ -179,13 +171,9 @@ macro_rules! read_root_table {
     }};
 }
 
-/// Type capable of enumerating the existing ACPI tables on the system.
-///
-///
-/// ### Implementation Note
-///
-/// When using the `allocator_api`±`alloc` features, [`PlatformInfo::new()`] or [`PlatformInfo::new_in()`] provide
-/// a much cleaner API for enumerating ACPI structures once an `AcpiTables` has been constructed.
+/// `AcpiTables` represents all of the enumerable ACPI tables on the system, and is the main type
+/// to construct and use from the crate. `PlatformInfo` provides a higher-level interface to some
+/// of the data contained in the tables, and may be easier to use for common use-cases.
 #[derive(Debug)]
 pub struct AcpiTables<H: AcpiHandler> {
     mapping: PhysicalMapping<H, SdtHeader>,
@@ -376,12 +364,11 @@ where
         PlatformInfo::new(self)
     }
 
-    /// Convenience method for contructing a [`PlatformInfo`]. This is one of the first things you should usually do
+    /// Construct a [`PlatformInfo`]. This is one of the first things you should usually do
     /// with an `AcpiTables`, and allows to collect helpful information about the platform from the ACPI tables.
-    #[cfg(feature = "allocator_api")]
     pub fn platform_info_in<A>(&self, allocator: A) -> AcpiResult<PlatformInfo<A>>
     where
-        A: core::alloc::Allocator + Clone,
+        A: Allocator + Clone,
     {
         PlatformInfo::new_in(self, allocator)
     }

@@ -4,11 +4,11 @@ use crate::{
     address::GenericAddress,
     fadt::Fadt,
     madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
+    managed_slice::ManagedSlice,
     AcpiError,
     AcpiHandler,
     AcpiResult,
     AcpiTables,
-    ManagedSlice,
     PowerProfile,
 };
 use core::{alloc::Allocator, mem, ptr};

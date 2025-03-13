@@ -15,6 +15,5 @@ bitflags = "2.5.0"
 log = "0.4.20"
 
 [features]
-default = ["allocator_api", "alloc"]
-allocator_api = []
-alloc = ["allocator_api"]
+default = ["alloc"]
+alloc = []

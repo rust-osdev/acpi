@@ -1,22 +1,20 @@
 use crate::{
-    sdt::{ExtendedField, SdtHeader, Signature},
-    AcpiError,
-    AcpiTable,
-};
-use bit_field::BitField;
-use core::{
-    marker::{PhantomData, PhantomPinned},
-    mem,
-    pin::Pin,
-};
-
-#[cfg(feature = "allocator_api")]
-use crate::{
+    managed_slice::ManagedSlice,
     platform::{
         interrupt::{InterruptModel, Polarity, TriggerMode},
         ProcessorInfo,
     },
+    sdt::{ExtendedField, SdtHeader, Signature},
+    AcpiError,
     AcpiResult,
+    AcpiTable,
+};
+use bit_field::BitField;
+use core::{
+    alloc::Allocator,
+    marker::{PhantomData, PhantomPinned},
+    mem,
+    pin::Pin,
 };
 
 #[derive(Debug)]
@@ -69,13 +67,12 @@ impl Madt {
         Err(AcpiError::InvalidMadt(MadtError::UnexpectedEntry))
     }
 
-    #[cfg(feature = "allocator_api")]
     pub fn parse_interrupt_model_in<A>(
         self: Pin<&Self>,
         allocator: A,
     ) -> AcpiResult<(InterruptModel<A>, Option<ProcessorInfo<A>>)>
     where
-        A: core::alloc::Allocator + Clone,
+        A: Allocator + Clone,
     {
         /*
          * We first do a pass through the MADT to determine which interrupt model is being used.
@@ -114,13 +111,12 @@ impl Madt {
         Ok((InterruptModel::Unknown, None))
     }
 
-    #[cfg(feature = "allocator_api")]
     fn parse_apic_model_in<A>(
         self: Pin<&Self>,
         allocator: A,
     ) -> AcpiResult<(InterruptModel<A>, Option<ProcessorInfo<A>>)>
     where
-        A: core::alloc::Allocator + Clone,
+        A: Allocator + Clone,
     {
         use crate::platform::{
             interrupt::{
@@ -157,12 +153,11 @@ impl Madt {
             }
         }
 
-        let mut io_apics = crate::ManagedSlice::new_in(io_apic_count, allocator.clone())?;
-        let mut interrupt_source_overrides = crate::ManagedSlice::new_in(iso_count, allocator.clone())?;
-        let mut nmi_sources = crate::ManagedSlice::new_in(nmi_source_count, allocator.clone())?;
-        let mut local_apic_nmi_lines = crate::ManagedSlice::new_in(local_nmi_line_count, allocator.clone())?;
-        let mut application_processors =
-            crate::ManagedSlice::new_in(processor_count.saturating_sub(1), allocator)?; // Subtract one for the BSP
+        let mut io_apics = ManagedSlice::new_in(io_apic_count, allocator.clone())?;
+        let mut interrupt_source_overrides = ManagedSlice::new_in(iso_count, allocator.clone())?;
+        let mut nmi_sources = ManagedSlice::new_in(nmi_source_count, allocator.clone())?;
+        let mut local_apic_nmi_lines = ManagedSlice::new_in(local_nmi_line_count, allocator.clone())?;
+        let mut application_processors = ManagedSlice::new_in(processor_count.saturating_sub(1), allocator)?; // Subtract one for the BSP
         let mut boot_processor = None;
 
         io_apic_count = 0;
@@ -678,20 +673,19 @@ pub struct MultiprocessorWakeupMailbox {
     pub reserved_for_firmware: [u64; 256],
 }
 
-#[cfg(feature = "allocator_api")]
-fn parse_mps_inti_flags(flags: u16) -> crate::AcpiResult<(Polarity, TriggerMode)> {
+fn parse_mps_inti_flags(flags: u16) -> AcpiResult<(Polarity, TriggerMode)> {
     let polarity = match flags.get_bits(0..2) {
         0b00 => Polarity::SameAsBus,
         0b01 => Polarity::ActiveHigh,
         0b11 => Polarity::ActiveLow,
-        _ => return Err(crate::AcpiError::InvalidMadt(MadtError::MpsIntiInvalidPolarity)),
+        _ => return Err(AcpiError::InvalidMadt(MadtError::MpsIntiInvalidPolarity)),
     };
 
     let trigger_mode = match flags.get_bits(2..4) {
         0b00 => TriggerMode::SameAsBus,
         0b01 => TriggerMode::Edge,
         0b11 => TriggerMode::Level,
-        _ => return Err(crate::AcpiError::InvalidMadt(MadtError::MpsIntiInvalidTriggerMode)),
+        _ => return Err(AcpiError::InvalidMadt(MadtError::MpsIntiInvalidTriggerMode)),
     };
 
     Ok((polarity, trigger_mode))

@@ -1,45 +1,47 @@
 use crate::{
+    managed_slice::ManagedSlice,
     sdt::{SdtHeader, Signature},
+    AcpiHandler,
+    AcpiResult,
     AcpiTable,
+    AcpiTables,
 };
-use core::{mem, slice};
+use core::{alloc::Allocator, fmt, mem, ops::RangeInclusive, slice};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
 /// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
 /// function of a PCIe device, the `physical_address` method on this will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
-#[cfg(feature = "allocator_api")]
 pub struct PciConfigRegions<A>
 where
-    A: core::alloc::Allocator,
+    A: Allocator,
 {
-    regions: crate::ManagedSlice<McfgEntry, A>,
+    regions: ManagedSlice<McfgEntry, A>,
 }
 
 #[cfg(feature = "alloc")]
 impl<'a> PciConfigRegions<alloc::alloc::Global> {
-    pub fn new<H>(tables: &crate::AcpiTables<H>) -> crate::AcpiResult<PciConfigRegions<alloc::alloc::Global>>
+    pub fn new<H>(tables: &AcpiTables<H>) -> AcpiResult<PciConfigRegions<alloc::alloc::Global>>
     where
-        H: crate::AcpiHandler,
+        H: AcpiHandler,
     {
         Self::new_in(tables, alloc::alloc::Global)
     }
 }
 
-#[cfg(feature = "allocator_api")]
 impl<A> PciConfigRegions<A>
 where
-    A: core::alloc::Allocator,
+    A: Allocator,
 {
-    pub fn new_in<H>(tables: &crate::AcpiTables<H>, allocator: A) -> crate::AcpiResult<PciConfigRegions<A>>
+    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> AcpiResult<PciConfigRegions<A>>
     where
-        H: crate::AcpiHandler,
+        H: AcpiHandler,
     {
         let mcfg = tables.find_table::<Mcfg>()?;
         let mcfg_entries = mcfg.entries();
 
-        let mut regions = crate::ManagedSlice::new_in(mcfg_entries.len(), allocator)?;
+        let mut regions = ManagedSlice::new_in(mcfg_entries.len(), allocator)?;
         regions.copy_from_slice(mcfg_entries);
 
         Ok(Self { regions })
@@ -74,7 +76,7 @@ where
 /// Configuration entry describing a valid bus range for the given PCI segment group.
 pub struct PciConfigEntry {
     pub segment_group: u16,
-    pub bus_range: core::ops::RangeInclusive<u8>,
+    pub bus_range: RangeInclusive<u8>,
     pub physical_address: usize,
 }
 
@@ -121,8 +123,8 @@ impl Mcfg {
     pub fn entries(&self) -> &[McfgEntry] {
         let length = self.header.length as usize - mem::size_of::<Mcfg>();
 
-        // Intentionally round down in case length isn't an exact multiple of McfgEntry size
-        // (see rust-osdev/acpi#58)
+        // Intentionally round down in case length isn't an exact multiple of McfgEntry size - this
+        // has been observed on real hardware (see rust-osdev/acpi#58)
         let num_entries = length / mem::size_of::<McfgEntry>();
 
         unsafe {
@@ -132,8 +134,8 @@ impl Mcfg {
     }
 }
 
-impl core::fmt::Debug for Mcfg {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Debug for Mcfg {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("Mcfg").field("header", &self.header).field("entries", &self.entries()).finish()
     }
 }
