@@ -2,6 +2,7 @@ use crate::{
     AmlError,
     Handler,
     Interpreter,
+    Operation,
     namespace::AmlName,
     object::{Object, ReferenceKind},
     resource::{self, InterruptPolarity, InterruptTrigger, Resource},
@@ -136,13 +137,13 @@ impl PciRoutingTable {
                         _ => return Err(AmlError::PrtInvalidSource),
                     }
                 } else {
-                    return Err(AmlError::InvalidOperationOnObject);
+                    return Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: value.typ() });
                 }
             }
 
             Ok(PciRoutingTable { entries })
         } else {
-            Err(AmlError::InvalidOperationOnObject)
+            return Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: prt.typ() });
         }
     }
 

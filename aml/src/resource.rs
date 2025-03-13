@@ -1,4 +1,4 @@
-use crate::{AmlError, object::Object};
+use crate::{AmlError, Operation, object::Object};
 use alloc::{sync::Arc, vec::Vec};
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
@@ -32,7 +32,7 @@ pub fn resource_descriptor_list(descriptor: Arc<Object>) -> Result<Vec<Resource>
 
         Ok(descriptors)
     } else {
-        Err(AmlError::InvalidOperationOnObject)
+        Err(AmlError::InvalidOperationOnObject { op: Operation::ParseResource, typ: descriptor.typ() })
     }
 }
 

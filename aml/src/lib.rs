@@ -1120,13 +1120,14 @@ where
         };
 
         let result = Arc::new(Object::Integer(result));
+        // TODO: use result for arg
         self.do_store(context, target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
         Ok(())
     }
 
     fn do_unary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
         let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
 
         let result = match op.op {
@@ -1137,6 +1138,7 @@ where
                     /*
                      * TODO: this is a particular instance where not respecting integers being
                      * 32-bit on revision 1 tables does cause properly incorrect behaviour...
+                     * TODO: we can fix this now we have the DSDT revision
                      */
                     (operand.leading_zeros() + 1) as u64
                 }
@@ -1164,7 +1166,7 @@ where
 
     fn do_logical_op(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         if op.op == Opcode::LNot {
-            let [Argument::Object(operand)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+            let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
             let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
             let result = if operand == 0 { u64::MAX } else { 0 };
 
@@ -1177,9 +1179,7 @@ where
             return Ok(());
         }
 
-        let [Argument::Object(left), Argument::Object(right)] = &op.arguments[..] else {
-            Err(AmlError::InvalidOperationOnObject)?
-        };
+        let [Argument::Object(left), Argument::Object(right)] = &op.arguments[..] else { panic!() };
 
         /*
          * Some of these operations allow strings and buffers to be used as operands. Apparently
@@ -1220,7 +1220,7 @@ where
                 };
                 (left, right)
             }
-            _ => panic!(),
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::LogicalOp, typ: left.typ() })?,
         };
 
         let result = match op.op {
@@ -1268,7 +1268,7 @@ where
                     Object::Buffer(bytes.to_vec())
                 }
             }
-            _ => Err(AmlError::InvalidOperationOnObject)?,
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::Mid, typ: source.typ() })?,
         });
 
         self.do_store(context, target, result.clone())?;
@@ -1334,7 +1334,7 @@ where
     }
 
     fn do_from_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(value)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let [Argument::Object(value)] = &op.arguments[..] else { panic!() };
         let mut value = value.clone().unwrap_transparent_reference().as_integer()?;
 
         let mut result = 0;
@@ -1350,7 +1350,7 @@ where
     }
 
     fn do_to_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(value)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let [Argument::Object(value)] = &op.arguments[..] else { panic!() };
         let mut value = value.clone().unwrap_transparent_reference().as_integer()?;
 
         let mut result = 0;
@@ -1366,14 +1366,14 @@ where
     }
 
     fn do_size_of(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(object)] = &op.arguments[..] else { Err(AmlError::InvalidOperationOnObject)? };
+        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
         let object = object.clone().unwrap_reference();
 
         let result = match *object {
             Object::Buffer(ref buffer) => buffer.len(),
             Object::String(ref str) => str.len(),
             Object::Package(ref package) => package.len(),
-            _ => Err(AmlError::InvalidOperationOnObject)?,
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::SizeOf, typ: object.typ() })?,
         };
 
         context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
@@ -2171,6 +2171,21 @@ enum Opcode {
     InternalMethodCall,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Operation {
+    Mid,
+    SizeOf,
+    Acquire,
+    Release,
+    ConvertToBuffer,
+
+    ReadBufferField,
+    WriteBufferField,
+    LogicalOp,
+    DecodePrt,
+    ParseResource,
+}
+
 /*
  * TODO: not sure if we should use a better error reporting system or just keep a giant enum?
  */
@@ -2197,7 +2212,7 @@ pub enum AmlError {
 
     MethodArgCountIncorrect,
 
-    InvalidOperationOnObject,
+    InvalidOperationOnObject { op: Operation, typ: ObjectType },
     IndexOutOfBounds,
     ObjectNotOfExpectedType { expected: ObjectType, got: ObjectType },
 

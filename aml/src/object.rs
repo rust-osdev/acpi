@@ -1,4 +1,4 @@
-use crate::{AmlError, op_region::OpRegion};
+use crate::{AmlError, Handle, Operation, op_region::OpRegion};
 use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 
@@ -92,7 +92,7 @@ impl Object {
                 _ => panic!(),
             },
             Object::String(value) => Ok(value.as_bytes().to_vec()),
-            _ => Err(AmlError::InvalidOperationOnObject),
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ConvertToBuffer, typ: self.typ() }),
         }
     }
 
@@ -107,7 +107,7 @@ impl Object {
             copy_bits(buffer, *offset, dst, 0, *length);
             Ok(())
         } else {
-            Err(AmlError::InvalidOperationOnObject)
+            Err(AmlError::InvalidOperationOnObject { op: Operation::ReadBufferField, typ: self.typ() })
         }
     }
 
@@ -124,7 +124,7 @@ impl Object {
             copy_bits(value, 0, buffer, *offset, *length);
             Ok(())
         } else {
-            Err(AmlError::InvalidOperationOnObject)
+            Err(AmlError::InvalidOperationOnObject { op: Operation::WriteBufferField, typ: self.typ() })
         }
     }
 
