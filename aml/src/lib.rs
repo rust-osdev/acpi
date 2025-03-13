@@ -1486,6 +1486,7 @@ where
                     }
                     _ => panic!(),
                 },
+                Object::FieldUnit(field) => self.do_field_write(field, object)?,
                 Object::Debug => {
                     self.handler.handle_debug(&*object);
                 }
@@ -1526,56 +1527,129 @@ where
             Output::Integer(value) => value,
         };
 
-        match field.kind {
-            FieldUnitKind::Normal { ref region } => {
-                let Object::OpRegion(ref region) = **region else { panic!() };
-
-                /*
-                 * TODO: it might be worth having a fast path here for reads that don't do weird
-                 * unaligned accesses, which I'm guessing might be relatively common on real
-                 * hardware? Eg. single native read + mask
-                 */
-
-                /*
-                 * Break the field read into native reads that respect the region's access width.
-                 * Copy each potentially-unaligned part into the destination's bit range.
-                 */
-                let native_accesses_needed = (field.bit_length + (field.bit_index % access_width_bits))
-                    .next_multiple_of(access_width_bits)
-                    / access_width_bits;
-                let mut read_so_far = 0;
-                for i in 0..native_accesses_needed {
-                    let aligned_offset =
-                        object::align_down(field.bit_index + i * access_width_bits, access_width_bits);
-                    let raw = self.do_native_region_read(region, aligned_offset / 8, access_width_bits / 8)?;
-                    let src_index = if i == 0 { field.bit_index % access_width_bits } else { 0 };
-                    let remaining_length = field.bit_length - read_so_far;
-                    let length = if i == 0 {
-                        usize::min(remaining_length, access_width_bits - (field.bit_index % access_width_bits))
-                    } else {
-                        usize::min(remaining_length, access_width_bits)
-                    };
-
-                    trace!(
-                        "Extracting bits {}..{} from native read to bits {}..{}",
-                        src_index,
-                        src_index + length,
-                        read_so_far,
-                        read_so_far + length,
-                    );
-                    object::copy_bits(&raw.to_le_bytes(), src_index, output_bytes, read_so_far, length);
-
-                    read_so_far += length;
-                }
-
-                match output {
-                    Output::Buffer(bytes) => Ok(Arc::new(Object::Buffer(bytes))),
-                    Output::Integer(value) => Ok(Arc::new(Object::Integer(u64::from_le_bytes(value)))),
-                }
+        let read_region = match field.kind {
+            FieldUnitKind::Normal { ref region } => region,
+            FieldUnitKind::Bank { ref region, ref bank, bank_value } => {
+                // TODO: put the bank_value in the bank
+                todo!();
+                region
             }
-            FieldUnitKind::Bank { ref region, ref bank, bank_value } => todo!(),
-            FieldUnitKind::Index { ref index, ref data } => todo!(),
+            FieldUnitKind::Index { ref index, ref data } => {
+                // TODO: configure the correct index
+                todo!();
+                data
+            }
+        };
+        let Object::OpRegion(ref read_region) = **read_region else { panic!() };
+
+        /*
+         * TODO: it might be worth having a fast path here for reads that don't do weird
+         * unaligned accesses, which I'm guessing might be relatively common on real
+         * hardware? Eg. single native read + mask
+         */
+
+        /*
+         * Break the field read into native reads that respect the region's access width.
+         * Copy each potentially-unaligned part into the destination's bit range.
+         */
+        let native_accesses_needed = (field.bit_length + (field.bit_index % access_width_bits))
+            .next_multiple_of(access_width_bits)
+            / access_width_bits;
+        let mut read_so_far = 0;
+        for i in 0..native_accesses_needed {
+            let aligned_offset = object::align_down(field.bit_index + i * access_width_bits, access_width_bits);
+            let raw = self.do_native_region_read(read_region, aligned_offset / 8, access_width_bits / 8)?;
+            let src_index = if i == 0 { field.bit_index % access_width_bits } else { 0 };
+            let remaining_length = field.bit_length - read_so_far;
+            let length = if i == 0 {
+                usize::min(remaining_length, access_width_bits - (field.bit_index % access_width_bits))
+            } else {
+                usize::min(remaining_length, access_width_bits)
+            };
+
+            object::copy_bits(&raw.to_le_bytes(), src_index, output_bytes, read_so_far, length);
+            read_so_far += length;
         }
+
+        match output {
+            Output::Buffer(bytes) => Ok(Arc::new(Object::Buffer(bytes))),
+            Output::Integer(value) => Ok(Arc::new(Object::Integer(u64::from_le_bytes(value)))),
+        }
+    }
+
+    fn do_field_write(&self, field: &FieldUnit, value: Arc<Object>) -> Result<(), AmlError> {
+        trace!("AML field write. Field = {:?}. Value = {:?}", field, value);
+
+        let value_bytes = match &*value {
+            Object::Integer(value) => &value.to_le_bytes() as &[u8],
+            Object::Buffer(bytes) => &bytes,
+            _ => Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: value.typ() })?,
+        };
+        let access_width_bits = field.flags.access_type_bytes()? * 8;
+
+        let write_region = match field.kind {
+            FieldUnitKind::Normal { ref region } => region,
+            FieldUnitKind::Bank { ref region, ref bank, bank_value } => {
+                // TODO: put the bank_value in the bank
+                todo!();
+                region
+            }
+            FieldUnitKind::Index { ref index, ref data } => {
+                // TODO: configure the correct index
+                todo!();
+                data
+            }
+        };
+        let Object::OpRegion(ref write_region) = **write_region else { panic!() };
+
+        // TODO: if the region wants locking, do that
+
+        // TODO: maybe also a fast path for writes
+
+        let native_accesses_needed = (field.bit_length + (field.bit_index % access_width_bits))
+            .next_multiple_of(access_width_bits)
+            / access_width_bits;
+        let mut written_so_far = 0;
+
+        for i in 0..native_accesses_needed {
+            let aligned_offset = object::align_down(field.bit_index + i * access_width_bits, access_width_bits);
+            let dst_index = if i == 0 { field.bit_index % access_width_bits } else { 0 };
+
+            /*
+             * If we're not going to write a whole native access, respect the field's
+             * update rule. If we're meant to preserve the surrounding bits, we need to do
+             * a read first.
+             */
+            let mut bytes = if dst_index > 0 || (field.bit_length - written_so_far) < access_width_bits {
+                match field.flags.update_rule() {
+                    FieldUpdateRule::Preserve => self
+                        .do_native_region_read(write_region, aligned_offset / 8, access_width_bits / 8)?
+                        .to_le_bytes(),
+                    FieldUpdateRule::WriteAsOnes => [0xff; 8],
+                    FieldUpdateRule::WriteAsZeros => [0; 8],
+                }
+            } else {
+                [0; 8]
+            };
+
+            let remaining_length = field.bit_length - written_so_far;
+            let length = if i == 0 {
+                usize::min(remaining_length, access_width_bits - (field.bit_index % access_width_bits))
+            } else {
+                usize::min(remaining_length, access_width_bits)
+            };
+
+            object::copy_bits(value_bytes, written_so_far, &mut bytes, dst_index, length);
+            self.do_native_region_write(
+                write_region,
+                aligned_offset / 8,
+                access_width_bits / 8,
+                u64::from_le_bytes(bytes),
+            )?;
+            written_so_far += length;
+        }
+
+        Ok(())
     }
 
     /// Performs an actual read from an operation region. `offset` and `length` must respect the
@@ -1605,37 +1679,7 @@ where
                 }
             }),
             RegionSpace::PciConfig => {
-                /*
-                 * TODO: it's not ideal to do these reads for every native access. See if we can
-                 * cache them somewhere?
-                 */
-                let seg = match self.invoke_method_if_present(
-                    AmlName::from_str("_SEG").unwrap().resolve(&region.parent_device_path)?,
-                    vec![],
-                )? {
-                    Some(value) => value.as_integer()?,
-                    None => 0,
-                };
-                let bus = match self.invoke_method_if_present(
-                    AmlName::from_str("_BBR").unwrap().resolve(&region.parent_device_path)?,
-                    vec![],
-                )? {
-                    Some(value) => value.as_integer()?,
-                    None => 0,
-                };
-                let (device, function) = {
-                    let adr = self.invoke_method_if_present(
-                        AmlName::from_str("_ADR").unwrap().resolve(&region.parent_device_path)?,
-                        vec![],
-                    )?;
-                    let adr = match adr {
-                        Some(adr) => adr.as_integer()?,
-                        None => 0,
-                    };
-                    (adr.get_bits(16..32), adr.get_bits(0..16))
-                };
-
-                let address = PciAddress::new(seg as u16, bus as u8, device as u8, function as u8);
+                let address = self.pci_address_for_device(&region.parent_device_path)?;
                 match length {
                     1 => Ok(self.handler.read_pci_u8(address, offset as u16) as u64),
                     2 => Ok(self.handler.read_pci_u16(address, offset as u16) as u64),
@@ -1656,11 +1700,98 @@ where
                 if let Some(handler) = self.region_handlers.lock().get(&region.space) {
                     todo!("Utilise handler");
                 } else {
-                    // TODO: panic or normal error here??
-                    panic!("Unhandled region space that needs handler!");
+                    Err(AmlError::NoHandlerForRegionAccess(region.space))
                 }
             }
         }
+    }
+
+    /// Performs an actual write to an operation region. `offset` and `length` must respect the
+    /// access requirements of the field being read, and are supplied in **bytes**. This may call
+    /// AML methods if required, and may invoke user-supplied handlers.
+    fn do_native_region_write(
+        &self,
+        region: &OpRegion,
+        offset: usize,
+        length: usize,
+        value: u64,
+    ) -> Result<(), AmlError> {
+        trace!(
+            "Native field write. Region = {:?}, offset = {:#x}, length={:#x}, value={:#x}",
+            region, offset, length, value
+        );
+
+        match region.space {
+            RegionSpace::SystemMemory => Ok({
+                let address = region.base as usize + offset;
+                match length {
+                    1 => self.handler.write_u8(address, value as u8),
+                    2 => self.handler.write_u16(address, value as u16),
+                    4 => self.handler.write_u32(address, value as u32),
+                    8 => self.handler.write_u64(address, value),
+                    _ => panic!(),
+                }
+            }),
+            RegionSpace::SystemIO => Ok({
+                let address = region.base as u16 + offset as u16;
+                match length {
+                    1 => self.handler.write_io_u8(address, value as u8),
+                    2 => self.handler.write_io_u16(address, value as u16),
+                    4 => self.handler.write_io_u32(address, value as u32),
+                    _ => panic!(),
+                }
+            }),
+            RegionSpace::PciConfig => {
+                let address = self.pci_address_for_device(&region.parent_device_path)?;
+                match length {
+                    1 => self.handler.write_pci_u8(address, offset as u16, value as u8),
+                    2 => self.handler.write_pci_u16(address, offset as u16, value as u16),
+                    4 => self.handler.write_pci_u32(address, offset as u16, value as u32),
+                    _ => panic!(),
+                }
+                Ok(())
+            }
+
+            RegionSpace::EmbeddedControl
+            | RegionSpace::SmBus
+            | RegionSpace::SystemCmos
+            | RegionSpace::PciBarTarget
+            | RegionSpace::Ipmi
+            | RegionSpace::GeneralPurposeIo
+            | RegionSpace::GenericSerialBus
+            | RegionSpace::Pcc
+            | RegionSpace::Oem(_) => {
+                if let Some(handler) = self.region_handlers.lock().get(&region.space) {
+                    todo!("Utilise handler");
+                } else {
+                    Err(AmlError::NoHandlerForRegionAccess(region.space))
+                }
+            }
+        }
+    }
+
+    fn pci_address_for_device(&self, path: &AmlName) -> Result<PciAddress, AmlError> {
+        /*
+         * TODO: it's not ideal to do these reads for every native access. See if we can
+         * cache them somewhere?
+         */
+        let seg = match self.invoke_method_if_present(AmlName::from_str("_SEG").unwrap().resolve(path)?, vec![])? {
+            Some(value) => value.as_integer()?,
+            None => 0,
+        };
+        let bus = match self.invoke_method_if_present(AmlName::from_str("_BBR").unwrap().resolve(path)?, vec![])? {
+            Some(value) => value.as_integer()?,
+            None => 0,
+        };
+        let (device, function) = {
+            let adr = self.invoke_method_if_present(AmlName::from_str("_ADR").unwrap().resolve(path)?, vec![])?;
+            let adr = match adr {
+                Some(adr) => adr.as_integer()?,
+                None => 0,
+            };
+            (adr.get_bits(16..32), adr.get_bits(0..16))
+        };
+        Ok(PciAddress::new(seg as u16, bus as u8, device as u8, function as u8))
     }
 }
 
@@ -2241,6 +2372,7 @@ pub enum AmlError {
     InvalidResourceDescriptor,
     UnexpectedResourceType,
 
+    NoHandlerForRegionAccess(RegionSpace),
     MutexAquireTimeout,
 
     PrtInvalidAddress,
