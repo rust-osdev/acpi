@@ -1092,27 +1092,19 @@ where
     }
 
     fn do_binary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(left), Argument::Object(right), Argument::Object(target)] = &op.arguments[0..2]
-        else {
-            Err(AmlError::InvalidOperationOnObject)?
-        };
-        let target2 = if op.op == Opcode::Divide {
-            let Argument::Object(target2) = &op.arguments[3] else { panic!() };
-            Some(target2)
-        } else {
-            None
-        };
+        let [Argument::Object(left), Argument::Object(right), target] = &op.arguments[0..3] else { panic!() };
+        let target2 = if op.op == Opcode::Divide { Some(&op.arguments[3]) } else { None };
 
         let left = left.clone().unwrap_transparent_reference().as_integer()?;
         let right = right.clone().unwrap_transparent_reference().as_integer()?;
 
-        let value = match op.op {
+        let result = match op.op {
             Opcode::Add => left.wrapping_add(right),
             Opcode::Subtract => left.wrapping_sub(right),
             Opcode::Multiply => left.wrapping_mul(right),
             Opcode::Divide => {
                 if let Some(remainder) = target2 {
-                    *remainder.gain_mut() = Object::Integer(left.wrapping_rem(right));
+                    self.do_store(context, remainder, Arc::new(Object::Integer(left.wrapping_rem(right))))?;
                 }
                 left.wrapping_div_euclid(right)
             }
@@ -1127,8 +1119,9 @@ where
             _ => panic!(),
         };
 
-        *target.gain_mut() = Object::Integer(value);
-        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(value))));
+        let result = Arc::new(Object::Integer(result));
+        self.do_store(context, target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
         Ok(())
     }
 
