@@ -9,3 +9,4 @@ aml = { path = "../../aml" }
 clap = "4"
 termion = "1"
 log = "0.4"
+pci_types = "0.10"

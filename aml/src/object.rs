@@ -12,7 +12,7 @@ pub enum Object {
     FieldUnit(FieldUnit),
     Integer(u64),
     Method { code: Vec<u8>, flags: MethodFlags },
-    Mutex { sync_level: u8 },
+    Mutex { mutex: Handle, sync_level: u8 },
     Reference { kind: ReferenceKind, inner: Arc<Object> },
     OpRegion(OpRegion),
     Package(Vec<Arc<Object>>),

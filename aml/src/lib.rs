@@ -20,8 +20,11 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::mem;
-use log::{info, trace};
+use core::{
+    mem,
+    str::FromStr,
+};
+use log::{info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{FieldFlags, FieldUnit, FieldUnitKind, MethodFlags, Object, ObjectType, ReferenceKind};
 use op_region::{OpRegion, RegionHandler, RegionSpace};
@@ -397,6 +400,24 @@ where
                         let [Argument::Object(usec)] = &op.arguments[..] else { panic!() };
                         self.handler.stall(usec.as_integer()?);
                     }
+                    Opcode::Acquire => {
+                        let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
+                        let Object::Mutex { mutex, sync_level } = **mutex else {
+                            Err(AmlError::InvalidOperationOnObject { op: Operation::Acquire, typ: mutex.typ() })?
+                        };
+                        let timeout = context.next_u16()?;
+
+                        // TODO: should we do something with the sync level??
+                        self.handler.acquire(mutex, timeout)?;
+                    }
+                    Opcode::Release => {
+                        let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
+                        let Object::Mutex { mutex, sync_level } = **mutex else {
+                            Err(AmlError::InvalidOperationOnObject { op: Operation::Release, typ: mutex.typ() })?
+                        };
+                        // TODO: should we do something with the sync level??
+                        self.handler.release(mutex);
+                    }
                     Opcode::InternalMethodCall => {
                         let [Argument::Object(method), Argument::Namestring(method_scope)] = &op.arguments[0..2]
                         else {
@@ -711,7 +732,8 @@ where
                     let sync_level = context.next()?;
 
                     let name = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().insert(name, Arc::new(Object::Mutex { sync_level }))?;
+                    let mutex = self.handler.create_mutex();
+                    self.namespace.lock().insert(name, Arc::new(Object::Mutex { mutex, sync_level }))?;
                 }
                 Opcode::Event => {
                     let name = context.namestring()?;
@@ -723,11 +745,11 @@ where
                 Opcode::Load => todo!(),
                 Opcode::Stall => context.start_in_flight_op(OpInFlight::new(Opcode::Stall, 1)),
                 Opcode::Sleep => context.start_in_flight_op(OpInFlight::new(Opcode::Sleep, 1)),
-                Opcode::Acquire => todo!(),
+                Opcode::Acquire => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
+                Opcode::Release => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Signal => todo!(),
                 Opcode::Wait => todo!(),
                 Opcode::Reset => todo!(),
-                Opcode::Release => todo!(),
                 Opcode::FromBCD | Opcode::ToBCD => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
                 Opcode::Revision => {
                     context.contribute_arg(Argument::Object(Arc::new(Object::Integer(INTERPRETER_REVISION))));
@@ -2219,12 +2241,24 @@ pub enum AmlError {
     InvalidResourceDescriptor,
     UnexpectedResourceType,
 
+    MutexAquireTimeout,
+
     PrtInvalidAddress,
     PrtInvalidPin,
     PrtInvalidGsi,
     PrtInvalidSource,
     PrtNoEntry,
 }
+
+/// A `Handle` is an opaque reference to an object that is managed by the user of this library.
+/// They should be returned by the `create_*` methods on `Handler`, and are then used by methods to
+/// refer to a specific object.
+///
+/// The library will treat the value of a handle as entirely opaque. You may manage handles
+/// however you wish, and the same value can be used to refer to objects of different types, if
+/// desired.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct Handle(pub u32);
 
 /// This trait represents the interface from the `Interpreter` to the hosting kernel, and allows
 /// AML to interact with the underlying hardware.
@@ -2238,10 +2272,10 @@ pub trait Handler: Send + Sync {
     fn read_u32(&self, address: usize) -> u32;
     fn read_u64(&self, address: usize) -> u64;
 
-    fn write_u8(&mut self, address: usize, value: u8);
-    fn write_u16(&mut self, address: usize, value: u16);
-    fn write_u32(&mut self, address: usize, value: u32);
-    fn write_u64(&mut self, address: usize, value: u64);
+    fn write_u8(&self, address: usize, value: u8);
+    fn write_u16(&self, address: usize, value: u16);
+    fn write_u32(&self, address: usize, value: u32);
+    fn write_u64(&self, address: usize, value: u64);
 
     fn read_io_u8(&self, port: u16) -> u8;
     fn read_io_u16(&self, port: u16) -> u16;
@@ -2271,6 +2305,19 @@ pub trait Handler: Send + Sync {
     /// time supported, and should relinquish the processor.
     fn sleep(&self, milliseconds: u64);
 
+    fn create_mutex(&self) -> Handle;
+
+    /// Acquire the mutex referred to by the given handle. `timeout` is a millisecond timeout value
+    /// with the following meaning:
+    ///    - `0` - try to acquire the mutex once, in a non-blocking manner. If the mutex cannot be
+    ///      acquired immediately, return `Err(AmlError::MutexAquireTimeout)`
+    ///    - `1-0xfffe` - try to acquire the mutex for at least `timeout` milliseconds.
+    ///    - `0xffff` - try to acquire the mutex indefinitely. Should not return `MutexAquireTimeout`.
+    ///
+    /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
+    /// without causing a deadlock.
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), AmlError>;
+    fn release(&self, mutex: Handle);
     fn breakpoint(&self) {}
 
     fn handle_debug(&self, _object: &Object) {}
@@ -2295,10 +2342,10 @@ mod tests {
         fn read_u16(&self, _address: usize) -> u16 {0}
         fn read_u32(&self, _address: usize) -> u32 {0}
         fn read_u64(&self, _address: usize) -> u64 {0}
-        fn write_u8(&mut self, _address: usize, _value: u8) {}
-        fn write_u16(&mut self, _address: usize, _value: u16) {}
-        fn write_u32(&mut self, _address: usize, _value: u32) {}
-        fn write_u64(&mut self, _address: usize, _value: u64) {}
+        fn write_u8(&self, _address: usize, _value: u8) {}
+        fn write_u16(&self, _address: usize, _value: u16) {}
+        fn write_u32(&self, _address: usize, _value: u32) {}
+        fn write_u64(&self, _address: usize, _value: u64) {}
         fn read_io_u8(&self, _port: u16) -> u8 {0}
         fn read_io_u16(&self, _port: u16) -> u16 {0}
         fn read_io_u32(&self, _port: u16) -> u32 {0}
@@ -2314,6 +2361,9 @@ mod tests {
         fn nanos_since_boot(&self) -> u64 {0}
         fn stall(&self, _microseconds: u64) {}
         fn sleep(&self, _milliseconds: u64) {}
+        fn create_mutex(&self) -> Handle { Handle(0) }
+        fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> { Ok(()) }
+        fn release(&self, _mutex: Handle) {}
     }
 
     #[test]

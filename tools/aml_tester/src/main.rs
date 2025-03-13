@@ -9,8 +9,9 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::{namespace::AmlName, AmlError, Interpreter, PciAddress};
+use aml::{namespace::AmlName, AmlError, Handle, Interpreter};
 use clap::{Arg, ArgAction, ArgGroup};
+use pci_types::PciAddress;
 use std::{
     collections::HashSet,
     ffi::OsStr,
@@ -341,16 +342,16 @@ impl aml::Handler for Handler {
         0
     }
 
-    fn write_u8(&mut self, address: usize, value: u8) {
+    fn write_u8(&self, address: usize, value: u8) {
         println!("write_u8 {address:#x}<-{value:#x}");
     }
-    fn write_u16(&mut self, address: usize, value: u16) {
+    fn write_u16(&self, address: usize, value: u16) {
         println!("write_u16 {address:#x}<-{value:#x}");
     }
-    fn write_u32(&mut self, address: usize, value: u32) {
+    fn write_u32(&self, address: usize, value: u32) {
         println!("write_u32 {address:#x}<-{value:#x}");
     }
-    fn write_u64(&mut self, address: usize, value: u64) {
+    fn write_u64(&self, address: usize, value: u64) {
         println!("write_u64 {address:#x}<-{value:#x}");
     }
 
@@ -410,4 +411,12 @@ impl aml::Handler for Handler {
     fn sleep(&self, milliseconds: u64) {
         println!("Sleeping for {}ms", milliseconds);
     }
+
+    fn create_mutex(&self) -> Handle {
+        Handle(0)
+    }
+    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> {
+        Ok(())
+    }
+    fn release(&self, _mutex: Handle) {}
 }
