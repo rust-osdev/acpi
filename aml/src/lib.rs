@@ -460,6 +460,7 @@ where
                     }
                     Opcode::Return => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        let object = object.clone().unwrap_transparent_reference();
 
                         if let Some(last) = self.context_stack.lock().pop() {
                             context = last;
