@@ -20,10 +20,7 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{
-    mem,
-    str::FromStr,
-};
+use core::{mem, str::FromStr};
 use log::{info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{FieldFlags, FieldUnit, FieldUnitKind, MethodFlags, Object, ObjectType, ReferenceKind};
@@ -58,13 +55,11 @@ where
             namespace: Spinlock::new(Namespace::new()),
             context_stack: Spinlock::new(Vec::new()),
             dsdt_revision,
-            ops_interpreted: AtomicUsize::new(0),
             region_handlers: Spinlock::new(BTreeMap::new()),
         }
     }
 
     pub fn load_table(&self, stream: &[u8]) -> Result<(), AmlError> {
-        // TODO: probs needs to do more stuff
         let context = unsafe { MethodContext::new_from_table(stream) };
         self.do_execute_method(context)?;
         Ok(())
@@ -925,30 +920,52 @@ where
                     context.current_block.pc -= 1;
                     let name = context.namestring()?;
 
-                    match self.namespace.lock().search(&name, &context.current_scope) {
-                        Ok((resolved_name, object)) => {
-                            if let Object::Method { flags, .. } = *object {
-                                context.start_in_flight_op(OpInFlight::new_with(
-                                    Opcode::InternalMethodCall,
-                                    vec![Argument::Object(object), Argument::Namestring(resolved_name)],
-                                    flags.arg_count(),
-                                ))
-                            } else {
-                                context.last_op()?.arguments.push(Argument::Object(object));
+                    /*
+                     * The desired behaviour when we encounter a name at the top-level differs
+                     * depending on the context we're in. There are certain places where we want to
+                     * evaluate things like methods and field units, and others where we simply
+                     * want to reference the name (such as inside package definitions). In the
+                     * latter case, we also allow undefined names to be used, and will resolve them
+                     * at the time of use.
+                     */
+                    let do_not_resolve = context.current_block.kind == BlockKind::Package
+                        || context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false);
+                    if do_not_resolve {
+                        let object = self.namespace.lock().search(&name, &context.current_scope);
+                        match object {
+                            Ok((_, object)) => {
+                                let reference =
+                                    Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() };
+                                context.last_op()?.arguments.push(Argument::Object(Arc::new(reference)));
                             }
-                        }
-                        Err(AmlError::ObjectDoesNotExist(_)) => {
-                            let allow_unresolved = context.current_block.kind == BlockKind::Package
-                                || context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false);
-                            if allow_unresolved {
+                            Err(AmlError::ObjectDoesNotExist(_)) => {
                                 let reference = Object::Reference {
                                     kind: ReferenceKind::Unresolved,
                                     inner: Arc::new(Object::String(name.to_string())),
                                 };
                                 context.last_op()?.arguments.push(Argument::Object(Arc::new(reference)));
                             }
+                            Err(other) => Err(other)?,
                         }
-                        Err(other) => Err(other)?,
+                    } else {
+                        let object = self.namespace.lock().search(&name, &context.current_scope);
+                        match object {
+                            Ok((resolved_name, object)) => {
+                                if let Object::Method { flags, .. } = *object {
+                                    context.start_in_flight_op(OpInFlight::new_with(
+                                        Opcode::InternalMethodCall,
+                                        vec![Argument::Object(object), Argument::Namestring(resolved_name)],
+                                        flags.arg_count(),
+                                    ))
+                                } else if let Object::FieldUnit(ref field) = *object {
+                                    let value = self.do_field_read(field)?;
+                                    context.last_op()?.arguments.push(Argument::Object(value));
+                                } else {
+                                    context.last_op()?.arguments.push(Argument::Object(object));
+                                }
+                            }
+                            Err(err) => Err(err)?,
+                        }
                     }
                 }
 
@@ -973,7 +990,7 @@ where
                 Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
                     context.start_in_flight_op(OpInFlight::new(opcode, 2))
                 }
-                Opcode::DerefOf => todo!(),
+                Opcode::DerefOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Notify => todo!(),
                 Opcode::ConcatRes => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
                 Opcode::SizeOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
