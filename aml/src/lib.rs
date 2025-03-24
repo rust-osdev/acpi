@@ -392,6 +392,22 @@ where
                         };
                         context.contribute_arg(Argument::Object(Arc::new(result)));
                     }
+                    Opcode::DerefOf => {
+                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        let result = if object.typ() == ObjectType::Reference {
+                            object.clone().unwrap_reference()
+                        } else if object.typ() == ObjectType::String {
+                            let path = AmlName::from_str(&object.as_string().unwrap())?
+                                .resolve(&context.current_scope)?;
+                            self.namespace.lock().get(path)?.clone()
+                        } else {
+                            return Err(AmlError::ObjectNotOfExpectedType {
+                                expected: ObjectType::Reference,
+                                got: object.typ(),
+                            });
+                        };
+                        context.contribute_arg(Argument::Object(result));
+                    }
                     Opcode::Sleep => {
                         let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
                         self.handler.sleep(msec.as_integer()?);
