@@ -1,6 +1,6 @@
 use crate::{
-    sdt::{SdtHeader, Signature},
     AcpiTable,
+    sdt::{SdtHeader, Signature},
 };
 use bit_field::BitField;
 
@@ -18,7 +18,6 @@ pub struct Bgrt {
     pub image_offset_y: u32,
 }
 
-/// ### Safety: Implementation properly represents a valid BGRT.
 unsafe impl AcpiTable for Bgrt {
     const SIGNATURE: Signature = Signature::BGRT;
 
@@ -37,7 +36,7 @@ impl Bgrt {
     }
 
     /// Gets the orientation offset of the image.
-    /// Degrees are clockwise from the images default orientation.
+    /// Degrees are clockwise from the image's default orientation.
     pub fn orientation_offset(&self) -> u16 {
         let status = self.status;
         match status.get_bits(1..3) {
@@ -45,7 +44,7 @@ impl Bgrt {
             1 => 90,
             2 => 180,
             3 => 270,
-            _ => unreachable!(), // will never happen
+            _ => unreachable!(),
         }
     }
 

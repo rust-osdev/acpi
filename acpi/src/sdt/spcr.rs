@@ -1,12 +1,12 @@
 use crate::{
-    address::{GenericAddress, RawGenericAddress},
-    AcpiResult,
+    AcpiError,
     AcpiTable,
     SdtHeader,
     Signature,
+    address::{GenericAddress, RawGenericAddress},
 };
 use core::{
-    num::{NonZeroU32, NonZeroU8},
+    num::{NonZeroU8, NonZeroU32},
     ptr,
     slice,
     str::{self, Utf8Error},
@@ -69,7 +69,7 @@ impl Spcr {
 
     /// The base address of the Serial Port register set, if if console
     /// redirection is enabled.
-    pub fn base_address(&self) -> Option<AcpiResult<GenericAddress>> {
+    pub fn base_address(&self) -> Option<Result<GenericAddress, AcpiError>> {
         (!self.base_address.is_empty()).then(|| GenericAddress::from_raw(self.base_address))
     }
 

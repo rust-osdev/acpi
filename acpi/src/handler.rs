@@ -54,7 +54,6 @@ where
     ///   dropped, it will be used to unmap the structure.
     ///
     /// ### Safety
-    ///
     /// The caller must ensure that the physical memory can be safely mapped.
     pub unsafe fn new(
         physical_start: usize,
@@ -128,7 +127,7 @@ where
 /// functionality, such as mapping regions of physical memory. You are free to implement these
 /// however you please, as long as they conform to the documentation of each function. The handler is stored in
 /// every `PhysicalMapping` so it's able to unmap itself when dropped, so this type needs to be something you can
-/// clone/move about freely (e.g. a reference, wrapper over `Rc`, marker struct, etc.).
+/// clone/move about freely (e.g. a reference, wrapper over `Arc`, marker struct, etc.).
 pub trait AcpiHandler: Clone {
     /// Given a physical address and a size, map a region of physical memory that contains `T` (note: the passed
     /// size may be larger than `size_of::<T>()`). The address is not neccessarily page-aligned, so the

@@ -1,7 +1,7 @@
 //! ACPI defines a Generic Address Structure (GAS), which provides a versatile way to describe register locations
 //! in a wide range of address spaces.
 
-use crate::{AcpiError, AcpiResult};
+use crate::AcpiError;
 
 /// This is the raw form of a Generic Address Structure, and follows the layout found in the ACPI tables.
 #[derive(Clone, Copy, Debug)]
@@ -83,7 +83,7 @@ pub struct GenericAddress {
 }
 
 impl GenericAddress {
-    pub fn from_raw(raw: RawGenericAddress) -> AcpiResult<GenericAddress> {
+    pub fn from_raw(raw: RawGenericAddress) -> Result<GenericAddress, AcpiError> {
         let address_space = match raw.address_space {
             0x00 => AddressSpace::SystemMemory,
             0x01 => AddressSpace::SystemIo,

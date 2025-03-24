@@ -1,18 +1,23 @@
 pub mod interrupt;
+pub mod pci;
+
+pub use interrupt::InterruptModel;
+pub use pci::PciConfigRegions;
 
 use crate::{
-    address::GenericAddress,
-    fadt::Fadt,
-    madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
-    managed_slice::ManagedSlice,
     AcpiError,
     AcpiHandler,
-    AcpiResult,
     AcpiTables,
     PowerProfile,
+    address::GenericAddress,
+    sdt::{
+        Signature,
+        fadt::Fadt,
+        madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
+    },
 };
+use alloc::{alloc::Global, vec::Vec};
 use core::{alloc::Allocator, mem, ptr};
-use interrupt::InterruptModel;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProcessorState {
@@ -46,20 +51,14 @@ pub struct Processor {
 }
 
 #[derive(Debug, Clone)]
-pub struct ProcessorInfo<A>
-where
-    A: Allocator,
-{
+pub struct ProcessorInfo<A: Allocator = Global> {
     pub boot_processor: Processor,
     /// Application processors should be brought up in the order they're defined in this list.
-    pub application_processors: ManagedSlice<Processor, A>,
+    pub application_processors: Vec<Processor, A>,
 }
 
-impl<A> ProcessorInfo<A>
-where
-    A: Allocator,
-{
-    pub(crate) fn new(boot_processor: Processor, application_processors: ManagedSlice<Processor, A>) -> Self {
+impl<A: Allocator> ProcessorInfo<A> {
+    pub(crate) fn new_in(boot_processor: Processor, application_processors: Vec<Processor, A>) -> Self {
         Self { boot_processor, application_processors }
     }
 }
@@ -86,10 +85,7 @@ impl PmTimer {
 /// tables in a nice way. It requires access to the `FADT` and `MADT`. It is the easiest way to get information
 /// about the processors and interrupt controllers on a platform.
 #[derive(Debug, Clone)]
-pub struct PlatformInfo<A>
-where
-    A: Allocator,
-{
+pub struct PlatformInfo<A: Allocator = Global> {
     pub power_profile: PowerProfile,
     pub interrupt_model: InterruptModel<A>,
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
@@ -101,9 +97,8 @@ where
      */
 }
 
-#[cfg(feature = "alloc")]
-impl PlatformInfo<alloc::alloc::Global> {
-    pub fn new<H>(tables: &AcpiTables<H>) -> AcpiResult<Self>
+impl PlatformInfo<Global> {
+    pub fn new<H>(tables: &AcpiTables<H>) -> Result<Self, AcpiError>
     where
         H: AcpiHandler,
     {
@@ -111,22 +106,15 @@ impl PlatformInfo<alloc::alloc::Global> {
     }
 }
 
-impl<A> PlatformInfo<A>
-where
-    A: Allocator + Clone,
-{
-    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> AcpiResult<Self>
+impl<A: Allocator + Clone> PlatformInfo<A> {
+    pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> Result<Self, AcpiError>
     where
         H: AcpiHandler,
     {
-        let fadt = tables.find_table::<Fadt>()?;
+        let Some(fadt) = tables.find_table::<Fadt>() else { Err(AcpiError::TableNotFound(Signature::FADT))? };
         let power_profile = fadt.power_profile();
 
-        let madt = tables.find_table::<Madt>();
-        let (interrupt_model, processor_info) = match madt {
-            Ok(madt) => madt.get().parse_interrupt_model_in(allocator)?,
-            Err(_) => (InterruptModel::Unknown, None),
-        };
+        let (interrupt_model, processor_info) = InterruptModel::new_in(&tables, allocator)?;
         let pm_timer = PmTimer::new(&fadt)?;
 
         Ok(PlatformInfo { power_profile, interrupt_model, processor_info, pm_timer })
@@ -152,7 +140,7 @@ pub unsafe fn wakeup_aps<H>(
 where
     H: AcpiHandler,
 {
-    let madt = tables.find_table::<Madt>()?;
+    let Some(madt) = tables.find_table::<Madt>() else { Err(AcpiError::TableNotFound(Signature::MADT))? };
     let mailbox_addr = madt.get().get_mpwk_mailbox_addr()?;
     let mut mpwk_mapping = unsafe {
         handler.map_physical_region::<MultiprocessorWakeupMailbox>(

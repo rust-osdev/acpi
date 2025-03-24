@@ -1,4 +1,11 @@
-use crate::{AcpiError, AcpiHandler, AcpiResult, AcpiTable, PhysicalMapping};
+pub mod bgrt;
+pub mod fadt;
+pub mod hpet;
+pub mod madt;
+pub mod mcfg;
+pub mod spcr;
+
+use crate::AcpiError;
 use core::{fmt, mem::MaybeUninit, str};
 
 /// Represents a field which may or may not be present within an ACPI structure, depending on the version of ACPI
@@ -13,11 +20,7 @@ impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
     /// ### Safety
     /// If a bogus ACPI version is passed, this function may access uninitialised data.
     pub unsafe fn access(&self, revision: u8) -> Option<T> {
-        if revision >= MIN_REVISION {
-            Some(unsafe { self.0.assume_init() })
-        } else {
-            None
-        }
+        if revision >= MIN_REVISION { Some(unsafe { self.0.assume_init() }) } else { None }
     }
 }
 
@@ -56,7 +59,7 @@ impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
 /// * SSDT - Secondary System Description Table
 /// * XSDT - Extended System Description Table
 ///
-/// Acpi reserves the following signatures and the specifications for them can be found [here](https://uefi.org/acpi):
+/// ACPI also reserves the following signatures and the specifications for them can be found [here](https://uefi.org/acpi):
 ///
 /// * AEST - ARM Error Source Table
 /// * BDAT - BIOS Data ACPI Table
@@ -105,13 +108,19 @@ pub struct SdtHeader {
     pub oem_id: [u8; 6],
     pub oem_table_id: [u8; 8],
     pub oem_revision: u32,
-    pub creator_id: u32,
+    pub creator_id: [u8; 4],
     pub creator_revision: u32,
 }
 
 impl SdtHeader {
-    /// Whether values of header fields are permitted.
-    fn validate_header_fields(&self, signature: Signature) -> AcpiResult<()> {
+    /// Checks that:
+    /// 1. The signature matches the one given.
+    /// 2. The values of various fields in the header are allowed.
+    /// 3. The checksum of the SDT is valid.
+    ///
+    /// ### Safety
+    /// The entire `length` bytes of the SDT must be mapped to compute the checksum.
+    pub unsafe fn validate(&self, signature: Signature) -> Result<(), AcpiError> {
         // Check the signature
         if self.signature != signature || str::from_utf8(&self.signature.0).is_err() {
             return Err(AcpiError::SdtInvalidSignature(signature));
@@ -127,89 +136,53 @@ impl SdtHeader {
             return Err(AcpiError::SdtInvalidTableId(signature));
         }
 
-        Ok(())
-    }
-
-    /// Whether table is valid according to checksum.
-    fn validate_checksum(&self, signature: Signature) -> AcpiResult<()> {
-        // SAFETY: Entire table is mapped.
+        // Check the checksum
         let table_bytes =
             unsafe { core::slice::from_raw_parts((self as *const SdtHeader).cast::<u8>(), self.length as usize) };
         let sum = table_bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
-
-        if sum == 0 {
-            Ok(())
-        } else {
-            Err(AcpiError::SdtInvalidChecksum(signature))
+        if sum != 0 {
+            return Err(AcpiError::SdtInvalidChecksum(signature));
         }
-    }
-
-    /// Checks that:
-    ///
-    /// 1. The signature matches the one given.
-    /// 2. The values of various fields in the header are allowed.
-    /// 3. The checksum of the SDT is valid.
-    ///
-    /// This assumes that the whole SDT is mapped.
-    pub fn validate(&self, signature: Signature) -> AcpiResult<()> {
-        self.validate_header_fields(signature)?;
-        self.validate_checksum(signature)?;
 
         Ok(())
     }
 
-    /// Validates header, proceeding with checking entire table and returning a [`PhysicalMapping`] to it if
-    /// successful.
-    ///
-    /// The same checks are performed as [`SdtHeader::validate`], but `header_mapping` does not have to map the
-    /// entire table when calling. This is useful to avoid completely mapping a table that will be immediately
-    /// unmapped if it does not have a particular signature or has an invalid header.
-    pub(crate) fn validate_lazy<H: AcpiHandler, T: AcpiTable>(
-        header_mapping: PhysicalMapping<H, Self>,
-        handler: H,
-    ) -> AcpiResult<PhysicalMapping<H, T>> {
-        header_mapping.validate_header_fields(T::SIGNATURE)?;
-
-        // Reuse `header_mapping` to access the rest of the table if the latter is already mapped entirely
-        let table_length = header_mapping.length as usize;
-        let table_mapping = if header_mapping.mapped_length() >= table_length {
-            // Avoid requesting table unmap twice (from both `header_mapping` and `table_mapping`)
-            let header_mapping = core::mem::ManuallyDrop::new(header_mapping);
-
-            // SAFETY: `header_mapping` maps entire table.
-            unsafe {
-                PhysicalMapping::new(
-                    header_mapping.physical_start(),
-                    header_mapping.virtual_start().cast::<T>(),
-                    table_length,
-                    header_mapping.mapped_length(),
-                    handler,
-                )
-            }
-        } else {
-            // Unmap header as soon as possible
-            let table_phys_start = header_mapping.physical_start();
-            drop(header_mapping);
-
-            // SAFETY: `table_phys_start` is the physical address of the header and the rest of the table.
-            unsafe { handler.map_physical_region(table_phys_start, table_length) }
-        };
-
-        // This is usually redundant compared to simply calling `validate_checksum` but respects custom
-        // `AcpiTable::validate` implementations.
-        table_mapping.get().validate()?;
-
-        Ok(table_mapping)
+    #[inline]
+    pub fn length(&self) -> u32 {
+        self.length
     }
 
-    pub fn oem_id(&self) -> &str {
-        // Safe to unwrap because checked in `validate`
-        str::from_utf8(&self.oem_id).unwrap()
+    #[inline]
+    pub fn revision(&self) -> u8 {
+        self.revision
     }
 
-    pub fn oem_table_id(&self) -> &str {
-        // Safe to unwrap because checked in `validate`
-        str::from_utf8(&self.oem_table_id).unwrap()
+    #[inline]
+    pub fn checksum(&self) -> u8 {
+        self.checksum
+    }
+
+    pub fn oem_id(&self) -> Result<&str, AcpiError> {
+        str::from_utf8(&self.oem_id).map_err(|_| AcpiError::SdtInvalidOemId(self.signature))
+    }
+
+    pub fn oem_table_id(&self) -> Result<&str, AcpiError> {
+        str::from_utf8(&self.oem_table_id).map_err(|_| AcpiError::SdtInvalidTableId(self.signature))
+    }
+
+    #[inline]
+    pub fn oem_revision(&self) -> u32 {
+        self.oem_revision
+    }
+
+    #[inline]
+    pub fn creator_id(&self) -> Result<&str, AcpiError> {
+        str::from_utf8(&self.creator_id).map_err(|_| AcpiError::SdtInvalidCreatorId(self.signature))
+    }
+
+    #[inline]
+    pub fn creator_revision(&self) -> u32 {
+        self.creator_revision
     }
 }
 

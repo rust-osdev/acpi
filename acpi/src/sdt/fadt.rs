@@ -1,8 +1,8 @@
 use crate::{
-    address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
-    sdt::{ExtendedField, SdtHeader, Signature},
     AcpiError,
     AcpiTable,
+    address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
+    sdt::{ExtendedField, SdtHeader, Signature},
 };
 use bit_field::BitField;
 
@@ -126,7 +126,7 @@ unsafe impl AcpiTable for Fadt {
 
 impl Fadt {
     pub fn validate(&self) -> Result<(), AcpiError> {
-        self.header.validate(crate::sdt::Signature::FADT)
+        unsafe { self.header.validate(crate::sdt::Signature::FADT) }
     }
 
     pub fn facs_address(&self) -> Result<usize, AcpiError> {

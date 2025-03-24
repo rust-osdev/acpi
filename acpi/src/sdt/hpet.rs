@@ -1,12 +1,13 @@
 use crate::{
-    address::RawGenericAddress,
-    sdt::{SdtHeader, Signature},
     AcpiError,
     AcpiHandler,
     AcpiTable,
     AcpiTables,
+    address::RawGenericAddress,
+    sdt::{SdtHeader, Signature},
 };
 use bit_field::BitField;
+use log::warn;
 
 #[derive(Debug)]
 pub enum PageProtection {
@@ -38,10 +39,11 @@ impl HpetInfo {
     where
         H: AcpiHandler,
     {
-        let hpet = tables.find_table::<HpetTable>()?;
+        let Some(hpet) = tables.find_table::<HpetTable>() else { Err(AcpiError::TableNotFound(Signature::HPET))? };
 
-        // Make sure the HPET is in system memory
-        assert_eq!(hpet.base_address.address_space, 0);
+        if hpet.base_address.address_space != 0 {
+            warn!("HPET reported as not in system memory; tables invalid?");
+        }
 
         let event_timer_block_id = hpet.event_timer_block_id;
         Ok(HpetInfo {
