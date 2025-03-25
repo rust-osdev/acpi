@@ -1,4 +1,4 @@
-use crate::{AmlError, namespace::AmlName};
+use crate::aml::{AmlError, namespace::AmlName};
 
 #[derive(Clone, Debug)]
 pub struct OpRegion {

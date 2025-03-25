@@ -9,6 +9,10 @@
 //! tables, and interact with the tables using their raw structures. All other functionality is
 //! behind an `alloc` feature (enabled by default) and requires an allocator.
 //!
+//! With an allocator, this crate also provides higher-level interfaces to the static tables, as
+//! well as a dynamic interpreter for AML - the bytecode format encoded in the DSDT and SSDT
+//! tables.
+//!
 //! ### Usage
 //! To use the library, you will need to provide an implementation of the [`AcpiHandler`] trait,
 //! which allows the library to make requests such as mapping a particular region of physical
@@ -28,7 +32,7 @@
 //! interfaces, such as [`PlatformInfo`], [`PciConfigRegions`], or [`HpetInfo`].
 
 #![no_std]
-#![feature(allocator_api)]
+#![feature(allocator_api, let_chains, inherent_str_constructors)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -38,7 +42,10 @@ extern crate std;
 extern crate alloc;
 
 pub mod address;
+#[cfg(feature = "aml")]
+pub mod aml;
 pub mod handler;
+#[cfg(feature = "alloc")]
 pub mod platform;
 pub mod rsdp;
 pub mod sdt;

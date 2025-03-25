@@ -5,7 +5,7 @@ authors = ["Isaac Woods"]
 edition = "2018"
 
 [dependencies]
-aml = { path = "../../aml" }
+acpi = { path = "../.." }
 clap = "4"
 termion = "1"
 log = "0.4"

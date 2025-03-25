@@ -1,4 +1,4 @@
-use crate::{AmlError, object::Object};
+use crate::aml::{AmlError, object::Object};
 use alloc::{
     collections::btree_map::BTreeMap,
     string::{String, ToString},

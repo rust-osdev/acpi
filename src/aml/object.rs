@@ -1,4 +1,4 @@
-use crate::{AmlError, Handle, Operation, op_region::OpRegion};
+use crate::aml::{AmlError, Handle, Operation, op_region::OpRegion};
 use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 

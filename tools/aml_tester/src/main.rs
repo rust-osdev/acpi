@@ -9,7 +9,7 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use aml::{namespace::AmlName, AmlError, Handle, Interpreter};
+use acpi::aml::{namespace::AmlName, AmlError, Handle, Interpreter};
 use clap::{Arg, ArgAction, ArgGroup};
 use pci_types::PciAddress;
 use std::{
@@ -324,7 +324,7 @@ impl log::Log for Logger {
 
 struct Handler;
 
-impl aml::Handler for Handler {
+impl acpi::aml::Handler for Handler {
     fn read_u8(&self, address: usize) -> u8 {
         println!("read_u8 {address:#x}");
         0

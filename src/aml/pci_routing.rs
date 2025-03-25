@@ -1,4 +1,4 @@
-use crate::{
+use crate::aml::{
     AmlError,
     Handler,
     Interpreter,
@@ -11,7 +11,7 @@ use alloc::{vec, vec::Vec};
 use bit_field::BitField;
 use core::str::FromStr;
 
-pub use crate::resource::IrqDescriptor;
+pub use crate::aml::resource::IrqDescriptor;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pin {

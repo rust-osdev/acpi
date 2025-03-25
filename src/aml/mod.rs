@@ -1,7 +1,19 @@
-#![no_std]
-#![feature(let_chains, inherent_str_constructors)]
-
-extern crate alloc;
+/*
+ * TODO:
+ *  - Field reads supporting custom handlers
+ *  - Run `_REG` on supported op region handlers
+ *  - Sort out situation with `gain_mut` omg - thinking we should have a weird mutex thingy and
+ *    gain a 'token' to give us access to objects. Objects themselves should probs be in like an
+ *    `UnsafeCell` or something.
+ *  - Count operations performed and time
+ *  - Do stores properly :(
+ *  - Load and LoadTable
+ *  - Entire Event subsystem and opcodes for them
+ *
+ *  - Method recursion depth?
+ *  - Loop timeouts
+ *  - Fuzz the shit out of it I guess?
+ */
 
 pub mod namespace;
 pub mod object;

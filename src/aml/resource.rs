@@ -1,4 +1,4 @@
-use crate::{AmlError, Operation, object::Object};
+use crate::aml::{AmlError, Operation, object::Object};
 use alloc::{sync::Arc, vec::Vec};
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
