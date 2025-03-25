@@ -111,32 +111,27 @@ where
 
     fn do_execute_method(&self, mut context: MethodContext) -> Result<Arc<Object>, AmlError> {
         /*
-         * TODO
+         * This is the main loop that executes operations. Every op is handled at the top-level of
+         * the loop to prevent pathological stack growth from nested operations.
          *
-         * This is the main loop that executes ops. Every op is handled at the top-level loop to
-         * prevent pathological stack depths.
+         * The loop has three main stages:
+         *   1) Check if any in-flight operations are ready to be executed (i.e. have collected all
+         *      their arguments). An operation completing may contribute the last required argument
+         *      of the one above, so this is repeated for as many operations as are ready to be
+         *      retired.
+         *   2) Look at the next opcode in the stream. If we've run out of opcodes in the current
+         *      block, run logic to determine where in the stream we should move to next. Special
+         *      logic at this level handles things like moving in/out of package definitions, and
+         *      performing control flow.
+         *   3) When the next opcode is determined, use it to interpret the next portion of the
+         *      stream. If that is data, the correct number of bytes can be consumed and
+         *      contributed to the current in-flight operation. If it's an opcode, a new in-flight
+         *      operation is started, and we go round the loop again.
          *
-         * Worked example: AddOp TermArg TermArg Target
-         * - We go round the loop 4 times to interpret this.
-         * - We encounter the AddOp. We add a new in-flight operation with 3 expected arguments.
-         * - We go round again and find some sort of TermArg. This may create new in-flight ops
-         *   which we then go round again to complete. Once we're finished, we add this to the
-         *   AddOp's record. We then need to detect that all 3 arguments are ready and retire the
-         *   AddOp *before* moving on.
-         *
-         * My thoughts are that we can go round and round a loop with two big stages. First, we
-         * check if in-flight ops are ready to be executed (e.g. have collected all their
-         * arguments) and execute them. This can in turn complete the next op up, so this should
-         * complete as many in-flight ops as possible at a time.
-         *
-         * Once all possible in-flight ops have been executed, we then need to move forward in the
-         * stream. Depending on the next op, this could create a new in-flight op that is then
-         * pre-empted, or could parse an argument to an existing in-flight op, which may then be
-         * able to be completed. This stage should not do any executing in its own right, really.
-         * It's just about consuming the next however-many bytes of the stream and setting things
-         * up.
+         * This scheme is what allows the interpreter to use a loop that somewhat resembles a
+         * traditional fast bytecode VM, but also provides enough flexibility to handle the
+         * quirkier parts of the AML grammar, particularly the left-to-right encoding of operands.
          */
-
         loop {
             /*
              * First, see if we've gathered enough arguments to complete some in-flight operations.
@@ -207,7 +202,7 @@ where
                             Arc::new(Object::Buffer(buffer))
                         };
                         // TODO: use potentially-updated result for return value here
-                        self.do_store(&mut context, target, result.clone())?;
+                        self.do_store(target, result.clone())?;
                         context.contribute_arg(Argument::Object(result));
                     }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
@@ -393,7 +388,7 @@ where
                     }
                     Opcode::Store => {
                         let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
-                        self.do_store(&mut context, &target, object.clone())?;
+                        self.do_store(&target, object.clone())?;
                     }
                     Opcode::RefOf => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
@@ -408,7 +403,7 @@ where
                         } else {
                             let reference =
                                 Arc::new(Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() });
-                            self.do_store(&mut context, target, reference)?;
+                            self.do_store(target, reference)?;
                             Object::Integer(u64::MAX)
                         };
                         context.contribute_arg(Argument::Object(Arc::new(result)));
@@ -1193,7 +1188,7 @@ where
             Opcode::Multiply => left.wrapping_mul(right),
             Opcode::Divide => {
                 if let Some(remainder) = target2 {
-                    self.do_store(context, remainder, Arc::new(Object::Integer(left.wrapping_rem(right))))?;
+                    self.do_store(remainder, Arc::new(Object::Integer(left.wrapping_rem(right))))?;
                 }
                 left.wrapping_div_euclid(right)
             }
@@ -1210,7 +1205,7 @@ where
 
         let result = Arc::new(Object::Integer(result));
         // TODO: use result for arg
-        self.do_store(context, target, result.clone())?;
+        self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
         Ok(())
     }
@@ -1360,7 +1355,7 @@ where
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::Mid, typ: source.typ() })?,
         });
 
-        self.do_store(context, target, result.clone())?;
+        self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
 
         Ok(())
@@ -1417,7 +1412,7 @@ where
             }
         };
         // TODO: use result of store
-        self.do_store(context, target, result.clone())?;
+        self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
         Ok(())
     }
@@ -1511,21 +1506,22 @@ where
             _ => Err(AmlError::IndexOutOfBounds)?,
         });
 
-        self.do_store(context, target, result.clone())?;
+        self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
         Ok(())
     }
-    fn do_store(
-        &self,
-        context: &mut MethodContext,
-        target: &Argument,
-        object: Arc<Object>,
-    ) -> Result<(), AmlError> {
+
+    // TODO: this might actually do weird stuff to your data if written to a field with BufferAcc
+    // access. I guess we need to return something here really and use it instead of the result
+    // when returning?? We need to look carefully at all use-sites to make sure it actually returns
+    // the result of the store, not the object it passed to us.
+    fn do_store(&self, target: &Argument, object: Arc<Object>) -> Result<(), AmlError> {
         // TODO: find the destination (need to handle references, debug objects, etc.)
         // TODO: convert object to be of the type of destination, in line with 19.3.5 of the spec
         // TODO: write the object to the destination, including e.g. field writes that then lead to
         // literally god knows what.
         let object = object.unwrap_transparent_reference();
+
         match target {
             Argument::Object(target) => match target.gain_mut() {
                 Object::Integer(target) => match object.gain_mut() {
@@ -2579,6 +2575,12 @@ mod tests {
         fn create_mutex(&self) -> Handle { Handle(0) }
         fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> { Ok(()) }
         fn release(&self, _mutex: Handle) {}
+    }
+
+    #[test]
+    fn verify_interpreter_send_sync() {
+        fn test_send_sync<T: Send + Sync>() {}
+        test_send_sync::<Interpreter<TestHandler>>();
     }
 
     #[test]
