@@ -234,7 +234,7 @@ pub unsafe trait AcpiTable {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum AcpiError {
     NoValidRsdp,
     RsdpIncorrectSignature,
@@ -252,4 +252,7 @@ pub enum AcpiError {
     InvalidDsdtAddress,
     InvalidMadt(MadtError),
     InvalidGenericAddress,
+
+    #[cfg(feature = "alloc")]
+    Aml(aml::AmlError),
 }

@@ -23,6 +23,7 @@ pub mod resource;
 
 pub use pci_types::PciAddress;
 
+use crate::{AcpiError, AcpiHandler, AcpiTables, AmlTable, sdt::SdtHeader};
 use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
@@ -32,7 +33,7 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{mem, str::FromStr};
+use core::{mem, slice, str::FromStr};
 use log::{info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
@@ -70,8 +71,8 @@ impl<H> Interpreter<H>
 where
     H: Handler,
 {
-    // TODO: new_from_tables helper that does `new` and then loads the DSDT + any SSDTs
-
+    /// Construct a new `Interpreter`. This does not load any tables - if you have an `AcpiTables`
+    /// already, use [`Interpreter::new_from_tables`] instead.
     pub fn new(handler: H, dsdt_revision: u8) -> Interpreter<H> {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
         Interpreter {
@@ -83,6 +84,46 @@ where
         }
     }
 
+    /// Construct a new `Interpreter` with the given set of ACPI tables. This will automatically
+    /// load the DSDT and any SSDTs in the supplied [`AcpiTables`].
+    // TODO: maybe merge handler types? Maybe make one a supertrait of the other?
+    pub fn new_from_tables<AH: AcpiHandler>(
+        acpi_handler: AH,
+        aml_handler: H,
+        tables: &AcpiTables<AH>,
+    ) -> Result<Interpreter<H>, AcpiError> {
+        fn load_table<H: Handler, AH: AcpiHandler>(
+            interpreter: &Interpreter<H>,
+            acpi_handler: &AH,
+            table: AmlTable,
+        ) -> Result<(), AcpiError> {
+            let mapping = unsafe {
+                acpi_handler.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize)
+            };
+            let stream = unsafe {
+                slice::from_raw_parts(
+                    mapping.virtual_start().as_ptr().byte_add(mem::size_of::<SdtHeader>()) as *const u8,
+                    table.length as usize - mem::size_of::<SdtHeader>(),
+                )
+            };
+            interpreter.load_table(stream).map_err(|err| AcpiError::Aml(err))?;
+            Ok(())
+        }
+
+        let dsdt = tables.dsdt()?;
+        let interpreter = Interpreter::new(aml_handler, dsdt.revision);
+        load_table(&interpreter, &acpi_handler, dsdt)?;
+
+        for ssdt in tables.ssdts() {
+            load_table(&interpreter, &acpi_handler, ssdt)?;
+        }
+
+        Ok(interpreter)
+    }
+
+    /// Load the supplied byte stream as an AML table. This should be only the encoded AML stream -
+    /// not the header at the start of a table. If you've used [`Interpreter::new_from_tables`],
+    /// you'll likely not need to load any tables manually.
     pub fn load_table(&self, stream: &[u8]) -> Result<(), AmlError> {
         let context = unsafe { MethodContext::new_from_table(stream) };
         self.do_execute_method(context)?;
@@ -93,7 +134,7 @@ where
     /// not a method, the object will instead be returned - this is useful for objects that can
     /// either be defined directly, or through a method (e.g. a `_CRS` object).
     pub fn invoke_method(&self, path: AmlName, args: Vec<Arc<Object>>) -> Result<Arc<Object>, AmlError> {
-        info!("Invoking AML method: {}", path);
+        trace!("Invoking AML method: {}", path);
 
         let object = self.namespace.lock().get(path.clone())?.clone();
         match object.typ() {
