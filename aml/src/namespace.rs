@@ -9,6 +9,7 @@ use alloc::{
 use bit_field::BitField;
 use core::{fmt, str, str::FromStr};
 
+#[derive(Clone)]
 pub struct Namespace {
     root: NamespaceLevel,
 }
@@ -312,6 +313,7 @@ pub enum NamespaceLevelKind {
     MethodLocals,
 }
 
+#[derive(Clone)]
 pub struct NamespaceLevel {
     pub kind: NamespaceLevelKind,
     pub values: BTreeMap<NameSeg, (ObjectFlags, Arc<Object>)>,

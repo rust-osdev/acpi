@@ -23,7 +23,17 @@ use bit_field::BitField;
 use core::{mem, str::FromStr};
 use log::{info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
-use object::{FieldFlags, FieldUnit, FieldUnitKind, MethodFlags, Object, ObjectType, ReferenceKind};
+use object::{
+    DeviceStatus,
+    FieldFlags,
+    FieldUnit,
+    FieldUnitKind,
+    FieldUpdateRule,
+    MethodFlags,
+    Object,
+    ObjectType,
+    ReferenceKind,
+};
 use op_region::{OpRegion, RegionHandler, RegionSpace};
 use spinning_top::Spinlock;
 
@@ -107,6 +117,85 @@ where
         let mut handlers = self.region_handlers.lock();
         assert!(handlers.get(&space).is_none(), "Tried to install handler for same space twice!");
         handlers.insert(space, Box::new(handler));
+    }
+
+    /// Initialize the namespace - this should be called after all tables have been loaded and
+    /// operation region handlers registered. Specifically, it will call relevant `_STA`, `_INI`,
+    /// and `_REG` methods.
+    pub fn initialize_namespace(&self) {
+        /*
+         * This should match the initialization order of ACPICA and uACPI.
+         */
+        if let Err(err) = self.invoke_method_if_present(AmlName::from_str("\\_INI").unwrap(), vec![]) {
+            warn!("Invoking \\_INI failed: {:?}", err);
+        }
+        if let Err(err) = self.invoke_method_if_present(AmlName::from_str("\\_SB._INI").unwrap(), vec![]) {
+            warn!("Invoking \\_SB._INI failed: {:?}", err);
+        }
+
+        // TODO: run all _REGs for globally-installed handlers (this might need more bookkeeping)
+
+        /*
+         * We can now initialize each device in the namespace. For each device, we evaluate `_STA`,
+         * which indicates if the device is present and functional. If this method does not exist,
+         * we assume the device should be initialized.
+         *
+         * We then evaluate `_INI` for the device. This can dynamically populate objects such as
+         * `_ADR`, `_CID`, `_HID`, `_SUN`, and `_UID`, and so is necessary before further
+         * operation.
+         */
+        let mut num_devices_initialized = 0;
+        /*
+         * TODO
+         * We clone a copy of the namespace here to traverse while executing all the `_STA` and
+         * `_INI` objects. Avoiding this would be good, but is not easy, as we need
+         * potentially-mutable access while executing all of the methods.
+         */
+        let mut namespace = self.namespace.lock().clone();
+        let init_status = namespace.traverse(|path, level| {
+            match level.kind {
+                NamespaceLevelKind::Device
+                | NamespaceLevelKind::Processor
+                | NamespaceLevelKind::ThermalZone
+                | NamespaceLevelKind::PowerResource => {
+                    let should_initialize = match self
+                        .invoke_method_if_present(AmlName::from_str("_STA").unwrap().resolve(path)?, vec![])
+                    {
+                        Ok(Some(result)) => {
+                            let Object::Integer(result) = *result else { panic!() };
+                            let status = DeviceStatus(result);
+                            status.present() && status.functioning()
+                        }
+                        Ok(None) => true,
+                        Err(err) => {
+                            warn!("Failed to evaluate _STA for device {}: {:?}", path, err);
+                            false
+                        }
+                    };
+
+                    if should_initialize {
+                        num_devices_initialized += 1;
+                        if let Err(err) = self
+                            .invoke_method_if_present(AmlName::from_str("_INI").unwrap().resolve(path)?, vec![])
+                        {
+                            warn!("Failed to evaluate _INI for device {}: {:?}", path, err);
+                        }
+                        Ok(true)
+                    } else {
+                        /*
+                         * If this device should not be initialized, don't initialize it's children.
+                         */
+                        Ok(false)
+                    }
+                }
+                _ => Ok(true),
+            }
+        });
+        if let Err(err) = init_status {
+            warn!("Error while traversing namespace for devices: {:?}", err);
+        }
+
+        info!("Initialized {} devices", num_devices_initialized);
     }
 
     fn do_execute_method(&self, mut context: MethodContext) -> Result<Arc<Object>, AmlError> {
@@ -2529,6 +2618,7 @@ pub trait Handler: Send + Sync {
     /// without causing a deadlock.
     fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), AmlError>;
     fn release(&self, mutex: Handle);
+
     fn breakpoint(&self) {}
 
     fn handle_debug(&self, _object: &Object) {}

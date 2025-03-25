@@ -1,6 +1,6 @@
 use crate::{AmlError, namespace::AmlName};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct OpRegion {
     pub space: RegionSpace,
     pub base: u64,

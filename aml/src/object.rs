@@ -2,7 +2,7 @@ use crate::{AmlError, Handle, Operation, op_region::OpRegion};
 use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Object {
     Uninitialized,
     Buffer(Vec<u8>),
@@ -183,7 +183,7 @@ impl Object {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FieldUnit {
     pub kind: FieldUnitKind,
     pub flags: FieldFlags,
@@ -303,6 +303,33 @@ pub enum ObjectType {
     String,
     ThermalZone,
     Debug,
+}
+
+/// Helper type for decoding the result of `_STA` objects.
+pub struct DeviceStatus(pub u64);
+
+impl DeviceStatus {
+    pub fn present(&self) -> bool {
+        self.0.get_bit(0)
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.0.get_bit(1)
+    }
+
+    pub fn show_in_ui(&self) -> bool {
+        self.0.get_bit(2)
+    }
+
+    pub fn functioning(&self) -> bool {
+        self.0.get_bit(3)
+    }
+
+    /// This flag is only used for Battery devices (PNP0C0A), and indicates if the battery is
+    /// present.
+    pub fn battery_present(&self) -> bool {
+        self.0.get_bit(4)
+    }
 }
 
 /// Copy an arbitrary bit range of `src` to an arbitrary bit range of `dst`. This is used for
