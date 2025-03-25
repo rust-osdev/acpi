@@ -246,6 +246,32 @@ where
                             length: region_length.as_integer()?,
                             parent_device_path: context.current_scope.clone(),
                         });
+                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, Arc::new(region))?;
+                    }
+                    Opcode::DataRegion => {
+                        let [
+                            Argument::Namestring(name),
+                            Argument::Object(signature),
+                            Argument::Object(oem_id),
+                            Argument::Object(oem_table_id),
+                        ] = &op.arguments[..]
+                        else {
+                            panic!()
+                        };
+                        let _signature = signature.as_string()?;
+                        let _oem_id = oem_id.as_string()?;
+                        let _oem_table_id = oem_table_id.as_string()?;
+
+                        // TODO: once this is integrated into the rest of the crate, load the table
+                        log::warn!(
+                            "DefDataRegion encountered in AML! We don't actually support these - produced region will be incorrect"
+                        );
+
+                        let region = Object::OpRegion(OpRegion {
+                            space: RegionSpace::SystemMemory,
+                            base: 0,
+                            length: 0,
+                            parent_device_path: context.current_scope.clone(),
                         });
                         self.namespace.lock().insert(name.resolve(&context.current_scope)?, Arc::new(region))?;
                     }
@@ -792,6 +818,14 @@ where
                         2,
                     ));
                 }
+                Opcode::DataRegion => {
+                    let name = context.namestring()?;
+                    context.start_in_flight_op(OpInFlight::new_with(
+                        Opcode::DataRegion,
+                        vec![Argument::Namestring(name)],
+                        3,
+                    ));
+                }
                 Opcode::Field => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
@@ -892,7 +926,6 @@ where
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
-                Opcode::DataRegion => todo!(),
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
                     context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference {
