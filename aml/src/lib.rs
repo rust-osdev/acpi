@@ -58,6 +58,8 @@ impl<H> Interpreter<H>
 where
     H: Handler,
 {
+    // TODO: new_from_tables helper that does `new` and then loads the DSDT + any SSDTs
+
     pub fn new(handler: H, dsdt_revision: u8) -> Interpreter<H> {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
         Interpreter {
@@ -272,6 +274,11 @@ where
                     | Opcode::LLess => {
                         self.do_logical_op(&mut context, op)?;
                     }
+                    Opcode::ToBuffer
+                    | Opcode::ToDecimalString
+                    | Opcode::ToHexString
+                    | Opcode::ToInteger
+                    | Opcode::ToString => todo!(),
                     Opcode::Mid => self.do_mid(&mut context, op)?,
                     Opcode::Concat => self.do_concat(&mut context, op)?,
                     Opcode::ConcatRes => {
@@ -412,7 +419,6 @@ where
                         else {
                             panic!()
                         };
-
                         let predicate = predicate.as_integer()?;
                         let remaining_then_length = then_length - (context.current_block.pc - start_pc);
 
@@ -697,6 +703,9 @@ where
                              */
                             assert!(context.block_stack.len() > 0);
 
+                            // TODO: I think we can handle VarPackage here as well because by the
+                            // time the block finishes, the first arg should be resolvable (the var
+                            // length) and so can be updated here...
                             if let Some(package_op) = context.in_flight.last_mut()
                                 && package_op.op == Opcode::Package
                             {
@@ -872,6 +881,7 @@ where
                 Opcode::Signal => todo!(),
                 Opcode::Wait => todo!(),
                 Opcode::Reset => todo!(),
+                Opcode::Notify => todo!(),
                 Opcode::FromBCD | Opcode::ToBCD => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
                 Opcode::Revision => {
                     context.contribute_arg(Argument::Object(Arc::new(Object::Integer(INTERPRETER_REVISION))));
@@ -1108,10 +1118,16 @@ where
                     context.start_in_flight_op(OpInFlight::new(opcode, 2))
                 }
                 Opcode::DerefOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
-                Opcode::Notify => todo!(),
                 Opcode::ConcatRes => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
                 Opcode::SizeOf => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Index => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
+                /*
+                 * TODO
+                 * Match is a difficult opcode to parse, as it interleaves dynamic arguments and
+                 * random bytes that need to be extracted as you go. I think we'll need to use 1+
+                 * internal in-flight ops to parse the static bytedatas as we go, and then retire
+                 * the real op at the end.
+                 */
                 Opcode::Match => todo!(),
 
                 Opcode::CreateBitField

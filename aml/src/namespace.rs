@@ -25,6 +25,8 @@ impl Namespace {
         namespace.add_level(AmlName::from_str("\\_PR").unwrap(), NamespaceLevelKind::Scope).unwrap();
         namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), NamespaceLevelKind::Scope).unwrap();
 
+        // TODO: add pre-defined objects as well - \GL, \OSI, etc.
+
         namespace
     }
 

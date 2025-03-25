@@ -9,8 +9,15 @@ pub struct OpRegion {
 }
 
 pub trait RegionHandler {
-    fn read(&self, region: &OpRegion) -> Result<(), AmlError>;
-    fn write(&self, region: &OpRegion) -> Result<(), AmlError>;
+    fn read_u8(&self, region: &OpRegion) -> Result<u8, AmlError>;
+    fn read_u16(&self, region: &OpRegion) -> Result<u16, AmlError>;
+    fn read_u32(&self, region: &OpRegion) -> Result<u32, AmlError>;
+    fn read_u64(&self, region: &OpRegion) -> Result<u64, AmlError>;
+
+    fn write_u8(&self, region: &OpRegion, value: u8) -> Result<(), AmlError>;
+    fn write_u16(&self, region: &OpRegion, value: u16) -> Result<(), AmlError>;
+    fn write_u32(&self, region: &OpRegion, value: u32) -> Result<(), AmlError>;
+    fn write_u64(&self, region: &OpRegion, value: u64) -> Result<(), AmlError>;
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
