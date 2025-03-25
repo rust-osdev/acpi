@@ -1554,6 +1554,22 @@ where
                     _ => panic!(),
                 },
                 Object::FieldUnit(field) => self.do_field_write(field, object)?,
+                Object::Reference { kind, inner } => {
+                    match kind {
+                        ReferenceKind::RefOf => todo!(),
+                        ReferenceKind::LocalOrArg => {
+                            if let Object::Reference { kind: inner_kind, inner: inner_inner } = &**inner {
+                                // TODO: this should store into the reference, potentially doing an
+                                // implicit cast
+                                todo!()
+                            } else {
+                                // Overwrite the value
+                                *inner.gain_mut() = object.gain_mut().clone();
+                            }
+                        }
+                        ReferenceKind::Unresolved => todo!(),
+                    }
+                }
                 Object::Debug => {
                     self.handler.handle_debug(&*object);
                 }
