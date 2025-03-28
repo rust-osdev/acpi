@@ -1378,11 +1378,14 @@ where
                     0
                 } else {
                     /*
-                     * TODO: this is a particular instance where not respecting integers being
-                     * 32-bit on revision 1 tables does cause properly incorrect behaviour...
-                     * TODO: we can fix this now we have the DSDT revision
+                     * This is a particularly important place to respect the integer width as set
+                     * by the DSDT revision.
                      */
-                    (operand.leading_zeros() + 1) as u64
+                    if self.dsdt_revision >= 2 {
+                        (operand.leading_zeros() + 1) as u64
+                    } else {
+                        ((operand as u32).leading_zeros() + 1) as u64
+                    }
                 }
             }
             Opcode::FindSetRightBit => {
