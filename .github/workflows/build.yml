@@ -41,7 +41,7 @@ jobs:
         components: llvm-tools-preview
         
     - name: Build crates
-      run: cargo build -p acpi -p aml --target $TARGET
+      run: cargo build --target $TARGET
 
   test:
     runs-on: ubuntu-latest
@@ -60,7 +60,7 @@ jobs:
       run: sudo apt-get install -y acpica-tools
 
     - name: Run tests
-      run: cargo test --all
+      run: cargo test
 
     - name: Run AML test suite
       run: cargo run_tests -p tests
@@ -79,14 +79,8 @@ jobs:
         profile: minimal
         components: clippy
 
-    - name: Run clippy (ACPI)
-      run: cargo clippy -p acpi
+    - name: Run clippy
+      run: cargo clippy
 
-    - name: Run clippy (ACPI tests)
-      run: cargo clippy -p acpi --tests
-
-    - name: Run clippy (AML)
-      run: cargo clippy -p aml
-
-    - name: Run clippy (AML tests)
-      run: cargo clippy -p aml --tests
+    - name: Run clippy (tests)
+      run: cargo clippy --tests
