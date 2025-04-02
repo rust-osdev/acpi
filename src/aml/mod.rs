@@ -1548,6 +1548,12 @@ where
                 Object::Integer(u64::from_le_bytes(to_interpret))
             }
             Object::String(ref value) => {
+                /*
+                 * This is about the same level of effort as ACPICA puts in. The uACPI test suite
+                 * has tests that this fails - namely because of support for octal, signs, strings
+                 * that won't fit in a `u64` etc. We probably need to write a more robust parser
+                 * 'real' parser to handle those cases.
+                 */
                 if let Some(value) = value.strip_prefix("0x") {
                     let parsed = u64::from_str_radix(value, 16).map_err(|_| {
                         AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
