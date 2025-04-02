@@ -2579,10 +2579,8 @@ pub enum Operation {
     ParseResource,
 }
 
-/*
- * TODO: not sure if we should use a better error reporting system or just keep a giant enum?
- */
 #[derive(Clone, PartialEq, Debug)]
+#[non_exhaustive]
 pub enum AmlError {
     RunOutOfStream,
     IllegalOpcode(u16),

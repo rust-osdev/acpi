@@ -235,6 +235,7 @@ pub unsafe trait AcpiTable {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum AcpiError {
     NoValidRsdp,
     RsdpIncorrectSignature,
