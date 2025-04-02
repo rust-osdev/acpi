@@ -1833,7 +1833,10 @@ where
                         // TODO: not sure if we should convert buffers to integers if needed here?
                         *target = self.do_field_read(field)?.as_integer()?;
                     }
-                    _ => panic!("Store to integer from unsupported object: {:?}", object),
+                    _ => {
+                        let as_integer = object.to_integer(if self.dsdt_revision >= 2 { 8 } else { 4 })?;
+                        *target = as_integer;
+                    }
                 },
                 Object::BufferField { .. } => match object.gain_mut() {
                     Object::Integer(value) => {
