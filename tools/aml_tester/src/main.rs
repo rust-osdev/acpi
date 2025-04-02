@@ -11,6 +11,7 @@
 
 use acpi::aml::{namespace::AmlName, AmlError, Handle, Interpreter};
 use clap::{Arg, ArgAction, ArgGroup};
+use log::info;
 use pci_types::PciAddress;
 use std::{
     collections::HashSet,
@@ -399,6 +400,10 @@ impl acpi::aml::Handler for Handler {
     }
     fn write_pci_u32(&self, address: PciAddress, _offset: u16, value: u32) {
         println!("write_pci_u32 ({address})<-{value}");
+    }
+
+    fn handle_debug(&self, object: &acpi::aml::object::Object) {
+        info!("Debug store: {:?}", object);
     }
 
     fn nanos_since_boot(&self) -> u64 {

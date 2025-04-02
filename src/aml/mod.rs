@@ -327,11 +327,12 @@ where
                     | Opcode::LLess => {
                         self.do_logical_op(&mut context, op)?;
                     }
-                    Opcode::ToBuffer
-                    | Opcode::ToDecimalString
-                    | Opcode::ToHexString
-                    | Opcode::ToInteger
-                    | Opcode::ToString => todo!(),
+                    Opcode::ToBuffer => self.do_to_buffer(&mut context, op)?,
+                    Opcode::ToInteger => self.do_to_integer(&mut context, op)?,
+                    Opcode::ToString => self.do_to_string(&mut context, op)?,
+                    Opcode::ToDecimalString | Opcode::ToHexString => {
+                        self.do_to_dec_hex_string(&mut context, op)?
+                    }
                     Opcode::Mid => self.do_mid(&mut context, op)?,
                     Opcode::Concat => self.do_concat(&mut context, op)?,
                     Opcode::ConcatRes => {
@@ -1202,11 +1203,10 @@ where
                     context.start_in_flight_op(OpInFlight::new(opcode, 2));
                 }
 
-                Opcode::ToBuffer
-                | Opcode::ToDecimalString
-                | Opcode::ToHexString
-                | Opcode::ToInteger
-                | Opcode::ToString => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
+                Opcode::ToBuffer | Opcode::ToDecimalString | Opcode::ToHexString | Opcode::ToInteger => {
+                    context.start_in_flight_op(OpInFlight::new(opcode, 2))
+                }
+                Opcode::ToString => context.start_in_flight_op(OpInFlight::new(opcode, 3)),
 
                 Opcode::ObjectType => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::CopyObject => todo!(),
@@ -1482,6 +1482,140 @@ where
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
 
         context.contribute_arg(Argument::Object(Arc::new(result)));
+        Ok(())
+    }
+
+    fn do_to_buffer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+
+        let result = Arc::new(match **operand {
+            Object::Buffer(ref bytes) => Object::Buffer(bytes.clone()),
+            Object::Integer(value) => {
+                if self.dsdt_revision >= 2 {
+                    Object::Buffer(value.to_le_bytes().to_vec())
+                } else {
+                    Object::Buffer((value as u32).to_le_bytes().to_vec())
+                }
+            }
+            Object::String(ref value) => {
+                // XXX: an empty string is converted to an empty buffer, *without* the null-terminator
+                if value.is_empty() {
+                    Object::Buffer(vec![])
+                } else {
+                    let mut bytes = value.as_bytes().to_vec();
+                    bytes.push(b'\0');
+                    Object::Buffer(bytes)
+                }
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToBuffer, typ: operand.typ() })?,
+        });
+
+        // TODO: use result of store
+        self.do_store(target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
+        Ok(())
+    }
+
+    fn do_to_integer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+
+        let result = Arc::new(match **operand {
+            Object::Integer(value) => Object::Integer(value),
+            Object::Buffer(ref bytes) => {
+                /*
+                 * The spec says this should respect the revision of the current definition block.
+                 * Apparently, the NT interpreter always uses the first 8 bytes of the buffer.
+                 */
+                let mut to_interpret = [0u8; 8];
+                (to_interpret[0..usize::min(bytes.len(), 8)]).copy_from_slice(&bytes);
+                Object::Integer(u64::from_le_bytes(to_interpret))
+            }
+            Object::String(ref value) => {
+                if let Some(value) = value.strip_prefix("0x") {
+                    let parsed = u64::from_str_radix(value, 16).map_err(|_| {
+                        AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
+                    })?;
+                    Object::Integer(parsed)
+                } else {
+                    let parsed = u64::from_str_radix(value, 10).map_err(|_| {
+                        AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
+                    })?;
+                    Object::Integer(parsed)
+                }
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToBuffer, typ: operand.typ() })?,
+        });
+
+        // TODO: use result of store
+        self.do_store(target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
+        Ok(())
+    }
+
+    fn do_to_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(source), Argument::Object(length), target] = &op.arguments[..] else { panic!() };
+        let source = source.as_buffer()?;
+        let length = length.as_integer()? as usize;
+
+        let result = Arc::new(if source.is_empty() {
+            Object::String(String::new())
+        } else {
+            let mut buffer = source.split_inclusive(|b| *b == b'\0').next().unwrap();
+            if length < usize::MAX {
+                buffer = &buffer[0..usize::min(length, buffer.len())];
+            }
+            let string = str::from_utf8(buffer).map_err(|_| AmlError::InvalidOperationOnObject {
+                op: Operation::ToString,
+                typ: ObjectType::Buffer,
+            })?;
+            Object::String(string.to_string())
+        });
+
+        // TODO: use result of store
+        self.do_store(target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
+        Ok(())
+    }
+
+    /// Perform a `ToDecimalString` or `ToHexString` operation
+    fn do_to_dec_hex_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+        let operand = operand.clone().unwrap_transparent_reference();
+
+        let result = Arc::new(match *operand {
+            Object::String(ref value) => Object::String(value.clone()),
+            Object::Integer(value) => match op.op {
+                Opcode::ToDecimalString => Object::String(value.to_string()),
+                Opcode::ToHexString => Object::String(alloc::format!("{:#x}", value)),
+                _ => panic!(),
+            },
+            Object::Buffer(ref bytes) => {
+                if bytes.is_empty() {
+                    Object::String(String::new())
+                } else {
+                    // TODO: there has GOT to be a better way to format directly into a string...
+                    let mut string = String::new();
+                    for byte in bytes {
+                        let as_str = match op.op {
+                            Opcode::ToDecimalString => alloc::format!("{},", byte),
+                            Opcode::ToHexString => alloc::format!("{:?},", byte),
+                            _ => panic!(),
+                        };
+                        string.push_str(&as_str);
+                    }
+                    // Remove last comma, if present
+                    if !string.is_empty() {
+                        string.pop();
+                    }
+                    Object::String(string)
+                }
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToDecOrHexString, typ: operand.typ() })?,
+        });
+
+        // TODO: use result of store
+        self.do_store(target, result.clone())?;
+        context.contribute_arg(Argument::Object(result));
         Ok(())
     }
 
@@ -2571,6 +2705,11 @@ pub enum Operation {
     Acquire,
     Release,
     ConvertToBuffer,
+
+    ToBuffer,
+    ToInteger,
+    ToString,
+    ToDecOrHexString,
 
     ReadBufferField,
     WriteBufferField,
