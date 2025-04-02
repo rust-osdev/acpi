@@ -480,12 +480,21 @@ where
                             context.start_new_block(BlockKind::IfThenBranch, remaining_then_length);
                         } else {
                             context.current_block.pc += remaining_then_length;
-                            // Skip over the prolog to the else branch if present
+
+                            /*
+                             * Skip over the prolog to the else branch if present. Also handle if
+                             * there are no more bytes to peek - the `If` op could be the last op
+                             * in a block.
+                             */
                             const DEF_ELSE_OP: u8 = 0xa1;
-                            // TODO: maybe need to handle error here
-                            if context.peek()? == DEF_ELSE_OP {
-                                context.next()?;
-                                let _else_length = context.pkglength()?;
+                            match context.peek() {
+                                Ok(DEF_ELSE_OP) => {
+                                    context.next()?;
+                                    let _else_length = context.pkglength()?;
+                                }
+                                Ok(_) => (),
+                                Err(AmlError::RunOutOfStream) => (),
+                                Err(other) => Err(other)?,
                             }
                         }
                     }
@@ -776,16 +785,24 @@ where
                         BlockKind::IfThenBranch => {
                             context.current_block = context.block_stack.pop().unwrap();
 
-                            // Check for an else-branch, and skip over it
-                            // TODO: if we run out of stream here, it might just be an IfOp at the
-                            // end I think?
+                            /*
+                             * Check for an else-branch, and skip over it. We need to handle the
+                             * case here where there isn't a next byte - that just means the `If`
+                             * is the last op in a block.
+                             */
                             const DEF_ELSE_OP: u8 = 0xa1;
-                            if context.peek()? == DEF_ELSE_OP {
-                                context.next()?;
-                                let start_pc = context.current_block.pc;
-                                let else_length = context.pkglength()?;
-                                context.current_block.pc += else_length - (context.current_block.pc - start_pc);
-                            }
+                            match context.peek() {
+                                Ok(DEF_ELSE_OP) => {
+                                    context.next()?;
+                                    let start_pc = context.current_block.pc;
+                                    let else_length = context.pkglength()?;
+                                    context.current_block.pc +=
+                                        else_length - (context.current_block.pc - start_pc);
+                                }
+                                Ok(_) => (),
+                                Err(AmlError::RunOutOfStream) => (),
+                                Err(other) => Err(other)?,
+                            };
 
                             continue;
                         }
