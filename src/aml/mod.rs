@@ -429,7 +429,7 @@ where
                         else {
                             panic!()
                         };
-                        let buffer_size = buffer_size.as_integer()?;
+                        let buffer_size = buffer_size.clone().unwrap_reference().as_integer()?;
 
                         let buffer_len = pkg_length - (context.current_block.pc - start_pc);
                         let mut buffer = vec![0; buffer_size as usize];
@@ -441,7 +441,7 @@ where
 
                         context.contribute_arg(Argument::Object(Arc::new(Object::Buffer(buffer))));
                     }
-                    Opcode::Package => {
+                    Opcode::Package | Opcode::VarPackage => {
                         let mut elements = Vec::with_capacity(op.expected_arguments);
                         for arg in &op.arguments {
                             let Argument::Object(object) = arg else { panic!() };
@@ -766,13 +766,28 @@ where
                              */
                             assert!(context.block_stack.len() > 0);
 
-                            // TODO: I think we can handle VarPackage here as well because by the
-                            // time the block finishes, the first arg should be resolvable (the var
-                            // length) and so can be updated here...
                             if let Some(package_op) = context.in_flight.last_mut()
-                                && package_op.op == Opcode::Package
+                                && (package_op.op == Opcode::Package || package_op.op == Opcode::VarPackage)
                             {
-                                let num_elements_left = package_op.expected_arguments - package_op.arguments.len();
+                                let num_elements_left = match package_op.op {
+                                    Opcode::Package => package_op.expected_arguments - package_op.arguments.len(),
+                                    Opcode::VarPackage => {
+                                        let Argument::Object(total_elements) = &package_op.arguments[0] else {
+                                            panic!()
+                                        };
+                                        let total_elements =
+                                            total_elements.clone().unwrap_reference().as_integer()? as usize;
+
+                                        // Update the expected number of arguments to terminate the in-flight op
+                                        package_op.expected_arguments = total_elements;
+
+                                        total_elements - package_op.arguments.len()
+                                    }
+                                    _ => panic!(
+                                        "Current in-flight op is not a `Package` or `VarPackage` when finished parsing package block"
+                                    ),
+                                };
+
                                 for _ in 0..num_elements_left {
                                     package_op.arguments.push(Argument::Object(Arc::new(Object::Uninitialized)));
                                 }
@@ -908,7 +923,20 @@ where
                     context.start_in_flight_op(OpInFlight::new(Opcode::Package, num_elements as usize));
                     context.start_new_block(BlockKind::Package, remaining_length);
                 }
-                Opcode::VarPackage => todo!(),
+                Opcode::VarPackage => {
+                    let start_pc = context.current_block.pc;
+                    let pkg_length = context.pkglength()?;
+                    let remaining_length = pkg_length - (context.current_block.pc - start_pc);
+
+                    /*
+                     * For variable packages, we're first going to parse a `TermArg` that encodes,
+                     * dynamically, how many elements the package will have. We then accept as many
+                     * elements as remain in the block, and we'll sort out how many are supposed to
+                     * be in the package later.
+                     */
+                    context.start_in_flight_op(OpInFlight::new(Opcode::VarPackage, usize::MAX));
+                    context.start_new_block(BlockKind::Package, remaining_length);
+                }
                 Opcode::Method => {
                     let start_pc = context.current_block.pc;
                     let pkg_length = context.pkglength()?;
