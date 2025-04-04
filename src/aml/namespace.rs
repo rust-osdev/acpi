@@ -1,3 +1,4 @@
+use super::object::WrappedObject;
 use crate::aml::{AmlError, object::Object};
 use alloc::{
     collections::btree_map::BTreeMap,
@@ -62,7 +63,7 @@ impl Namespace {
         Ok(())
     }
 
-    pub fn insert(&mut self, path: AmlName, object: Arc<Object>) -> Result<(), AmlError> {
+    pub fn insert(&mut self, path: AmlName, object: WrappedObject) -> Result<(), AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -73,7 +74,7 @@ impl Namespace {
         }
     }
 
-    pub fn create_alias(&mut self, path: AmlName, object: Arc<Object>) -> Result<(), AmlError> {
+    pub fn create_alias(&mut self, path: AmlName, object: WrappedObject) -> Result<(), AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -84,7 +85,7 @@ impl Namespace {
         }
     }
 
-    pub fn get(&mut self, path: AmlName) -> Result<Arc<Object>, AmlError> {
+    pub fn get(&mut self, path: AmlName) -> Result<WrappedObject, AmlError> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -98,7 +99,7 @@ impl Namespace {
     /// Search for an object at the given path of the namespace, applying the search rules described in §5.3 of the
     /// ACPI specification, if they are applicable. Returns the resolved name, and the handle of the first valid
     /// object, if found.
-    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, Arc<Object>), AmlError> {
+    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, WrappedObject), AmlError> {
         if path.search_rules_apply() {
             /*
              * If search rules apply, we need to recursively look through the namespace. If the
@@ -270,12 +271,12 @@ impl fmt::Display for Namespace {
                     && level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).count() == 0;
                 writeln!(
                     f,
-                    "{}{}{}: {}{:?}",
+                    "{}{}{}: {}{}",
                     &indent_stack,
                     if end { END } else { BRANCH },
                     name.as_str(),
                     if flags.is_alias() { "[A] " } else { "" },
-                    object
+                    **object
                 )?;
 
                 // If the object has a corresponding scope, print it here
@@ -318,7 +319,7 @@ pub enum NamespaceLevelKind {
 #[derive(Clone)]
 pub struct NamespaceLevel {
     pub kind: NamespaceLevelKind,
-    pub values: BTreeMap<NameSeg, (ObjectFlags, Arc<Object>)>,
+    pub values: BTreeMap<NameSeg, (ObjectFlags, WrappedObject)>,
     pub children: BTreeMap<NameSeg, NamespaceLevel>,
 }
 

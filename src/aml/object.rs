@@ -1,21 +1,22 @@
 use crate::aml::{AmlError, Handle, Operation, op_region::OpRegion};
 use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
+use core::{cell::UnsafeCell, fmt, ops};
 
 #[derive(Clone, Debug)]
 pub enum Object {
     Uninitialized,
     Buffer(Vec<u8>),
-    BufferField { buffer: Arc<Object>, offset: usize, length: usize },
+    BufferField { buffer: WrappedObject, offset: usize, length: usize },
     Device,
     Event,
     FieldUnit(FieldUnit),
     Integer(u64),
     Method { code: Vec<u8>, flags: MethodFlags },
     Mutex { mutex: Handle, sync_level: u8 },
-    Reference { kind: ReferenceKind, inner: Arc<Object> },
+    Reference { kind: ReferenceKind, inner: WrappedObject },
     OpRegion(OpRegion),
-    Package(Vec<Arc<Object>>),
+    Package(Vec<WrappedObject>),
     PowerResource { system_level: u8, resource_order: u16 },
     Processor { proc_id: u8, pblk_address: u32, pblk_length: u8 },
     RawDataBuffer,
@@ -24,24 +25,131 @@ pub enum Object {
     Debug,
 }
 
-impl Object {
-    /*
-     * TODO XXX: this is a horrendous hack to emulate a clever locking solution for dynamically
-     * validating borrow checking for objects at A Later Date. It is trivially easy to produce
-     * undefined behaviour with this (and might be UB intrinsically).
-     *
-     * Options are:
-     *   - Put something like an AtomicRefCell around every single object. This is too slow I
-     *     think.
-     *   - Utilise a global lock on the namespace that gives us some sort of token we can then
-     *     magic up mutable references to objects through. Safety is ensured at type-level.
-     *   - Something else cleverer.
-     */
-    pub fn gain_mut(&self) -> &mut Self {
-        #[allow(invalid_reference_casting)]
-        unsafe {
-            &mut *(self as *const Self as *mut Self)
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Object::Uninitialized => write!(f, "[Uninitialized]"),
+            Object::Buffer(bytes) => write!(f, "Buffer({:x?})", bytes),
+            // TODO: include fields here
+            Object::BufferField { buffer, offset, length } => write!(f, "BufferField {{ .. }}"),
+            Object::Device => write!(f, "Device"),
+            Object::Event => write!(f, "Event"),
+            // TODO: include fields
+            Object::FieldUnit(_) => write!(f, "FieldUnit"),
+            Object::Integer(value) => write!(f, "Integer({})", value),
+            // TODO: decode flags here
+            Object::Method { code, flags } => write!(f, "Method"),
+            Object::Mutex { mutex, sync_level } => write!(f, "Mutex"),
+            Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, **inner),
+            Object::OpRegion(region) => write!(f, "{:?}", region),
+            Object::Package(elements) => {
+                write!(f, "Package {{ ")?;
+                for (i, element) in elements.iter().enumerate() {
+                    if i == elements.len() - 1 {
+                        write!(f, "{}", **element)?;
+                    } else {
+                        write!(f, "{}, ", **element)?;
+                    }
+                }
+                write!(f, " }}")?;
+                Ok(())
+            }
+            // TODO: include fields
+            Object::PowerResource { system_level, resource_order } => write!(f, "PowerResource"),
+            // TODO: include fields
+            Object::Processor { proc_id, pblk_address, pblk_length } => write!(f, "Processor"),
+            Object::RawDataBuffer => write!(f, "RawDataBuffer"),
+            Object::String(value) => write!(f, "String({:?})", value),
+            Object::ThermalZone => write!(f, "ThermalZone"),
+            Object::Debug => write!(f, "Debug"),
         }
+    }
+}
+
+/// `ObjectToken` is used to mediate mutable access to objects from a [`WrappedObject`]. It must be
+/// acquired by locking the single token provided by [`super::Interpreter`].
+#[non_exhaustive]
+pub struct ObjectToken {
+    _dont_construct_me: (),
+}
+
+impl ObjectToken {
+    /// Create an [`ObjectToken`]. This should **only** be done **once** by the main interpreter,
+    /// as contructing your own token allows invalid mutable access to objects.
+    pub(super) unsafe fn create_interpreter_token() -> ObjectToken {
+        ObjectToken { _dont_construct_me: () }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WrappedObject(Arc<UnsafeCell<Object>>);
+
+impl WrappedObject {
+    pub fn new(object: Object) -> WrappedObject {
+        WrappedObject(Arc::new(UnsafeCell::new(object)))
+    }
+
+    /// Gain a mutable reference to an [`Object`] from this [`WrappedObject`]. This requires an
+    /// [`ObjectToken`] which is protected by a lock on [`super::Interpreter`], which prevents
+    /// mutable access to objects from multiple contexts. It does not, however, prevent the same
+    /// object, referenced from multiple [`WrappedObject`]s, having multiple mutable (and therefore
+    /// aliasing) references being made to it, and therefore care must be taken in the interpreter
+    /// to prevent this.
+    pub unsafe fn gain_mut<'r, 'a, 't>(&'a self, _token: &'t ObjectToken) -> &'r mut Object
+    where
+        't: 'r,
+        'a: 'r,
+    {
+        unsafe { &mut *(self.0.get()) }
+    }
+
+    pub fn unwrap_reference(self) -> WrappedObject {
+        let mut object = self;
+        loop {
+            if let Object::Reference { ref inner, .. } = *object {
+                object = inner.clone();
+            } else {
+                return object.clone();
+            }
+        }
+    }
+
+    /// Unwraps 'transparent' references (e.g. locals, arguments, and internal usage of reference-type objects), but maintain 'real'
+    /// references deliberately created by AML.
+    pub fn unwrap_transparent_reference(self) -> WrappedObject {
+        let mut object = self;
+        loop {
+            // TODO: what should this do with unresolved namestrings? It would need namespace
+            // access to resolve them (and then this would probs have to move to a method on
+            // `Interpreter`)?
+            if let Object::Reference { kind, ref inner } = *object
+                && kind == ReferenceKind::LocalOrArg
+            {
+                object = inner.clone();
+            } else {
+                return object.clone();
+            }
+        }
+    }
+}
+
+impl ops::Deref for WrappedObject {
+    type Target = Object;
+
+    fn deref(&self) -> &Self::Target {
+        /*
+         * SAFETY: elided lifetime ensures reference cannot outlive at least one reference-counted
+         * instance of the object. `WrappedObject::gain_mut` is unsafe, and so it is the user's
+         * responsibility to ensure shared references from `Deref` do not co-exist with an
+         * exclusive reference.
+         */
+        unsafe { &*self.0.get() }
+    }
+}
+
+impl Object {
+    pub fn wrap(self) -> WrappedObject {
+        WrappedObject::new(self)
     }
 
     pub fn as_integer(&self) -> Result<u64, AmlError> {
@@ -111,10 +219,10 @@ impl Object {
         }
     }
 
-    pub fn write_buffer_field(&mut self, value: &[u8]) -> Result<(), AmlError> {
+    pub fn write_buffer_field(&mut self, value: &[u8], token: &ObjectToken) -> Result<(), AmlError> {
         // TODO: bounds check the buffer first to avoid panicking
         if let Self::BufferField { buffer, offset, length } = self {
-            let buffer = match buffer.gain_mut() {
+            let buffer = match unsafe { buffer.gain_mut(token) } {
                 Object::Buffer(buffer) => buffer.as_mut_slice(),
                 // XXX: this unfortunately requires us to trust AML to keep the string as valid
                 // UTF8... maybe there is a better way?
@@ -152,35 +260,6 @@ impl Object {
             Object::Debug => ObjectType::Debug,
         }
     }
-
-    pub fn unwrap_reference(self: Arc<Object>) -> Arc<Object> {
-        let mut object = self;
-        loop {
-            if let Object::Reference { ref inner, .. } = *object {
-                object = inner.clone();
-            } else {
-                return object.clone();
-            }
-        }
-    }
-
-    /// Unwraps 'transparent' references (e.g. locals, arguments, and internal usage of reference-type objects), but maintain 'real'
-    /// references deliberately created by AML.
-    pub fn unwrap_transparent_reference(self: Arc<Self>) -> Arc<Object> {
-        let mut object = self;
-        loop {
-            // TODO: what should this do with unresolved namestrings? It would need namespace
-            // access to resolve them (and then this would probs have to move to a method on
-            // `Interpreter`)?
-            if let Object::Reference { kind, ref inner } = *object
-                && kind == ReferenceKind::LocalOrArg
-            {
-                object = inner.clone();
-            } else {
-                return object.clone();
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -193,9 +272,9 @@ pub struct FieldUnit {
 
 #[derive(Clone, Debug)]
 pub enum FieldUnitKind {
-    Normal { region: Arc<Object> },
-    Bank { region: Arc<Object>, bank: Arc<Object>, bank_value: u64 },
-    Index { index: Arc<Object>, data: Arc<Object> },
+    Normal { region: WrappedObject },
+    Bank { region: WrappedObject, bank: WrappedObject, bank_value: u64 },
+    Index { index: WrappedObject, data: WrappedObject },
 }
 
 #[derive(Clone, Copy, Debug)]

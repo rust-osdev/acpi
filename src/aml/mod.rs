@@ -28,7 +28,6 @@ use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
     string::{String, ToString},
-    sync::Arc,
     vec,
     vec::Vec,
 };
@@ -44,8 +43,10 @@ use object::{
     FieldUpdateRule,
     MethodFlags,
     Object,
+    ObjectToken,
     ObjectType,
     ReferenceKind,
+    WrappedObject,
 };
 use op_region::{OpRegion, RegionHandler, RegionSpace};
 use spinning_top::Spinlock;
@@ -56,6 +57,7 @@ where
 {
     handler: H,
     pub namespace: Spinlock<Namespace>,
+    pub object_token: Spinlock<ObjectToken>,
     context_stack: Spinlock<Vec<MethodContext>>,
     dsdt_revision: u8,
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
@@ -78,6 +80,7 @@ where
         Interpreter {
             handler,
             namespace: Spinlock::new(Namespace::new()),
+            object_token: Spinlock::new(unsafe { ObjectToken::create_interpreter_token() }),
             context_stack: Spinlock::new(Vec::new()),
             dsdt_revision,
             region_handlers: Spinlock::new(BTreeMap::new()),
@@ -133,7 +136,7 @@ where
     /// Invoke a method by its name, with the given set of arguments. If the referenced object is
     /// not a method, the object will instead be returned - this is useful for objects that can
     /// either be defined directly, or through a method (e.g. a `_CRS` object).
-    pub fn invoke_method(&self, path: AmlName, args: Vec<Arc<Object>>) -> Result<Arc<Object>, AmlError> {
+    pub fn invoke_method(&self, path: AmlName, args: Vec<WrappedObject>) -> Result<WrappedObject, AmlError> {
         trace!("Invoking AML method: {}", path);
 
         let object = self.namespace.lock().get(path.clone())?.clone();
@@ -150,8 +153,8 @@ where
     pub fn invoke_method_if_present(
         &self,
         path: AmlName,
-        args: Vec<Arc<Object>>,
-    ) -> Result<Option<Arc<Object>>, AmlError> {
+        args: Vec<WrappedObject>,
+    ) -> Result<Option<WrappedObject>, AmlError> {
         match self.invoke_method(path.clone(), args) {
             Ok(result) => Ok(Some(result)),
             Err(AmlError::ObjectDoesNotExist(not_present)) => {
@@ -253,7 +256,7 @@ where
         info!("Initialized {} devices", num_devices_initialized);
     }
 
-    fn do_execute_method(&self, mut context: MethodContext) -> Result<Arc<Object>, AmlError> {
+    fn do_execute_method(&self, mut context: MethodContext) -> Result<WrappedObject, AmlError> {
         /*
          * This is the main loop that executes operations. Every op is handled at the top-level of
          * the loop to prevent pathological stack growth from nested operations.
@@ -301,7 +304,8 @@ where
                     }
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
-                        let Object::Integer(operand) = operand.gain_mut() else {
+                        let token = self.object_token.lock();
+                        let Object::Integer(operand) = (unsafe { operand.gain_mut(&*token) }) else {
                             Err(AmlError::ObjectNotOfExpectedType {
                                 expected: ObjectType::Integer,
                                 got: operand.typ(),
@@ -349,7 +353,7 @@ where
                             buffer.push(0x78);
                             // Don't calculate the new real checksum - just use 0
                             buffer.push(0x00);
-                            Arc::new(Object::Buffer(buffer))
+                            Object::Buffer(buffer).wrap()
                         };
                         // TODO: use potentially-updated result for return value here
                         self.do_store(target, result.clone())?;
@@ -391,7 +395,7 @@ where
                             length: region_length.as_integer()?,
                             parent_device_path: context.current_scope.clone(),
                         });
-                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, Arc::new(region))?;
+                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap())?;
                     }
                     Opcode::DataRegion => {
                         let [
@@ -418,7 +422,7 @@ where
                             length: 0,
                             parent_device_path: context.current_scope.clone(),
                         });
-                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, Arc::new(region))?;
+                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap())?;
                     }
                     Opcode::Buffer => {
                         let [
@@ -439,7 +443,7 @@ where
                         );
                         context.current_block.pc += buffer_len;
 
-                        context.contribute_arg(Argument::Object(Arc::new(Object::Buffer(buffer))));
+                        context.contribute_arg(Argument::Object(Object::Buffer(buffer).wrap()));
                     }
                     Opcode::Package | Opcode::VarPackage => {
                         let mut elements = Vec::with_capacity(op.expected_arguments);
@@ -462,7 +466,7 @@ where
                         assert_eq!(context.current_block.kind, BlockKind::Package);
                         assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
                         context.current_block = context.block_stack.pop().unwrap();
-                        context.contribute_arg(Argument::Object(Arc::new(Object::Package(elements))));
+                        context.contribute_arg(Argument::Object(Object::Package(elements).wrap()));
                     }
                     Opcode::If => {
                         let [
@@ -518,11 +522,7 @@ where
                         };
                         self.namespace.lock().insert(
                             name.resolve(&context.current_scope)?,
-                            Arc::new(Object::BufferField {
-                                buffer: buffer.clone(),
-                                offset: offset as usize,
-                                length,
-                            }),
+                            Object::BufferField { buffer: buffer.clone(), offset: offset as usize, length }.wrap(),
                         )?;
                     }
                     Opcode::CreateField => {
@@ -537,11 +537,12 @@ where
 
                         self.namespace.lock().insert(
                             name.resolve(&context.current_scope)?,
-                            Arc::new(Object::BufferField {
+                            Object::BufferField {
                                 buffer: buffer.clone(),
                                 offset: bit_index as usize,
                                 length: num_bits as usize,
-                            }),
+                            }
+                            .wrap(),
                         )?;
                     }
                     Opcode::Store => {
@@ -551,7 +552,7 @@ where
                     Opcode::RefOf => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
                         let reference =
-                            Arc::new(Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() });
+                            Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap();
                         context.contribute_arg(Argument::Object(reference));
                     }
                     Opcode::CondRefOf => {
@@ -560,11 +561,11 @@ where
                             Object::Integer(0)
                         } else {
                             let reference =
-                                Arc::new(Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() });
+                                Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap();
                             self.do_store(target, reference)?;
                             Object::Integer(u64::MAX)
                         };
-                        context.contribute_arg(Argument::Object(Arc::new(result)));
+                        context.contribute_arg(Argument::Object(result.wrap()));
                     }
                     Opcode::DerefOf => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
@@ -673,7 +674,7 @@ where
                             ObjectType::RawDataBuffer => todo!(),
                         };
 
-                        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(typ))));
+                        context.contribute_arg(Argument::Object(Object::Integer(typ).wrap()));
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
                     Opcode::Index => self.do_index(&mut context, op)?,
@@ -731,7 +732,7 @@ where
                      */
                     match context.current_block.kind {
                         BlockKind::Table => {
-                            break Ok(Arc::new(Object::Uninitialized));
+                            break Ok(Object::Uninitialized.wrap());
                         }
                         BlockKind::Method { method_scope } => {
                             self.namespace.lock().remove_level(method_scope)?;
@@ -744,7 +745,7 @@ where
                                  * If there is no explicit `Return` op, the result is undefined. We
                                  * just return an uninitialized object.
                                  */
-                                return Ok(Arc::new(Object::Uninitialized));
+                                return Ok(Object::Uninitialized.wrap());
                             }
                         }
                         BlockKind::Scope { old_scope } => {
@@ -789,7 +790,7 @@ where
                                 };
 
                                 for _ in 0..num_elements_left {
-                                    package_op.arguments.push(Argument::Object(Arc::new(Object::Uninitialized)));
+                                    package_op.arguments.push(Argument::Object(Object::Uninitialized.wrap()));
                                 }
                             }
 
@@ -836,10 +837,10 @@ where
             };
             match opcode {
                 Opcode::Zero => {
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(0))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(0).wrap()));
                 }
                 Opcode::One => {
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(1))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(1).wrap()));
                 }
                 Opcode::Alias => {
                     let source = context.namestring()?;
@@ -860,15 +861,15 @@ where
                 }
                 Opcode::BytePrefix => {
                     let value = context.next()?;
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(value as u64))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value as u64).wrap()));
                 }
                 Opcode::WordPrefix => {
                     let value = context.next_u16()?;
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(value as u64))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value as u64).wrap()));
                 }
                 Opcode::DWordPrefix => {
                     let value = context.next_u32()?;
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(value as u64))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value as u64).wrap()));
                 }
                 Opcode::StringPrefix => {
                     let str_start = context.current_block.pc;
@@ -878,11 +879,11 @@ where
                         str::from_utf8(&context.current_block.stream()[str_start..(context.current_block.pc - 1)])
                             .unwrap(),
                     );
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::String(str))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::String(str).wrap()));
                 }
                 Opcode::QWordPrefix => {
                     let value = context.next_u64()?;
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(value))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value).wrap()));
                 }
                 Opcode::Scope => {
                     let start_pc = context.current_block.pc;
@@ -950,7 +951,7 @@ where
                     context.current_block.pc += code_len;
 
                     let name = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().insert(name, Arc::new(Object::Method { code, flags }))?;
+                    self.namespace.lock().insert(name, Object::Method { code, flags }.wrap())?;
                 }
                 Opcode::External => {
                     let _name = context.namestring()?;
@@ -963,13 +964,13 @@ where
 
                     let name = name.resolve(&context.current_scope)?;
                     let mutex = self.handler.create_mutex();
-                    self.namespace.lock().insert(name, Arc::new(Object::Mutex { mutex, sync_level }))?;
+                    self.namespace.lock().insert(name, Object::Mutex { mutex, sync_level }.wrap())?;
                 }
                 Opcode::Event => {
                     let name = context.namestring()?;
 
                     let name = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().insert(name, Arc::new(Object::Event))?;
+                    self.namespace.lock().insert(name, Object::Event.wrap())?;
                 }
                 Opcode::LoadTable => todo!(),
                 Opcode::Load => todo!(),
@@ -983,10 +984,10 @@ where
                 Opcode::Notify => todo!(),
                 Opcode::FromBCD | Opcode::ToBCD => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
                 Opcode::Revision => {
-                    context.contribute_arg(Argument::Object(Arc::new(Object::Integer(INTERPRETER_REVISION))));
+                    context.contribute_arg(Argument::Object(Object::Integer(INTERPRETER_REVISION).wrap()));
                 }
                 Opcode::Debug => {
-                    context.contribute_arg(Argument::Object(Arc::new(Object::Debug)));
+                    context.contribute_arg(Argument::Object(Object::Debug.wrap()));
                 }
                 Opcode::Fatal => {
                     let typ = context.next()?;
@@ -1000,7 +1001,7 @@ where
                 Opcode::Timer => {
                     // Time has to be monotonically-increasing, in 100ns units
                     let time = self.handler.nanos_since_boot() / 100;
-                    context.contribute_arg(Argument::Object(Arc::new(Object::Integer(time))));
+                    context.contribute_arg(Argument::Object(Object::Integer(time).wrap()));
                 }
                 Opcode::OpRegion => {
                     let name = context.namestring()?;
@@ -1077,7 +1078,7 @@ where
                     };
                     let mut namespace = self.namespace.lock();
                     namespace.add_level(new_scope.clone(), kind)?;
-                    namespace.insert(new_scope.clone(), Arc::new(object))?;
+                    namespace.insert(new_scope.clone(), object.wrap())?;
 
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
@@ -1096,7 +1097,7 @@ where
                     let object = Object::Processor { proc_id, pblk_address, pblk_length };
                     let mut namespace = self.namespace.lock();
                     namespace.add_level(new_scope.clone(), NamespaceLevelKind::Processor)?;
-                    namespace.insert(new_scope.clone(), Arc::new(object))?;
+                    namespace.insert(new_scope.clone(), object.wrap())?;
 
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
@@ -1114,24 +1115,22 @@ where
                     let object = Object::PowerResource { system_level, resource_order };
                     let mut namespace = self.namespace.lock();
                     namespace.add_level(new_scope.clone(), NamespaceLevelKind::PowerResource)?;
-                    namespace.insert(new_scope.clone(), Arc::new(object))?;
+                    namespace.insert(new_scope.clone(), object.wrap())?;
 
                     let old_scope = mem::replace(&mut context.current_scope, new_scope);
                     context.start_new_block(BlockKind::Scope { old_scope }, remaining_length);
                 }
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference {
-                        kind: ReferenceKind::LocalOrArg,
-                        inner: local,
-                    })));
+                    context.last_op()?.arguments.push(Argument::Object(
+                        Object::Reference { kind: ReferenceKind::LocalOrArg, inner: local }.wrap(),
+                    ));
                 }
                 Opcode::Arg(arg) => {
                     let arg = context.args[arg as usize].clone();
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Reference {
-                        kind: ReferenceKind::LocalOrArg,
-                        inner: arg,
-                    })));
+                    context.last_op()?.arguments.push(Argument::Object(
+                        Object::Reference { kind: ReferenceKind::LocalOrArg, inner: arg }.wrap(),
+                    ));
                 }
                 Opcode::Store => context.start_in_flight_op(OpInFlight::new(Opcode::Store, 2)),
                 Opcode::RefOf => context.start_in_flight_op(OpInFlight::new(Opcode::RefOf, 1)),
@@ -1162,14 +1161,14 @@ where
                             Ok((_, object)) => {
                                 let reference =
                                     Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() };
-                                context.last_op()?.arguments.push(Argument::Object(Arc::new(reference)));
+                                context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
                             }
                             Err(AmlError::ObjectDoesNotExist(_)) => {
                                 let reference = Object::Reference {
                                     kind: ReferenceKind::Unresolved,
-                                    inner: Arc::new(Object::String(name.to_string())),
+                                    inner: Object::String(name.to_string()).wrap(),
                                 };
-                                context.last_op()?.arguments.push(Argument::Object(Arc::new(reference)));
+                                context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
                             }
                             Err(other) => Err(other)?,
                         }
@@ -1313,7 +1312,7 @@ where
                     self.handler.breakpoint();
                 }
                 Opcode::Ones => {
-                    context.last_op()?.arguments.push(Argument::Object(Arc::new(Object::Integer(u64::MAX))));
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(u64::MAX).wrap()));
                 }
 
                 Opcode::InternalMethodCall => panic!(),
@@ -1368,7 +1367,7 @@ where
                         bit_length: field_length,
                         flags: FieldFlags(flags),
                     });
-                    self.namespace.lock().insert(field_name.resolve(&context.current_scope)?, Arc::new(field))?;
+                    self.namespace.lock().insert(field_name.resolve(&context.current_scope)?, field.wrap())?;
 
                     field_offset += field_length;
                 }
@@ -1391,7 +1390,7 @@ where
             Opcode::Multiply => left.wrapping_mul(right),
             Opcode::Divide => {
                 if let Some(remainder) = target2 {
-                    self.do_store(remainder, Arc::new(Object::Integer(left.wrapping_rem(right))))?;
+                    self.do_store(remainder, Object::Integer(left.wrapping_rem(right)).wrap())?;
                 }
                 left.wrapping_div_euclid(right)
             }
@@ -1406,7 +1405,7 @@ where
             _ => panic!(),
         };
 
-        let result = Arc::new(Object::Integer(result));
+        let result = Object::Integer(result).wrap();
         // TODO: use result for arg
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
@@ -1450,7 +1449,7 @@ where
             _ => panic!(),
         };
 
-        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result))));
+        context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
         Ok(())
     }
 
@@ -1462,7 +1461,7 @@ where
 
             if let Some(prev_op) = context.in_flight.last_mut() {
                 if prev_op.arguments.len() < prev_op.expected_arguments {
-                    prev_op.arguments.push(Argument::Object(Arc::new(Object::Integer(result))));
+                    prev_op.arguments.push(Argument::Object(Object::Integer(result).wrap()));
                 }
             }
 
@@ -1526,14 +1525,14 @@ where
         };
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
 
-        context.contribute_arg(Argument::Object(Arc::new(result)));
+        context.contribute_arg(Argument::Object(result.wrap()));
         Ok(())
     }
 
     fn do_to_buffer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
 
-        let result = Arc::new(match **operand {
+        let result = match **operand {
             Object::Buffer(ref bytes) => Object::Buffer(bytes.clone()),
             Object::Integer(value) => {
                 if self.dsdt_revision >= 2 {
@@ -1553,7 +1552,8 @@ where
                 }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToBuffer, typ: operand.typ() })?,
-        });
+        }
+        .wrap();
 
         // TODO: use result of store
         self.do_store(target, result.clone())?;
@@ -1564,7 +1564,7 @@ where
     fn do_to_integer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
 
-        let result = Arc::new(match **operand {
+        let result = match **operand {
             Object::Integer(value) => Object::Integer(value),
             Object::Buffer(ref bytes) => {
                 /*
@@ -1595,7 +1595,8 @@ where
                 }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToBuffer, typ: operand.typ() })?,
-        });
+        }
+        .wrap();
 
         // TODO: use result of store
         self.do_store(target, result.clone())?;
@@ -1608,7 +1609,7 @@ where
         let source = source.as_buffer()?;
         let length = length.as_integer()? as usize;
 
-        let result = Arc::new(if source.is_empty() {
+        let result = if source.is_empty() {
             Object::String(String::new())
         } else {
             let mut buffer = source.split_inclusive(|b| *b == b'\0').next().unwrap();
@@ -1620,7 +1621,8 @@ where
                 typ: ObjectType::Buffer,
             })?;
             Object::String(string.to_string())
-        });
+        }
+        .wrap();
 
         // TODO: use result of store
         self.do_store(target, result.clone())?;
@@ -1633,7 +1635,7 @@ where
         let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
         let operand = operand.clone().unwrap_transparent_reference();
 
-        let result = Arc::new(match *operand {
+        let result = match *operand {
             Object::String(ref value) => Object::String(value.clone()),
             Object::Integer(value) => match op.op {
                 Opcode::ToDecimalString => Object::String(value.to_string()),
@@ -1662,7 +1664,8 @@ where
                 }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToDecOrHexString, typ: operand.typ() })?,
-        });
+        }
+        .wrap();
 
         // TODO: use result of store
         self.do_store(target, result.clone())?;
@@ -1679,7 +1682,7 @@ where
         let index = index.as_integer()? as usize;
         let length = length.as_integer()? as usize;
 
-        let result = Arc::new(match **source {
+        let result = match **source {
             Object::String(ref string) => {
                 if index >= string.len() {
                     Object::String(String::new())
@@ -1699,7 +1702,8 @@ where
                 }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::Mid, typ: source.typ() })?,
-        });
+        }
+        .wrap();
 
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
@@ -1744,17 +1748,17 @@ where
                     buffer.extend_from_slice(&(source1 as u32).to_le_bytes());
                     buffer.extend_from_slice(&(source2 as u32).to_le_bytes());
                 }
-                Arc::new(Object::Buffer(buffer))
+                Object::Buffer(buffer).wrap()
             }
             ObjectType::Buffer => {
                 let mut buffer = source1.as_buffer()?.to_vec();
                 buffer.extend(source2.to_buffer(if self.dsdt_revision >= 2 { 8 } else { 4 })?);
-                Arc::new(Object::Buffer(buffer))
+                Object::Buffer(buffer).wrap()
             }
             ObjectType::String | _ => {
                 let source1 = resolve_as_string(&source1);
                 let source2 = resolve_as_string(&source2);
-                Arc::new(Object::String(source1 + &source2))
+                Object::String(source1 + &source2).wrap()
             }
         };
         // TODO: use result of store
@@ -1775,7 +1779,7 @@ where
             value >>= 4;
         }
 
-        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result))));
+        context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
         Ok(())
     }
 
@@ -1791,7 +1795,7 @@ where
             i += 1;
         }
 
-        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result))));
+        context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
         Ok(())
     }
 
@@ -1806,7 +1810,7 @@ where
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::SizeOf, typ: object.typ() })?,
         };
 
-        context.contribute_arg(Argument::Object(Arc::new(Object::Integer(result as u64))));
+        context.contribute_arg(Argument::Object(Object::Integer(result as u64).wrap()));
         Ok(())
     }
 
@@ -1816,7 +1820,7 @@ where
         };
         let index_value = index_value.as_integer()?;
 
-        let result = Arc::new(match **object {
+        let result = match **object {
             Object::Buffer(ref buffer) => {
                 if index_value as usize >= buffer.len() {
                     Err(AmlError::IndexOutOfBounds)?
@@ -1824,11 +1828,12 @@ where
 
                 Object::Reference {
                     kind: ReferenceKind::RefOf,
-                    inner: Arc::new(Object::BufferField {
+                    inner: Object::BufferField {
                         buffer: object.clone(),
                         offset: index_value as usize * 8,
                         length: 8,
-                    }),
+                    }
+                    .wrap(),
                 }
             }
             Object::String(ref string) => {
@@ -1838,11 +1843,12 @@ where
 
                 Object::Reference {
                     kind: ReferenceKind::RefOf,
-                    inner: Arc::new(Object::BufferField {
+                    inner: Object::BufferField {
                         buffer: object.clone(),
                         offset: index_value as usize * 8,
                         length: 8,
-                    }),
+                    }
+                    .wrap(),
                 }
             }
             Object::Package(ref package) => {
@@ -1850,7 +1856,8 @@ where
                 Object::Reference { kind: ReferenceKind::RefOf, inner: element.clone() }
             }
             _ => Err(AmlError::IndexOutOfBounds)?,
-        });
+        }
+        .wrap();
 
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
@@ -1861,22 +1868,23 @@ where
     // access. I guess we need to return something here really and use it instead of the result
     // when returning?? We need to look carefully at all use-sites to make sure it actually returns
     // the result of the store, not the object it passed to us.
-    fn do_store(&self, target: &Argument, object: Arc<Object>) -> Result<(), AmlError> {
+    fn do_store(&self, target: &Argument, object: WrappedObject) -> Result<(), AmlError> {
         // TODO: find the destination (need to handle references, debug objects, etc.)
         // TODO: convert object to be of the type of destination, in line with 19.3.5 of the spec
         // TODO: write the object to the destination, including e.g. field writes that then lead to
         // literally god knows what.
         let object = object.unwrap_transparent_reference();
+        let token = self.object_token.lock();
 
         match target {
-            Argument::Object(target) => match target.gain_mut() {
-                Object::Integer(target) => match object.gain_mut() {
+            Argument::Object(target) => match unsafe { target.gain_mut(&*token) } {
+                Object::Integer(target) => match unsafe { object.gain_mut(&*token) } {
                     Object::Integer(value) => {
                         *target = *value;
                     }
                     Object::BufferField { .. } => {
                         let mut buffer = [0u8; 8];
-                        object.gain_mut().read_buffer_field(&mut buffer)?;
+                        unsafe { object.gain_mut(&*token) }.read_buffer_field(&mut buffer)?;
                         let value = u64::from_le_bytes(buffer);
                         *target = value;
                     }
@@ -1889,12 +1897,12 @@ where
                         *target = as_integer;
                     }
                 },
-                Object::BufferField { .. } => match object.gain_mut() {
+                Object::BufferField { .. } => match unsafe { object.gain_mut(&*token) } {
                     Object::Integer(value) => {
-                        target.gain_mut().write_buffer_field(&value.to_le_bytes())?;
+                        unsafe { target.gain_mut(&*token) }.write_buffer_field(&value.to_le_bytes(), &*token)?;
                     }
                     Object::Buffer(value) => {
-                        target.gain_mut().write_buffer_field(&value.as_slice())?;
+                        unsafe { target.gain_mut(&*token) }.write_buffer_field(&value.as_slice(), &*token)?;
                     }
                     _ => panic!(),
                 },
@@ -1906,10 +1914,14 @@ where
                             if let Object::Reference { kind: inner_kind, inner: inner_inner } = &**inner {
                                 // TODO: this should store into the reference, potentially doing an
                                 // implicit cast
-                                todo!()
+                                unsafe {
+                                    *inner_inner.gain_mut(&*token) = object.gain_mut(&*token).clone();
+                                }
                             } else {
                                 // Overwrite the value
-                                *inner.gain_mut() = object.gain_mut().clone();
+                                unsafe {
+                                    *inner.gain_mut(&*token) = object.gain_mut(&*token).clone();
+                                }
                             }
                         }
                         ReferenceKind::Unresolved => todo!(),
@@ -1933,7 +1945,7 @@ where
     /// operation regions, and then shifting and masking the resulting value as appropriate. Will
     /// return either an `Integer` or `Buffer` as appropriate, guided by the size of the field
     /// and expected integer size (as per the DSDT revision).
-    fn do_field_read(&self, field: &FieldUnit) -> Result<Arc<Object>, AmlError> {
+    fn do_field_read(&self, field: &FieldUnit) -> Result<WrappedObject, AmlError> {
         let needs_buffer = if self.dsdt_revision >= 2 { field.bit_length > 64 } else { field.bit_length > 32 };
         let access_width_bits = field.flags.access_type_bytes()? * 8;
 
@@ -2000,12 +2012,12 @@ where
         }
 
         match output {
-            Output::Buffer(bytes) => Ok(Arc::new(Object::Buffer(bytes))),
-            Output::Integer(value) => Ok(Arc::new(Object::Integer(u64::from_le_bytes(value)))),
+            Output::Buffer(bytes) => Ok(Object::Buffer(bytes).wrap()),
+            Output::Integer(value) => Ok(Object::Integer(u64::from_le_bytes(value)).wrap()),
         }
     }
 
-    fn do_field_write(&self, field: &FieldUnit, value: Arc<Object>) -> Result<(), AmlError> {
+    fn do_field_write(&self, field: &FieldUnit, value: WrappedObject) -> Result<(), AmlError> {
         trace!("AML field write. Field = {:?}. Value = {:?}", field, value);
 
         let value_bytes = match &*value {
@@ -2236,11 +2248,11 @@ struct MethodContext {
     current_block: Block,
     block_stack: Vec<Block>,
     in_flight: Vec<OpInFlight>,
-    args: [Arc<Object>; 8],
-    locals: [Arc<Object>; 8],
+    args: [WrappedObject; 8],
+    locals: [WrappedObject; 8],
     current_scope: AmlName,
 
-    _method: Option<Arc<Object>>,
+    _method: Option<WrappedObject>,
 }
 
 #[derive(Debug)]
@@ -2252,7 +2264,7 @@ struct OpInFlight {
 
 #[derive(Debug)]
 enum Argument {
-    Object(Arc<Object>),
+    Object(WrappedObject),
     Namestring(AmlName),
     ByteData(u8),
     DWordData(u32),
@@ -2307,16 +2319,16 @@ impl MethodContext {
             current_block: block,
             block_stack: Vec::new(),
             in_flight: Vec::new(),
-            args: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
-            locals: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
+            args: core::array::from_fn(|_| Object::Uninitialized.wrap()),
+            locals: core::array::from_fn(|_| Object::Uninitialized.wrap()),
             current_scope: AmlName::root(),
             _method: None,
         }
     }
 
     fn new_from_method(
-        method: Arc<Object>,
-        args: Vec<Arc<Object>>,
+        method: WrappedObject,
+        args: Vec<WrappedObject>,
         scope: AmlName,
     ) -> Result<MethodContext, AmlError> {
         if let Object::Method { code, flags } = &*method {
@@ -2329,14 +2341,14 @@ impl MethodContext {
                 kind: BlockKind::Method { method_scope: scope.clone() },
             };
             let args = core::array::from_fn(|i| {
-                if let Some(arg) = args.get(i) { arg.clone() } else { Arc::new(Object::Uninitialized) }
+                if let Some(arg) = args.get(i) { arg.clone() } else { Object::Uninitialized.wrap() }
             });
             let context = MethodContext {
                 current_block: block,
                 block_stack: Vec::new(),
                 in_flight: Vec::new(),
                 args,
-                locals: core::array::from_fn(|_| Arc::new(Object::Uninitialized)),
+                locals: core::array::from_fn(|_| Object::Uninitialized.wrap()),
                 current_scope: scope,
                 _method: Some(method.clone()),
             };

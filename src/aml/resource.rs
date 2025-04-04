@@ -1,5 +1,6 @@
+use super::object::WrappedObject;
 use crate::aml::{AmlError, Operation, object::Object};
-use alloc::{sync::Arc, vec::Vec};
+use alloc::vec::Vec;
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
 use core::mem;
@@ -14,7 +15,7 @@ pub enum Resource {
 }
 
 /// Parse a `ResourceDescriptor` buffer into a list of resources.
-pub fn resource_descriptor_list(descriptor: Arc<Object>) -> Result<Vec<Resource>, AmlError> {
+pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resource>, AmlError> {
     if let Object::Buffer(ref bytes) = *descriptor {
         let mut descriptors = Vec::new();
         let mut bytes = bytes.as_slice();
