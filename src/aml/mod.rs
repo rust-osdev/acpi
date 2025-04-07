@@ -1505,14 +1505,16 @@ where
                 let left = {
                     let mut bytes = [0u8; 4];
                     let left_bytes = left.as_bytes();
-                    (bytes[0..left_bytes.len()]).copy_from_slice(left_bytes);
+                    let bytes_to_use = usize::min(4, left_bytes.len());
+                    (bytes[0..bytes_to_use]).copy_from_slice(&left_bytes[0..bytes_to_use]);
                     u32::from_le_bytes(bytes) as u64
                 };
                 let right = {
                     let mut bytes = [0u8; 4];
                     let right = right.as_string()?;
                     let right_bytes = right.as_bytes();
-                    (bytes[0..right_bytes.len()]).copy_from_slice(right_bytes);
+                    let bytes_to_use = usize::min(4, right_bytes.len());
+                    (bytes[0..bytes_to_use]).copy_from_slice(&right_bytes[0..bytes_to_use]);
                     u32::from_le_bytes(bytes) as u64
                 };
                 (left, right)
