@@ -393,6 +393,9 @@ where
                             panic!()
                         };
 
+                        let region_offset = region_offset.clone().unwrap_transparent_reference();
+                        let region_length = region_length.clone().unwrap_transparent_reference();
+
                         let region = Object::OpRegion(OpRegion {
                             space: RegionSpace::from(*region_space),
                             base: region_offset.as_integer()?,
