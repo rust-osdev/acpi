@@ -319,6 +319,7 @@ where
                         };
 
                         *operand = new_value;
+                        context.retire_op(op);
                     }
                     Opcode::LAnd
                     | Opcode::LOr
@@ -358,6 +359,7 @@ where
                         // TODO: use potentially-updated result for return value here
                         self.do_store(target, result.clone())?;
                         context.contribute_arg(Argument::Object(result));
+                        context.retire_op(op);
                     }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
@@ -368,6 +370,7 @@ where
 
                         let name = name.resolve(&context.current_scope)?;
                         self.namespace.lock().insert(name, object.clone())?;
+                        context.retire_op(op);
                     }
                     Opcode::Fatal => {
                         let [Argument::ByteData(typ), Argument::DWordData(code), Argument::Object(arg)] =
@@ -377,6 +380,7 @@ where
                         };
                         let arg = arg.as_integer()?;
                         self.handler.handle_fatal_error(*typ, *code, arg);
+                        context.retire_op(op);
                     }
                     Opcode::OpRegion => {
                         let [
@@ -396,6 +400,7 @@ where
                             parent_device_path: context.current_scope.clone(),
                         });
                         self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap())?;
+                        context.retire_op(op);
                     }
                     Opcode::DataRegion => {
                         let [
@@ -423,6 +428,7 @@ where
                             parent_device_path: context.current_scope.clone(),
                         });
                         self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap())?;
+                        context.retire_op(op);
                     }
                     Opcode::Buffer => {
                         let [
@@ -444,6 +450,7 @@ where
                         context.current_block.pc += buffer_len;
 
                         context.contribute_arg(Argument::Object(Object::Buffer(buffer).wrap()));
+                        context.retire_op(op);
                     }
                     Opcode::Package | Opcode::VarPackage => {
                         let mut elements = Vec::with_capacity(op.expected_arguments);
@@ -467,6 +474,7 @@ where
                         assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
                         context.current_block = context.block_stack.pop().unwrap();
                         context.contribute_arg(Argument::Object(Object::Package(elements).wrap()));
+                        context.retire_op(op);
                     }
                     Opcode::If => {
                         let [
@@ -501,6 +509,7 @@ where
                                 Err(other) => Err(other)?,
                             }
                         }
+                        context.retire_op(op);
                     }
                     opcode @ Opcode::CreateBitField
                     | opcode @ Opcode::CreateByteField
@@ -524,6 +533,7 @@ where
                             name.resolve(&context.current_scope)?,
                             Object::BufferField { buffer: buffer.clone(), offset: offset as usize, length }.wrap(),
                         )?;
+                        context.retire_op(op);
                     }
                     Opcode::CreateField => {
                         let [Argument::Object(buffer), Argument::Object(bit_index), Argument::Object(num_bits)] =
@@ -544,16 +554,19 @@ where
                             }
                             .wrap(),
                         )?;
+                        context.retire_op(op);
                     }
                     Opcode::Store => {
                         let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
                         self.do_store(&target, object.clone())?;
+                        context.retire_op(op);
                     }
                     Opcode::RefOf => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
                         let reference =
                             Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap();
                         context.contribute_arg(Argument::Object(reference));
+                        context.retire_op(op);
                     }
                     Opcode::CondRefOf => {
                         let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
@@ -566,6 +579,7 @@ where
                             Object::Integer(u64::MAX)
                         };
                         context.contribute_arg(Argument::Object(result.wrap()));
+                        context.retire_op(op);
                     }
                     Opcode::DerefOf => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
@@ -582,14 +596,17 @@ where
                             });
                         };
                         context.contribute_arg(Argument::Object(result));
+                        context.retire_op(op);
                     }
                     Opcode::Sleep => {
                         let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
                         self.handler.sleep(msec.as_integer()?);
+                        context.retire_op(op);
                     }
                     Opcode::Stall => {
                         let [Argument::Object(usec)] = &op.arguments[..] else { panic!() };
                         self.handler.stall(usec.as_integer()?);
+                        context.retire_op(op);
                     }
                     Opcode::Acquire => {
                         let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
@@ -600,6 +617,7 @@ where
 
                         // TODO: should we do something with the sync level??
                         self.handler.acquire(mutex, timeout)?;
+                        context.retire_op(op);
                     }
                     Opcode::Release => {
                         let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
@@ -608,6 +626,7 @@ where
                         };
                         // TODO: should we do something with the sync level??
                         self.handler.release(mutex);
+                        context.retire_op(op);
                     }
                     Opcode::InternalMethodCall => {
                         let [Argument::Object(method), Argument::Namestring(method_scope)] = &op.arguments[0..2]
@@ -632,6 +651,7 @@ where
                             MethodContext::new_from_method(method.clone(), args, method_scope.clone())?;
                         let old_context = mem::replace(&mut context, new_context);
                         self.context_stack.lock().push(old_context);
+                        context.retire_op(op);
                     }
                     Opcode::Return => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
@@ -640,6 +660,7 @@ where
                         if let Some(last) = self.context_stack.lock().pop() {
                             context = last;
                             context.contribute_arg(Argument::Object(object.clone()));
+                            context.retire_op(op);
                         } else {
                             /*
                              * If this is the top-most context, this is a `Return` from the actual
@@ -675,6 +696,7 @@ where
                         };
 
                         context.contribute_arg(Argument::Object(Object::Integer(typ).wrap()));
+                        context.retire_op(op);
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
                     Opcode::Index => self.do_index(&mut context, op)?,
@@ -701,6 +723,7 @@ where
 
                         let kind = FieldUnitKind::Bank { region, bank, bank_value };
                         self.parse_field_list(&mut context, kind, *start_pc, *pkg_length, field_flags)?;
+                        context.retire_op(op);
                     }
                     Opcode::While => {
                         /*
@@ -713,6 +736,7 @@ where
                         if predicate == 0 {
                             // Exit from the while loop by skipping out of the current block
                             context.current_block = context.block_stack.pop().unwrap();
+                            context.retire_op(op);
                         }
                     }
                     _ => panic!("Unexpected operation has created in-flight op!"),
@@ -1409,6 +1433,7 @@ where
         // TODO: use result for arg
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1450,6 +1475,7 @@ where
         };
 
         context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1459,12 +1485,8 @@ where
             let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
             let result = if operand == 0 { u64::MAX } else { 0 };
 
-            if let Some(prev_op) = context.in_flight.last_mut() {
-                if prev_op.arguments.len() < prev_op.expected_arguments {
-                    prev_op.arguments.push(Argument::Object(Object::Integer(result).wrap()));
-                }
-            }
-
+            context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
+            context.retire_op(op);
             return Ok(());
         }
 
@@ -1526,6 +1548,7 @@ where
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
 
         context.contribute_arg(Argument::Object(result.wrap()));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1558,6 +1581,7 @@ where
         // TODO: use result of store
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1601,6 +1625,7 @@ where
         // TODO: use result of store
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1627,6 +1652,7 @@ where
         // TODO: use result of store
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1670,6 +1696,7 @@ where
         // TODO: use result of store
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1707,6 +1734,7 @@ where
 
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
 
         Ok(())
     }
@@ -1736,6 +1764,7 @@ where
                 Object::Debug => "[Debug Object]".to_string(),
             }
         }
+
         let result = match source1.typ() {
             ObjectType::Integer => {
                 let source1 = source1.as_integer()?;
@@ -1764,6 +1793,7 @@ where
         // TODO: use result of store
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1780,6 +1810,7 @@ where
         }
 
         context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1796,6 +1827,7 @@ where
         }
 
         context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1811,6 +1843,7 @@ where
         };
 
         context.contribute_arg(Argument::Object(Object::Integer(result as u64).wrap()));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -1861,6 +1894,7 @@ where
 
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
         Ok(())
     }
 
@@ -2374,7 +2408,17 @@ impl MethodContext {
     }
 
     fn start_in_flight_op(&mut self, op: OpInFlight) {
+        trace!(
+            "START OP: {:?}, args: {:?}, with {} more needed",
+            op.op,
+            op.arguments,
+            op.expected_arguments - op.arguments.len()
+        );
         self.in_flight.push(op);
+    }
+
+    fn retire_op(&mut self, op: OpInFlight) {
+        trace!("RETIRE OP: {:?}, args: {:?}", op.op, op.arguments);
     }
 
     fn start_new_block(&mut self, kind: BlockKind, length: usize) {
