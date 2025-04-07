@@ -1677,7 +1677,7 @@ where
                     for byte in bytes {
                         let as_str = match op.op {
                             Opcode::ToDecimalString => alloc::format!("{},", byte),
-                            Opcode::ToHexString => alloc::format!("{:?},", byte),
+                            Opcode::ToHexString => alloc::format!("{:#04X},", byte),
                             _ => panic!(),
                         };
                         string.push_str(&as_str);
