@@ -9,6 +9,7 @@ use alloc::{
 };
 use bit_field::BitField;
 use core::{fmt, str, str::FromStr};
+use log::trace;
 
 #[derive(Clone)]
 pub struct Namespace {
@@ -70,7 +71,14 @@ impl Namespace {
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
         match level.values.insert(last_seg, (ObjectFlags::new(false), object)) {
             None => Ok(()),
-            Some(_) => Err(AmlError::NameCollision(path)),
+            Some(_) => {
+                /*
+                 * Real AML often has name collisions, and so we can't afford to be too strict
+                 * about it. We do warn the user as it does have the potential to break stuff.
+                 */
+                trace!("AML name collision: {}. Replacing object.", path);
+                Ok(())
+            }
         }
     }
 
