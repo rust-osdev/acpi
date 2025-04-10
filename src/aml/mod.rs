@@ -2,9 +2,6 @@
  * TODO:
  *  - Field reads supporting custom handlers
  *  - Run `_REG` on supported op region handlers
- *  - Sort out situation with `gain_mut` omg - thinking we should have a weird mutex thingy and
- *    gain a 'token' to give us access to objects. Objects themselves should probs be in like an
- *    `UnsafeCell` or something.
  *  - Count operations performed and time
  *  - Do stores properly :(
  *  - Load and LoadTable
@@ -442,7 +439,7 @@ where
                         else {
                             panic!()
                         };
-                        let buffer_size = buffer_size.clone().unwrap_reference().as_integer()?;
+                        let buffer_size = buffer_size.clone().unwrap_transparent_reference().as_integer()?;
 
                         let buffer_len = pkg_length - (context.current_block.pc - start_pc);
                         let mut buffer = vec![0; buffer_size as usize];
@@ -804,7 +801,8 @@ where
                                             panic!()
                                         };
                                         let total_elements =
-                                            total_elements.clone().unwrap_reference().as_integer()? as usize;
+                                            total_elements.clone().unwrap_transparent_reference().as_integer()?
+                                                as usize;
 
                                         // Update the expected number of arguments to terminate the in-flight op
                                         package_op.expected_arguments = total_elements;
@@ -1494,14 +1492,14 @@ where
         }
 
         let [Argument::Object(left), Argument::Object(right)] = &op.arguments[..] else { panic!() };
+        let left = left.clone().unwrap_transparent_reference();
+        let right = right.clone().unwrap_transparent_reference();
 
         /*
          * Some of these operations allow strings and buffers to be used as operands. Apparently
          * NT's interpreter just takes the first 4 bytes of the string/buffer and casts them as an
          * integer...
          */
-        let left = left.clone().unwrap_transparent_reference();
-        let right = right.clone().unwrap_transparent_reference();
         let (left, right) = match *left {
             Object::Integer(left) => (left, right.as_integer()?),
             Object::String(ref left) => {
@@ -1559,8 +1557,9 @@ where
 
     fn do_to_buffer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+        let operand = operand.clone().unwrap_transparent_reference();
 
-        let result = match **operand {
+        let result = match *operand {
             Object::Buffer(ref bytes) => Object::Buffer(bytes.clone()),
             Object::Integer(value) => {
                 if self.dsdt_revision >= 2 {
@@ -1592,8 +1591,9 @@ where
 
     fn do_to_integer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+        let operand = operand.clone().unwrap_transparent_reference();
 
-        let result = match **operand {
+        let result = match *operand {
             Object::Integer(value) => Object::Integer(value),
             Object::Buffer(ref bytes) => {
                 /*
@@ -1636,8 +1636,9 @@ where
 
     fn do_to_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(source), Argument::Object(length), target] = &op.arguments[..] else { panic!() };
+        let source = source.clone().unwrap_transparent_reference();
         let source = source.as_buffer()?;
-        let length = length.as_integer()? as usize;
+        let length = length.clone().unwrap_transparent_reference().as_integer()? as usize;
 
         let result = if source.is_empty() {
             Object::String(String::new())
@@ -1677,7 +1678,6 @@ where
                 if bytes.is_empty() {
                     Object::String(String::new())
                 } else {
-                    // TODO: there has GOT to be a better way to format directly into a string...
                     let mut string = String::new();
                     for byte in bytes {
                         let as_str = match op.op {
@@ -1711,8 +1711,8 @@ where
         else {
             panic!()
         };
-        let index = index.as_integer()? as usize;
-        let length = length.as_integer()? as usize;
+        let index = index.clone().unwrap_transparent_reference().as_integer()? as usize;
+        let length = length.clone().unwrap_transparent_reference().as_integer()? as usize;
 
         let result = match **source {
             Object::String(ref string) => {
@@ -1740,12 +1740,14 @@ where
         self.do_store(target, result.clone())?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
-
         Ok(())
     }
 
     fn do_concat(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(source1), Argument::Object(source2), target] = &op.arguments[..] else { panic!() };
+        let source1 = source1.clone().unwrap_transparent_reference();
+        let source2 = source2.clone().unwrap_transparent_reference();
+
         fn resolve_as_string(obj: &Object) -> String {
             match obj {
                 Object::Uninitialized => "[Uninitialized Object]".to_string(),
@@ -1838,7 +1840,7 @@ where
 
     fn do_size_of(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
-        let object = object.clone().unwrap_reference();
+        let object = object.clone().unwrap_transparent_reference();
 
         let result = match *object {
             Object::Buffer(ref buffer) => buffer.len(),
@@ -1856,9 +1858,10 @@ where
         let [Argument::Object(object), Argument::Object(index_value), target] = &op.arguments[..] else {
             panic!()
         };
-        let index_value = index_value.as_integer()?;
+        let object = object.clone().unwrap_transparent_reference();
+        let index_value = index_value.clone().unwrap_transparent_reference().as_integer()?;
 
-        let result = match **object {
+        let result = match *object {
             Object::Buffer(ref buffer) => {
                 if index_value as usize >= buffer.len() {
                     Err(AmlError::IndexOutOfBounds)?
