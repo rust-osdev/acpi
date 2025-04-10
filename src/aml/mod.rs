@@ -1431,8 +1431,7 @@ where
         };
 
         let result = Object::Integer(result).wrap();
-        // TODO: use result for arg
-        self.do_store(target, result.clone())?;
+        let result = self.do_store(target, result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -1582,8 +1581,7 @@ where
         }
         .wrap();
 
-        // TODO: use result of store
-        self.do_store(target, result.clone())?;
+        let result = self.do_store(target, result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -1627,8 +1625,7 @@ where
         }
         .wrap();
 
-        // TODO: use result of store
-        self.do_store(target, result.clone())?;
+        let result = self.do_store(target, result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -1655,8 +1652,7 @@ where
         }
         .wrap();
 
-        // TODO: use result of store
-        self.do_store(target, result.clone())?;
+        let result = self.do_store(target, result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -1698,8 +1694,7 @@ where
         }
         .wrap();
 
-        // TODO: use result of store
-        self.do_store(target, result.clone())?;
+        let result = self.do_store(target, result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -1797,8 +1792,8 @@ where
                 Object::String(source1 + &source2).wrap()
             }
         };
-        // TODO: use result of store
-        self.do_store(target, result.clone())?;
+
+        let result = self.do_store(target, result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -1906,17 +1901,20 @@ where
         Ok(())
     }
 
-    // TODO: this might actually do weird stuff to your data if written to a field with BufferAcc
-    // access. I guess we need to return something here really and use it instead of the result
-    // when returning?? We need to look carefully at all use-sites to make sure it actually returns
-    // the result of the store, not the object it passed to us.
-    fn do_store(&self, target: &Argument, object: WrappedObject) -> Result<(), AmlError> {
-        // TODO: find the destination (need to handle references, debug objects, etc.)
-        // TODO: convert object to be of the type of destination, in line with 19.3.5 of the spec
-        // TODO: write the object to the destination, including e.g. field writes that then lead to
-        // literally god knows what.
+    fn do_store(&self, target: &Argument, object: WrappedObject) -> Result<WrappedObject, AmlError> {
         let object = object.unwrap_transparent_reference();
         let token = self.object_token.lock();
+
+        /*
+         * TODO: stores should do more implicit conversion to the type of the destination in some
+         * cases, in line with section 19.3.5 of the spec
+         *
+         * TODO: stores to fields with `BufferAcc` can actually return a value of the store that
+         * differs from what was written into the field. This is used for complex field types with
+         * a write-then-read pattern. The return value is then used as the 'result' of the storing
+         * expression.
+         */
+        let to_return = object.clone();
 
         match target {
             Argument::Object(target) => match unsafe { target.gain_mut(&*token) } {
@@ -1975,12 +1973,13 @@ where
                 _ => panic!("Stores to objects like {:?} are not yet supported", target),
             },
 
-            Argument::Namestring(_) => {}
+            Argument::Namestring(_) => todo!(),
             Argument::ByteData(_) | Argument::DWordData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => {
                 panic!()
             }
         }
-        Ok(())
+
+        Ok(to_return)
     }
 
     /// Do a read from a field by performing one or more well-formed accesses to the underlying
