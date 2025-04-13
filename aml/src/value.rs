@@ -475,7 +475,7 @@ impl AmlValue {
         }
     }
 
-    pub fn write_buffer_field(&mut self, value: AmlValue, _context: &mut AmlContext) -> Result<(), AmlError> {
+    pub fn write_buffer_field(&mut self, value: AmlValue, context: &mut AmlContext) -> Result<(), AmlError> {
         use bitvec::view::BitView;
 
         if let AmlValue::BufferField { buffer_data, offset, length } = self {
@@ -517,6 +517,30 @@ impl AmlValue {
                         .copy_from_bitslice(&value_data.view_bits()[..(bits_to_copy as usize)]);
                     // Zero extend to the end of the buffer field
                     bitslice[(offset + bits_to_copy)..(offset + length)].fill(false);
+                    Ok(())
+                }
+                AmlValue::Field {
+                    region: _region,
+                    flags: _flags,
+                    offset: _field_offset,
+                    length: _field_length,
+                } => {
+                    /*
+                     * When a `Field` (FieldUnit) is written into a `BufferField`, the field is read and
+                     * interpreted as an `Integer`, then written using the same rules as Integer writes.
+                     * This is permitted by ACPI 19.3.5 (Implicit Data Type Conversion), which allows a
+                     * FieldUnit to be converted to Integer when used as a source operand.
+                     */
+                    let int_value = value.read_field(context)?.as_integer(context)?;
+
+                    // Write val into the buffer field as an Integer
+                    let bits_to_copy = cmp::min(length, 64);
+
+                    bitslice[offset..(offset + bits_to_copy)]
+                        .copy_from_bitslice(&int_value.to_le_bytes().view_bits()[..bits_to_copy]);
+
+                    bitslice[(offset + bits_to_copy)..(offset + length)].fill(false);
+
                     Ok(())
                 }
                 _ => Err(AmlError::TypeCannotBeWrittenToBufferField(value.type_of())),
