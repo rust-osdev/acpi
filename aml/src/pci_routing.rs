@@ -1,6 +1,6 @@
 use crate::{
     namespace::AmlName,
-    resource::{self, InterruptPolarity, InterruptTrigger, Resource},
+    resource::{self, InterruptPolarity, InterruptTrigger, Irq, Resource},
     value::Args,
     AmlContext,
     AmlError,
@@ -169,7 +169,7 @@ impl PciRoutingTable {
                 polarity: InterruptPolarity::ActiveLow,
                 is_shared: true,
                 is_wake_capable: false,
-                irq: gsi,
+                irq: Irq::Single(gsi),
             }),
             PciRouteType::LinkObject(ref name) => {
                 let path = AmlName::from_str("_CRS").unwrap().resolve(name)?;
