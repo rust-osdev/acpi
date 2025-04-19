@@ -318,17 +318,19 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Irq {
+    Single(u32),
+    Multiple(Vec<u32>)
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IrqDescriptor {
     pub is_consumer: bool,
     pub trigger: InterruptTrigger,
     pub polarity: InterruptPolarity,
     pub is_shared: bool,
     pub is_wake_capable: bool,
-    /*
-     * NOTE: We currently only support the cases where a descriptor only contains a single interrupt
-     * number.
-     */
-    pub irq: u32,
+    pub irq: Irq,
 }
 
 fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
@@ -369,7 +371,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
             let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
             Ok(Resource::Irq(IrqDescriptor {
-                irq: irq as u32,
+                irq: Irq::Single(irq as u32),
                 is_wake_capable: false,
                 is_shared: false,
                 polarity: InterruptPolarity::ActiveHigh,
@@ -395,7 +397,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
             };
 
             Ok(Resource::Irq(IrqDescriptor {
-                irq: irq as u32,
+                irq: Irq::Single(irq as u32),
                 is_wake_capable,
                 is_shared,
                 polarity,
@@ -551,8 +553,25 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     }
 
     let number_of_interrupts = bytes[4] as usize;
-    assert_eq!(number_of_interrupts, 1);
-    let irq = LittleEndian::read_u32(&[bytes[5], bytes[6], bytes[7], bytes[8]]);
+
+    let irq = if number_of_interrupts == 1 {
+        let irq = LittleEndian::read_u32( &bytes[5..9]);
+
+        Irq::Single(irq)
+    } else {
+        let mut irqs = Vec::with_capacity(number_of_interrupts);
+
+        for i in 0..number_of_interrupts {
+            let start = 5 + i * size_of::<u32>();
+            let end = start + 4;
+
+            let irq = LittleEndian::read_u32(&bytes[start..end]);
+
+            irqs.push(irq);
+        }
+
+        Irq::Multiple(irqs)
+    };
 
     Ok(Resource::Irq(IrqDescriptor {
         is_consumer: bytes[3].get_bit(0),
@@ -625,7 +644,7 @@ mod tests {
                     polarity: InterruptPolarity::ActiveHigh,
                     is_shared: false,
                     is_wake_capable: false,
-                    irq: (1 << 1)
+                    irq: Irq::Single(1 << 1)
                 })
             ])
         );
@@ -836,7 +855,7 @@ mod tests {
                     polarity: InterruptPolarity::ActiveHigh,
                     is_shared: false,
                     is_wake_capable: false,
-                    irq: (1 << 6)
+                    irq: Irq::Single(1 << 6)
                 }),
                 Resource::Dma(DMADescriptor {
                     channel_mask: 1 << 2,
