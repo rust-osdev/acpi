@@ -117,20 +117,30 @@ impl IortNodeHeader {
         if self.id_mapping_array_offset < self.length as u32 {
             return Err(IortError::OffsetOutOfRange);
         }
-        let revision_valid = match self.node_type {
-            0 => self.revision == 1,
-            1 => self.revision == 4,
-            2 => self.revision == 4,
-            3 => self.revision == 3,
-            4 => self.revision == 5,
-            5 => self.revision == 2,
-            6 => self.revision == 3,
-            _ => false,
-        };
-        if !revision_valid {
-            return Err(IortError::RevisionNotSupported);
-        }
+        // let revision_valid = match self.node_type {
+        //     0 => self.revision == 1,
+        //     1 => self.revision == 4,
+        //     2 => self.revision == 4,
+        //     3 => self.revision == 3,
+        //     4 => self.revision == 5,
+        //     5 => self.revision == 2,
+        //     6 => self.revision == 3,
+        //     _ => false,
+        // };
+        // if !revision_valid {
+        //     return Err(IortError::RevisionNotSupported);
+        // }
         Ok(())
+    }
+
+    pub fn id_mapping_array(&self) -> &[IortIdMapping] {
+        let id_mapping_num = self.id_mapping_num;
+        let id_mapping_array_offset = self.id_mapping_array_offset;
+
+        unsafe {
+            let ptr = (self as *const IortNodeHeader as *const u8).add(id_mapping_array_offset as usize);
+            core::slice::from_raw_parts(ptr as *const IortIdMapping, id_mapping_num as usize)
+        }
     }
 }
 
@@ -165,14 +175,7 @@ impl fmt::Display for IortNode<'_> {
 
 impl IortNode<'_> {
     pub fn id_mapping_array(&self) -> &[IortIdMapping] {
-        let node_header = self.header();
-        let id_mapping_num = node_header.id_mapping_num;
-        let id_mapping_array_offset = node_header.id_mapping_array_offset;
-
-        unsafe {
-            let ptr = (node_header as *const IortNodeHeader as *const u8).add(id_mapping_array_offset as usize);
-            core::slice::from_raw_parts(ptr as *const IortIdMapping, id_mapping_num as usize)
-        }
+        self.header().id_mapping_array()
     }
 
     pub fn header(&self) -> &IortNodeHeader {
@@ -351,6 +354,20 @@ impl fmt::Display for SmmuV3Node {
     }
 }
 
+impl SmmuV3Node {
+    /// ID mappings of an SMMUv3 node can only have ITS group nodes as output references.
+    /// All other output references are illegal and forbidden
+    pub fn output_its_nodes<'a>(&'a self, iort: &'a Iort) -> impl Iterator<Item = &'a ItsNode> {
+        self.header.id_mapping_array().iter().map(|id_mapping| {
+            let offset = id_mapping.output_reference as usize;
+            iort.get_node(offset).and_then(|node| match node {
+                IortNode::Its(its) => Some(its),
+                _ => {log::error!("Invalid output reference in SMMUv3 ID mapping, type: {}", node.header().node_type); None},
+            }).unwrap()
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct PmcgNode {
@@ -421,4 +438,77 @@ pub struct IortIdMapping {
     /// address offset of the IORT Node relative to the start of the IORT.
     pub output_reference: u32,
     pub flags: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use core::{ops::Deref, ptr::NonNull};
+    use std::{io::Read, vec::Vec};
+
+    use crate::{read_table, AcpiHandler, PhysicalMapping};
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct AcpiIO;
+
+    impl AcpiHandler for AcpiIO {
+        unsafe fn map_physical_region<T>(
+            &self,
+            physical_address: usize,
+            size: usize,
+        ) -> crate::PhysicalMapping<Self, T> {
+            unsafe {
+                PhysicalMapping::new(
+                    physical_address,
+                    NonNull::new_unchecked(physical_address as *mut T),
+                    size,
+                    size,
+                    AcpiIO,
+                )
+            }
+        }
+
+        fn unmap_physical_region<T>(_region: &crate::PhysicalMapping<Self, T>) {}
+    }
+
+    #[test]
+    fn test_iort() {
+        let file = std::fs::File::open("../example/acpi-dsl/iort.aml").unwrap();
+        let buffer = file.bytes().map(|b| b.unwrap()).collect::<Vec<u8>>();
+        let iort = unsafe { read_table::<AcpiIO, Iort>(AcpiIO, buffer.as_ptr() as usize).unwrap() };
+        let iort = iort.deref();
+
+        let output = std::fs::File::create("iort.txt").unwrap();
+        use crate::std::io::Write;
+        let mut writer = std::io::BufWriter::new(output);
+        write!(writer, "{}", iort).unwrap();
+
+        iort.nodes().for_each(|node| match node {
+            IortNode::SmmuV3(smmu_v3) => {
+                let base_addr = smmu_v3.base_address;
+                println!("smmu: {:#x?}", base_addr);
+                smmu_v3.header.id_mapping_array().iter().for_each(|id_mapping| {
+                    let input_base = id_mapping.input_base;
+                    let id_count = id_mapping.id_count;
+                    let output_base = id_mapping.output_base;
+                    let output_reference = id_mapping.output_reference;
+                    let output_node = iort.get_node(output_reference as usize).unwrap();
+                    println!("    output_reference: {:#x?}", output_reference);
+                    println!(
+                        "\tinput_base: {:#x}\n\tid_count: {:#x}\n\toutput_base: {:#x}",
+                        input_base, id_count, output_base
+                    );
+                    match output_node {
+                        IortNode::Its(its) => {
+                            println!("\tITS Groups: {:x?}", its.its_identifiers());
+                        }
+                        _ => {}
+                    }
+                });
+
+            }
+            _ => {}
+        });
+    }
 }

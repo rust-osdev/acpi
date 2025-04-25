@@ -47,7 +47,7 @@ mod test_utils;
 
 pub(crate) mod expression;
 pub(crate) mod misc;
-pub(crate) mod name_object;
+pub mod name_object;
 pub(crate) mod namespace;
 pub(crate) mod opcode;
 pub mod opregion;
@@ -668,12 +668,161 @@ pub enum AmlError {
 
 #[cfg(test)]
 mod tests {
+    use bitvec::vec;
+    use name_object::NameSeg;
+
     use super::*;
+
+    use core::result;
+    use std::{io::Read, print, thread::Scope, vec::Vec};
+
+    struct TestHandler;
+
+    #[allow(unused_variables)]
+    impl Handler for TestHandler {
+        fn read_u8(&self, address: usize) -> u8 {
+            unsafe { *(address as *const u8) }
+        }
+
+        fn read_u16(&self, address: usize) -> u16 {
+            unsafe { *(address as *const u16) }
+        }
+
+        fn read_u32(&self, address: usize) -> u32 {
+            unsafe { *(address as *const u32) }
+        }
+
+        fn read_u64(&self, address: usize) -> u64 {
+            unsafe { *(address as *const u64) }
+        }
+
+        fn write_u8(&mut self, address: usize, value: u8) {
+            unsafe { *(address as *mut u8) = value }
+        }
+
+        fn write_u16(&mut self, address: usize, value: u16) {
+            unsafe { *(address as *mut u16) = value }
+        }
+
+        fn write_u32(&mut self, address: usize, value: u32) {
+            unsafe { *(address as *mut u32) = value }
+        }
+
+        fn write_u64(&mut self, address: usize, value: u64) {
+            unsafe { *(address as *mut u64) = value }
+        }
+
+        fn read_io_u8(&self, port: u16) -> u8 {
+            unimplemented!()
+        }
+
+        fn read_io_u16(&self, port: u16) -> u16 {
+            unimplemented!()
+        }
+
+        fn read_io_u32(&self, port: u16) -> u32 {
+            unimplemented!()
+        }
+
+        fn write_io_u8(&self, port: u16, value: u8) {
+            unimplemented!()
+        }
+
+        fn write_io_u16(&self, port: u16, value: u16) {
+            unimplemented!()
+        }
+
+        fn write_io_u32(&self, port: u16, value: u32) {
+            unimplemented!()
+        }
+
+        fn read_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u8 {
+            unimplemented!()
+        }
+
+        fn read_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u16 {
+            unimplemented!()
+        }
+
+        fn read_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16) -> u32 {
+            unimplemented!()
+        }
+
+        fn write_pci_u8(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u8) {
+            unimplemented!()
+        }
+
+        fn write_pci_u16(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u16) {
+            unimplemented!()
+        }
+
+        fn write_pci_u32(&self, segment: u16, bus: u8, device: u8, function: u8, offset: u16, value: u32) {
+            unimplemented!()
+        }
+
+        fn stall(&self, microseconds: u64) {
+            unimplemented!()
+        }
+
+        fn sleep(&self, milliseconds: u64) {
+            unimplemented!()
+        }
+    }
 
     #[test]
     fn test_send_sync() {
         // verify that AmlContext implements Send and Sync
         fn test_send_sync<T: Send + Sync>() {}
         test_send_sync::<AmlContext>();
+    }
+
+    #[test]
+    fn test_traverse() {
+        let mut context = AmlContext::new(Box::new(TestHandler), DebugVerbosity::All);
+
+        let file = std::fs::File::open("../example/SSDT_VIRTIO.aml").unwrap();
+        let buffer = file.bytes().map(|b| b.unwrap()).collect::<Vec<u8>>();
+
+        let output = std::fs::File::create("op_region.txt").unwrap();
+        use crate::std::io::Write;
+        let mut writer = std::io::BufWriter::new(output);
+        let ptr = buffer.as_ptr();
+        let len = buffer.len();
+        let aml_buffer = unsafe {
+            core::slice::from_raw_parts(buffer.as_ptr().offset(36), buffer.len() - 36)
+        };
+        context.parse_table(aml_buffer).unwrap();
+
+        let mut hw_vec = Vec::new();
+        let mut namespace_clone = context.namespace.clone();
+
+        namespace_clone.traverse(|path, level| {
+            writeln!(writer, "{:#x?}", path).unwrap();
+            let crs = level.values.contains_key(&NameSeg::from_str("_CRS").unwrap());
+            let hid = level.values.contains_key(&NameSeg::from_str("_HID").unwrap());
+
+            level.values.iter().for_each(|(name, handle)| {
+                if let Ok(value) = context.namespace.get(*handle) {
+                    if let AmlValue::OpRegion(op_region) = value {
+                        writeln!(writer, "op_region: {:#x?}", op_region).unwrap();
+                    }
+                }
+            });
+
+            if crs && hid {
+                hw_vec.push(path.clone());
+            }
+            Ok(true)
+        });
+        hw_vec.iter().for_each(|path| {
+            let hid = format!("{}._HID", path.as_string());
+            let hid_result = context.invoke_method(&AmlName::from_str(&hid).unwrap(), Args::EMPTY).unwrap();
+            writeln!(writer, "method: {}, result: {:x?}", hid, hid_result).unwrap();
+            
+            let crs = format!("{}._CRS", path.as_string());
+            let crs_result = context.invoke_method(&AmlName::from_str(&crs).unwrap(), Args::EMPTY).unwrap();
+            writeln!(writer, "method: {}, result: {:x?}", crs, crs_result).unwrap();
+        });
+        
     }
 }

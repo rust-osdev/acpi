@@ -9,9 +9,9 @@ use bit_field::BitField;
 
 #[derive(Clone, Debug)]
 pub struct OpRegion {
-    region: RegionSpace,
-    base: u64,
-    length: u64,
+    pub region: RegionSpace,
+    pub base: u64,
+    pub length: u64,
     parent_device: Option<AmlName>,
 }
 

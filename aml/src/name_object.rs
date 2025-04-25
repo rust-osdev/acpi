@@ -173,7 +173,7 @@ where
 pub struct NameSeg(pub(crate) [u8; 4]);
 
 impl NameSeg {
-    pub(crate) fn from_str(string: &str) -> Result<NameSeg, AmlError> {
+    pub fn from_str(string: &str) -> Result<NameSeg, AmlError> {
         // Each NameSeg can only have four chars, and must have at least one
         if string.len() < 1 || string.len() > 4 {
             return Err(AmlError::InvalidNameSeg);
