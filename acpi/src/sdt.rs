@@ -21,80 +21,8 @@ impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
     }
 }
 
-/// All SDTs share the same header, and are `length` bytes long. The signature tells us which SDT
-/// this is.
-///
-/// The ACPI Spec (Version 6.4) defines the following SDT signatures:
-///
-/// * APIC - Multiple APIC Description Table (MADT)
-/// * BERT - Boot Error Record Table
-/// * BGRT - Boot Graphics Resource Table
-/// * CPEP - Corrected Platform Error Polling Table
-/// * DSDT - Differentiated System Description Table (DSDT)
-/// * ECDT - Embedded Controller Boot Resources Table
-/// * EINJ - Error Injection Table
-/// * ERST - Error Record Serialization Table
-/// * FACP - Fixed ACPI Description Table (FADT)
-/// * FACS - Firmware ACPI Control Structure
-/// * FPDT - Firmware Performance Data Table
-/// * GTDT - Generic Timer Description Table
-/// * HEST - Hardware Error Source Table
-/// * MSCT - Maximum System Characteristics Table
-/// * MPST - Memory Power StateTable
-/// * NFIT - NVDIMM Firmware Interface Table
-/// * OEMx - OEM Specific Information Tables
-/// * PCCT - Platform Communications Channel Table
-/// * PHAT - Platform Health Assessment Table
-/// * PMTT - Platform Memory Topology Table
-/// * PSDT - Persistent System Description Table
-/// * RASF - ACPI RAS Feature Table
-/// * RSDT - Root System Description Table
-/// * SBST - Smart Battery Specification Table
-/// * SDEV - Secure DEVices Table
-/// * SLIT - System Locality Distance Information Table
-/// * SRAT - System Resource Affinity Table
-/// * SSDT - Secondary System Description Table
-/// * XSDT - Extended System Description Table
-///
-/// Acpi reserves the following signatures and the specifications for them can be found [here](https://uefi.org/acpi):
-///
-/// * AEST - ARM Error Source Table
-/// * BDAT - BIOS Data ACPI Table
-/// * CDIT - Component Distance Information Table
-/// * CEDT - CXL Early Discovery Table
-/// * CRAT - Component Resource Attribute Table
-/// * CSRT - Core System Resource Table
-/// * DBGP - Debug Port Table
-/// * DBG2 - Debug Port Table 2 (note: ACPI 6.4 defines this as "DBPG2" but this is incorrect)
-/// * DMAR - DMA Remapping Table
-/// * DRTM -Dynamic Root of Trust for Measurement Table
-/// * ETDT - Event Timer Description Table (obsolete, superseeded by HPET)
-/// * HPET - IA-PC High Precision Event Timer Table
-/// * IBFT - iSCSI Boot Firmware Table
-/// * IORT - I/O Remapping Table
-/// * IVRS - I/O Virtualization Reporting Structure
-/// * LPIT - Low Power Idle Table
-/// * MCFG - PCI Express Memory-mapped Configuration Space base address description table
-/// * MCHI - Management Controller Host Interface table
-/// * MPAM - ARM Memory Partitioning And Monitoring table
-/// * MSDM - Microsoft Data Management Table
-/// * PRMT - Platform Runtime Mechanism Table
-/// * RGRT - Regulatory Graphics Resource Table
-/// * SDEI - Software Delegated Exceptions Interface table
-/// * SLIC - Microsoft Software Licensing table
-/// * SPCR - Microsoft Serial Port Console Redirection table
-/// * SPMI - Server Platform Management Interface table
-/// * STAO - _STA Override table
-/// * SVKL - Storage Volume Key Data table (Intel TDX only)
-/// * TCPA - Trusted Computing Platform Alliance Capabilities Table
-/// * TPM2 - Trusted Platform Module 2 Table
-/// * UEFI - Unified Extensible Firmware Interface Specification table
-/// * WAET - Windows ACPI Emulated Devices Table
-/// * WDAT - Watch Dog Action Table
-/// * WDRT - Watchdog Resource Table
-/// * WPBT - Windows Platform Binary Table
-/// * WSMT - Windows Security Mitigations Table
-/// * XENV - Xen Project
+/// All SDTs share the same header, and are `length` bytes long.
+/// The [`Signature`] tells us which SDT this is.
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct SdtHeader {
@@ -218,70 +146,141 @@ impl SdtHeader {
 pub struct Signature([u8; 4]);
 
 impl Signature {
+    // The ACPI Spec (Version 6.4) defines the following SDT signatures:
+
+    /// Root System Description Table
     pub const RSDT: Signature = Signature(*b"RSDT");
+    /// Extended System Description Table
     pub const XSDT: Signature = Signature(*b"XSDT");
-    pub const FADT: Signature = Signature(*b"FACP");
-    pub const HPET: Signature = Signature(*b"HPET");
-    pub const MADT: Signature = Signature(*b"APIC");
-    pub const MCFG: Signature = Signature(*b"MCFG");
+    /// Secondary System Description Table
     pub const SSDT: Signature = Signature(*b"SSDT");
+    /// Multiple APIC Description Table (MADT)
+    pub const MADT: Signature = Signature(*b"APIC");
+    /// Boot Error Record Table
     pub const BERT: Signature = Signature(*b"BERT");
+    /// Boot Graphics Resource Table
     pub const BGRT: Signature = Signature(*b"BGRT");
+    /// Corrected Platform Error Polling Table
     pub const CPEP: Signature = Signature(*b"CPEP");
+    /// Differentiated System Description Table
     pub const DSDT: Signature = Signature(*b"DSDT");
+    /// Embedded Controller Boot Resources Table
     pub const ECDT: Signature = Signature(*b"ECDT");
+    /// Error Injection Table
     pub const EINJ: Signature = Signature(*b"EINJ");
+    /// Error Record Serialization Table
     pub const ERST: Signature = Signature(*b"ERST");
+    /// Fixed ACPI Description Table (FADT)
+    pub const FADT: Signature = Signature(*b"FACP");
+    /// Firmware ACPI Control Structure
     pub const FACS: Signature = Signature(*b"FACS");
+    /// Firmware Performance Data Table
     pub const FPDT: Signature = Signature(*b"FPDT");
+    /// Generic Timer Description Table
     pub const GTDT: Signature = Signature(*b"GTDT");
+    /// Hardware Error Source Table
     pub const HEST: Signature = Signature(*b"HEST");
+    /// Maximum System Characteristics Table
     pub const MSCT: Signature = Signature(*b"MSCT");
+    /// Memory Power State Table
     pub const MPST: Signature = Signature(*b"MPST");
+    /// NVDIMM Firmware Interface Table
     pub const NFIT: Signature = Signature(*b"NFIT");
+    /// Platform Communications Channel Table
     pub const PCCT: Signature = Signature(*b"PCCT");
+    /// Platform Health Assessment Table
     pub const PHAT: Signature = Signature(*b"PHAT");
+    /// Platform Memory Topology Table
     pub const PMTT: Signature = Signature(*b"PMTT");
+    /// Persistent System Description Table
     pub const PSDT: Signature = Signature(*b"PSDT");
+    /// ACPI RAS Feature Table
     pub const RASF: Signature = Signature(*b"RASF");
+    /// Smart Battery Specification Table
     pub const SBST: Signature = Signature(*b"SBST");
+    /// Secure Devices Table
     pub const SDEV: Signature = Signature(*b"SDEV");
+    /// System Locality Distance Information Table
     pub const SLIT: Signature = Signature(*b"SLIT");
+    /// System Resource Affinity Table
     pub const SRAT: Signature = Signature(*b"SRAT");
+    // OEMx - OEM Specific Information Tables (Any table with a signature beginning with "OEM" falls into this definition)
+
+    // Acpi reserves the following signatures and the specifications for them can be found [here](https://uefi.org/acpi):
+
+    /// ARM Error Source Table
     pub const AEST: Signature = Signature(*b"AEST");
+    /// BIOS Data ACPI Table
     pub const BDAT: Signature = Signature(*b"BDAT");
+    /// Component Distance Information Table
     pub const CDIT: Signature = Signature(*b"CDIT");
+    /// CXL Early Discovery Table
     pub const CEDT: Signature = Signature(*b"CEDT");
+    /// Component Resource Attribute Table
     pub const CRAT: Signature = Signature(*b"CRAT");
+    /// Core System Resource Table
     pub const CSRT: Signature = Signature(*b"CSRT");
+    /// Debug Port Table
     pub const DBGP: Signature = Signature(*b"DBGP");
+    /// Debug Port Table 2 (note: ACPI 6.4 defines this as "DBPG2" but this is incorrect)
     pub const DBG2: Signature = Signature(*b"DBG2");
+    /// DMA Remapping Table
     pub const DMAR: Signature = Signature(*b"DMAR");
+    /// Dynamic Root of Trust for Measurement Table
     pub const DRTM: Signature = Signature(*b"DRTM");
+    /// Event Timer Description Table (obsolete, superseeded by HPET)
     pub const ETDT: Signature = Signature(*b"ETDT");
+    /// IA-PC High Precision Event Timer Table
+    pub const HPET: Signature = Signature(*b"HPET");
+    /// iSCSI Boot Firmware Table
     pub const IBFT: Signature = Signature(*b"IBFT");
+    /// I/O Remapping Table
     pub const IORT: Signature = Signature(*b"IORT");
+    /// I/O Virtualization Reporting Structure
     pub const IVRS: Signature = Signature(*b"IVRS");
+    /// Low Power Idle Table
     pub const LPIT: Signature = Signature(*b"LPIT");
+    /// PCI Express Memory-mapped Configuration Space base address description table
+    pub const MCFG: Signature = Signature(*b"MCFG");
+    /// Management Controller Host Interface table
     pub const MCHI: Signature = Signature(*b"MCHI");
+    /// ARM Memory Partitioning And Monitoring table
     pub const MPAM: Signature = Signature(*b"MPAM");
+    /// Microsoft Data Management Table
     pub const MSDM: Signature = Signature(*b"MSDM");
+    /// Platform Runtime Mechanism Table
     pub const PRMT: Signature = Signature(*b"PRMT");
+    /// Regulatory Graphics Resource Table
     pub const RGRT: Signature = Signature(*b"RGRT");
+    /// Software Delegated Exceptions Interface table
     pub const SDEI: Signature = Signature(*b"SDEI");
+    /// Microsoft Software Licensing table
     pub const SLIC: Signature = Signature(*b"SLIC");
+    /// Microsoft Serial Port Console Redirection table
     pub const SPCR: Signature = Signature(*b"SPCR");
+    /// Server Platform Management Interface table
     pub const SPMI: Signature = Signature(*b"SPMI");
+    /// _STA Override table
     pub const STAO: Signature = Signature(*b"STAO");
+    /// Storage Volume Key Data table (Intel TDX only)
     pub const SVKL: Signature = Signature(*b"SVKL");
+    /// Trusted Computing Platform Alliance Capabilities Table
     pub const TCPA: Signature = Signature(*b"TCPA");
+    /// Trusted Platform Module 2 Table
     pub const TPM2: Signature = Signature(*b"TPM2");
+    /// Unified Extensible Firmware Interface Specification table
     pub const UEFI: Signature = Signature(*b"UEFI");
+    /// Windows ACPI Emulated Devices Table
     pub const WAET: Signature = Signature(*b"WAET");
+    /// Watch Dog Action Table
     pub const WDAT: Signature = Signature(*b"WDAT");
+    /// Watchdog Resource Table
     pub const WDRT: Signature = Signature(*b"WDRT");
+    /// Windows Platform Binary Table
     pub const WPBT: Signature = Signature(*b"WPBT");
+    /// Windows Security Mitigations Table
     pub const WSMT: Signature = Signature(*b"WSMT");
+    /// Xen Project
     pub const XENV: Signature = Signature(*b"XENV");
 
     pub fn as_str(&self) -> &str {
