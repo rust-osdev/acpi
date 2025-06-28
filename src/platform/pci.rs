@@ -17,7 +17,7 @@ use alloc::{
 /// function of a PCIe device, [`PciConfigRegions::physical_address`] will give you the physical
 /// address of the start of that device function's configuration space (each function has 4096
 /// bytes of configuration space in PCIe).
-pub struct PciConfigRegions<A: Allocator> {
+pub struct PciConfigRegions<A: Allocator = Global> {
     pub regions: Vec<McfgEntry, A>,
 }
 
