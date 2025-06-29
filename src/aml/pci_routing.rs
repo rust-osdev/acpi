@@ -4,7 +4,7 @@ use crate::aml::{
     Interpreter,
     Operation,
     namespace::AmlName,
-    object::{Object, ReferenceKind},
+    object::Object,
     resource::{self, InterruptPolarity, InterruptTrigger, Resource},
 };
 use alloc::{vec, vec::Vec};
@@ -121,8 +121,7 @@ impl PciRoutingTable {
                                 route_type: PciRouteType::Gsi(gsi as u32),
                             });
                         }
-                        Object::Reference { kind: ReferenceKind::Unresolved, ref inner } => {
-                            let Object::String(ref name) = **inner else { panic!() };
+                        Object::String(ref name) => {
                             let link_object_name = interpreter
                                 .namespace
                                 .lock()

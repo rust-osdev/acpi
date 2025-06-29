@@ -1171,15 +1171,22 @@ where
 
                     /*
                      * The desired behaviour when we encounter a name at the top-level differs
-                     * depending on the context we're in. There are certain places where we want to
-                     * evaluate things like methods and field units, and others where we simply
-                     * want to reference the name (such as inside package definitions). In the
-                     * latter case, we also allow undefined names to be used, and will resolve them
-                     * at the time of use.
+                     * depending on the context we're in.
+                     *    - Generally, we want to attempt to evaluate names to objects that should have
+                     *      already been defined. There are generally no forward definitions in AML.
+                     *    - In `CondRefOf`, we need to handle a name not referring to any object. For
+                     *      this, we emit an `Unresolved` reference.
+                     *    - In package definitions, all objects referred to by name should be referred
+                     *      to by a string. This is not well defined by the specification, but matches
+                     *      expected behaviour of other interpreters, and is most useful for downstream
+                     *      users.
                      */
-                    let do_not_resolve = context.current_block.kind == BlockKind::Package
-                        || context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false);
-                    if do_not_resolve {
+                    if context.current_block.kind == BlockKind::Package {
+                        context
+                            .last_op()?
+                            .arguments
+                            .push(Argument::Object(Object::String(name.to_string()).wrap()));
+                    } else if context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false) {
                         let object = self.namespace.lock().search(&name, &context.current_scope);
                         match object {
                             Ok((_, object)) => {
