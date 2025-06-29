@@ -216,18 +216,7 @@ fn main() -> std::io::Result<()> {
 
 fn run_test(stream: &[u8], interpreter: &mut Interpreter<Handler>) -> Result<(), AmlError> {
     interpreter.load_table(stream)?;
-
-    match interpreter.invoke_method(AmlName::from_str("\\MAIN").unwrap(), vec![]) {
-        Ok(_) => Ok(()),
-        Err(AmlError::ObjectDoesNotExist(name)) => {
-            if name == AmlName::from_str("\\MAIN").unwrap() {
-                Ok(())
-            } else {
-                Err(AmlError::ObjectDoesNotExist(name))
-            }
-        }
-        Err(other) => Err(other),
-    }
+    interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])
 }
 
 fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {

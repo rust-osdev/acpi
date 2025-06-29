@@ -64,7 +64,7 @@ impl PciRoutingTable {
     ) -> Result<PciRoutingTable, AmlError> {
         let mut entries = Vec::new();
 
-        let prt = interpreter.invoke_method(prt_path.clone(), vec![])?;
+        let prt = interpreter.evaluate(prt_path.clone(), vec![])?;
 
         if let Object::Package(ref inner_values) = *prt {
             for value in inner_values {
@@ -177,7 +177,7 @@ impl PciRoutingTable {
             }),
             PciRouteType::LinkObject(ref name) => {
                 let path = AmlName::from_str("_CRS").unwrap().resolve(name)?;
-                let link_crs = interpreter.invoke_method(path, vec![])?;
+                let link_crs = interpreter.evaluate(path, vec![])?;
 
                 let resources = resource::resource_descriptor_list(link_crs)?;
                 match resources.as_slice() {

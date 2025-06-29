@@ -130,10 +130,9 @@ where
         Ok(())
     }
 
-    /// Invoke a method by its name, with the given set of arguments. If the referenced object is
-    /// not a method, the object will instead be returned - this is useful for objects that can
-    /// either be defined directly, or through a method (e.g. a `_CRS` object).
-    pub fn invoke_method(&self, path: AmlName, args: Vec<WrappedObject>) -> Result<WrappedObject, AmlError> {
+    /// Evaluate an object at the given path in the namespace. If the object is a method, this
+    /// invokes the method with the given set of arguments.
+    pub fn evaluate(&self, path: AmlName, args: Vec<WrappedObject>) -> Result<WrappedObject, AmlError> {
         trace!("Invoking AML method: {}", path);
 
         let object = self.namespace.lock().get(path.clone())?.clone();
@@ -147,12 +146,12 @@ where
         }
     }
 
-    pub fn invoke_method_if_present(
+    pub fn evaluate_if_present(
         &self,
         path: AmlName,
         args: Vec<WrappedObject>,
     ) -> Result<Option<WrappedObject>, AmlError> {
-        match self.invoke_method(path.clone(), args) {
+        match self.evaluate(path.clone(), args) {
             Ok(result) => Ok(Some(result)),
             Err(AmlError::ObjectDoesNotExist(not_present)) => {
                 if path == not_present {
@@ -181,10 +180,10 @@ where
         /*
          * This should match the initialization order of ACPICA and uACPI.
          */
-        if let Err(err) = self.invoke_method_if_present(AmlName::from_str("\\_INI").unwrap(), vec![]) {
+        if let Err(err) = self.evaluate(AmlName::from_str("\\_INI").unwrap(), vec![]) {
             warn!("Invoking \\_INI failed: {:?}", err);
         }
-        if let Err(err) = self.invoke_method_if_present(AmlName::from_str("\\_SB._INI").unwrap(), vec![]) {
+        if let Err(err) = self.evaluate(AmlName::from_str("\\_SB._INI").unwrap(), vec![]) {
             warn!("Invoking \\_SB._INI failed: {:?}", err);
         }
 
@@ -214,7 +213,7 @@ where
                 | NamespaceLevelKind::ThermalZone
                 | NamespaceLevelKind::PowerResource => {
                     let should_initialize = match self
-                        .invoke_method_if_present(AmlName::from_str("_STA").unwrap().resolve(path)?, vec![])
+                        .evaluate_if_present(AmlName::from_str("_STA").unwrap().resolve(path)?, vec![])
                     {
                         Ok(Some(result)) => {
                             let Object::Integer(result) = *result else { panic!() };
@@ -230,8 +229,8 @@ where
 
                     if should_initialize {
                         num_devices_initialized += 1;
-                        if let Err(err) = self
-                            .invoke_method_if_present(AmlName::from_str("_INI").unwrap().resolve(path)?, vec![])
+                        if let Err(err) =
+                            self.evaluate_if_present(AmlName::from_str("_INI").unwrap().resolve(path)?, vec![])
                         {
                             warn!("Failed to evaluate _INI for device {}: {:?}", path, err);
                         }
@@ -1367,10 +1366,14 @@ where
                     field_offset += length;
                 }
                 ACCESS_FIELD => {
-                    let access_type = context.next()?;
-                    let access_attrib = context.next()?;
+                    /*
+                     * These aren't actually fields themselves, but are created by `AccessAs` AML
+                     * elements. They change the access type and attributes for remaining fields in
+                     * the list.
+                     */
+                    let _access_type = context.next()?;
+                    let _access_attrib = context.next()?;
                     todo!()
-                    // TODO
                 }
                 CONNECT_FIELD => {
                     // TODO: either consume a namestring or `BufferData` (it's not
@@ -2256,16 +2259,16 @@ where
          * TODO: it's not ideal to do these reads for every native access. See if we can
          * cache them somewhere?
          */
-        let seg = match self.invoke_method_if_present(AmlName::from_str("_SEG").unwrap().resolve(path)?, vec![])? {
+        let seg = match self.evaluate_if_present(AmlName::from_str("_SEG").unwrap().resolve(path)?, vec![])? {
             Some(value) => value.as_integer()?,
             None => 0,
         };
-        let bus = match self.invoke_method_if_present(AmlName::from_str("_BBR").unwrap().resolve(path)?, vec![])? {
+        let bus = match self.evaluate_if_present(AmlName::from_str("_BBR").unwrap().resolve(path)?, vec![])? {
             Some(value) => value.as_integer()?,
             None => 0,
         };
         let (device, function) = {
-            let adr = self.invoke_method_if_present(AmlName::from_str("_ADR").unwrap().resolve(path)?, vec![])?;
+            let adr = self.evaluate_if_present(AmlName::from_str("_ADR").unwrap().resolve(path)?, vec![])?;
             let adr = match adr {
                 Some(adr) => adr.as_integer()?,
                 None => 0,
