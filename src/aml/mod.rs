@@ -2877,7 +2877,7 @@ pub enum AmlError {
     UnexpectedResourceType,
 
     NoHandlerForRegionAccess(RegionSpace),
-    MutexAquireTimeout,
+    MutexAcquireTimeout,
 
     PrtInvalidAddress,
     PrtInvalidPin,
@@ -2946,9 +2946,9 @@ pub trait Handler: Send + Sync {
     /// Acquire the mutex referred to by the given handle. `timeout` is a millisecond timeout value
     /// with the following meaning:
     ///    - `0` - try to acquire the mutex once, in a non-blocking manner. If the mutex cannot be
-    ///      acquired immediately, return `Err(AmlError::MutexAquireTimeout)`
+    ///      acquired immediately, return `Err(AmlError::MutexAcquireTimeout)`
     ///    - `1-0xfffe` - try to acquire the mutex for at least `timeout` milliseconds.
-    ///    - `0xffff` - try to acquire the mutex indefinitely. Should not return `MutexAquireTimeout`.
+    ///    - `0xffff` - try to acquire the mutex indefinitely. Should not return `MutexAcquireTimeout`.
     ///
     /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
     /// without causing a deadlock.
