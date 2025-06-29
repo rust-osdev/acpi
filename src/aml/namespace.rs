@@ -1,9 +1,8 @@
 use super::object::WrappedObject;
-use crate::aml::{AmlError, object::Object};
+use crate::aml::AmlError;
 use alloc::{
     collections::btree_map::BTreeMap,
     string::{String, ToString},
-    sync::Arc,
     vec,
     vec::Vec,
 };

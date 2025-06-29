@@ -160,7 +160,7 @@ impl Object {
         }
     }
 
-    pub fn as_string(&self) -> Result<Cow<str>, AmlError> {
+    pub fn as_string(&self) -> Result<Cow<'_, str>, AmlError> {
         if let Object::String(value) = self {
             Ok(Cow::from(value))
         } else {
