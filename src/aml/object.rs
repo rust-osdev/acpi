@@ -3,7 +3,9 @@ use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
 use core::{cell::UnsafeCell, fmt, ops};
 
-#[derive(Clone, Debug)]
+type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError>;
+
+#[derive(Clone)]
 pub enum Object {
     Uninitialized,
     Buffer(Vec<u8>),
@@ -13,6 +15,7 @@ pub enum Object {
     FieldUnit(FieldUnit),
     Integer(u64),
     Method { code: Vec<u8>, flags: MethodFlags },
+    NativeMethod { f: Arc<NativeMethod>, flags: MethodFlags },
     Mutex { mutex: Handle, sync_level: u8 },
     Reference { kind: ReferenceKind, inner: WrappedObject },
     OpRegion(OpRegion),
@@ -23,6 +26,17 @@ pub enum Object {
     String(String),
     ThermalZone,
     Debug,
+}
+
+impl Object {
+    pub fn native_method<F>(num_args: u8, f: F) -> Object
+    where
+        F: Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError> + 'static,
+    {
+        let mut flags = 0;
+        flags.set_bits(0..3, num_args);
+        Object::NativeMethod { f: Arc::new(f), flags: MethodFlags(flags) }
+    }
 }
 
 impl fmt::Display for Object {
@@ -39,6 +53,7 @@ impl fmt::Display for Object {
             Object::Integer(value) => write!(f, "Integer({})", value),
             // TODO: decode flags here
             Object::Method { code, flags } => write!(f, "Method"),
+            Object::NativeMethod { .. } => write!(f, "NativeMethod"),
             Object::Mutex { mutex, sync_level } => write!(f, "Mutex"),
             Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, **inner),
             Object::OpRegion(region) => write!(f, "{:?}", region),
@@ -248,6 +263,7 @@ impl Object {
             Object::FieldUnit(_) => ObjectType::FieldUnit,
             Object::Integer(_) => ObjectType::Integer,
             Object::Method { .. } => ObjectType::Method,
+            Object::NativeMethod { .. } => ObjectType::Method,
             Object::Mutex { .. } => ObjectType::Mutex,
             Object::Reference { inner, .. } => inner.typ(),
             Object::OpRegion(_) => ObjectType::OpRegion,

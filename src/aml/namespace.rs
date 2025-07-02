@@ -1,8 +1,11 @@
-use super::object::WrappedObject;
-use crate::aml::AmlError;
+use super::{
+    AmlError,
+    object::{MethodFlags, Object, WrappedObject},
+};
 use alloc::{
     collections::btree_map::BTreeMap,
     string::{String, ToString},
+    sync::Arc,
     vec,
     vec::Vec,
 };
@@ -25,6 +28,12 @@ impl Namespace {
         namespace.add_level(AmlName::from_str("\\_SI").unwrap(), NamespaceLevelKind::Scope).unwrap();
         namespace.add_level(AmlName::from_str("\\_PR").unwrap(), NamespaceLevelKind::Scope).unwrap();
         namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), NamespaceLevelKind::Scope).unwrap();
+
+        // TODO: this is just testing the native methods atm - actually implement it
+        namespace.insert(
+            AmlName::from_str("\\_OSI").unwrap(),
+            Object::NativeMethod { f: Arc::new(|args| todo!()), flags: MethodFlags(0) }.wrap(),
+        );
 
         // TODO: add pre-defined objects as well - \GL, \OSI, etc.
 

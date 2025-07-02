@@ -136,12 +136,13 @@ where
         trace!("Invoking AML method: {}", path);
 
         let object = self.namespace.lock().get(path.clone())?.clone();
-        match object.typ() {
-            ObjectType::Method => {
+        match &*object {
+            Object::Method { .. } => {
                 self.namespace.lock().add_level(path.clone(), NamespaceLevelKind::MethodLocals)?;
                 let context = MethodContext::new_from_method(object, args, path)?;
                 self.do_execute_method(context)
             }
+            Object::NativeMethod { f, .. } => f(&args),
             _ => Ok(object),
         }
     }
@@ -644,13 +645,22 @@ where
                             })
                             .collect();
 
-                        self.namespace.lock().add_level(method_scope.clone(), NamespaceLevelKind::MethodLocals)?;
+                        if let Object::Method { .. } = **method {
+                            self.namespace
+                                .lock()
+                                .add_level(method_scope.clone(), NamespaceLevelKind::MethodLocals)?;
 
-                        let new_context =
-                            MethodContext::new_from_method(method.clone(), args, method_scope.clone())?;
-                        let old_context = mem::replace(&mut context, new_context);
-                        self.context_stack.lock().push(old_context);
-                        context.retire_op(op);
+                            let new_context =
+                                MethodContext::new_from_method(method.clone(), args, method_scope.clone())?;
+                            let old_context = mem::replace(&mut context, new_context);
+                            self.context_stack.lock().push(old_context);
+                            context.retire_op(op);
+                        } else if let Object::NativeMethod { ref f, .. } = **method {
+                            let result = f(&args)?;
+                            context.contribute_arg(Argument::Object(result));
+                        } else {
+                            panic!();
+                        }
                     }
                     Opcode::Return => {
                         let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
@@ -1207,7 +1217,8 @@ where
                         let object = self.namespace.lock().search(&name, &context.current_scope);
                         match object {
                             Ok((resolved_name, object)) => {
-                                if let Object::Method { flags, .. } = *object {
+                                if let Object::Method { flags, .. } | Object::NativeMethod { flags, .. } = *object
+                                {
                                     context.start_in_flight_op(OpInFlight::new_with(
                                         Opcode::InternalMethodCall,
                                         vec![Argument::Object(object), Argument::Namestring(resolved_name)],
@@ -1762,7 +1773,7 @@ where
                 Object::Event => "[Event]".to_string(),
                 Object::FieldUnit(_) => "[Field]".to_string(),
                 Object::Integer(value) => value.to_string(),
-                Object::Method { .. } => "[Control Method]".to_string(),
+                Object::Method { .. } | Object::NativeMethod { .. } => "[Control Method]".to_string(),
                 Object::Mutex { .. } => "[Mutex]".to_string(),
                 Object::Reference { inner, .. } => resolve_as_string(&*(inner.clone().unwrap_reference())),
                 Object::OpRegion(_) => "[Operation Region]".to_string(),
