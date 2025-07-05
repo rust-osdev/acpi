@@ -1,17 +1,16 @@
 use super::{
     AmlError,
-    object::{MethodFlags, Object, WrappedObject},
+    object::{Object, ObjectType, WrappedObject},
 };
 use alloc::{
     collections::btree_map::BTreeMap,
     string::{String, ToString},
-    sync::Arc,
     vec,
     vec::Vec,
 };
 use bit_field::BitField;
 use core::{fmt, str, str::FromStr};
-use log::trace;
+use log::{trace, warn};
 
 #[derive(Clone)]
 pub struct Namespace {
@@ -29,13 +28,101 @@ impl Namespace {
         namespace.add_level(AmlName::from_str("\\_PR").unwrap(), NamespaceLevelKind::Scope).unwrap();
         namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), NamespaceLevelKind::Scope).unwrap();
 
-        // TODO: this is just testing the native methods atm - actually implement it
-        namespace.insert(
-            AmlName::from_str("\\_OSI").unwrap(),
-            Object::NativeMethod { f: Arc::new(|args| todo!()), flags: MethodFlags(0) }.wrap(),
-        );
+        /*
+         * In the dark ages of ACPI 1.0, before `\_OSI`, `\_OS` was used to communicate to the firmware which OS
+         * was running. This was predictably not very good, and so was replaced in ACPI 3.0 with `_OSI`, which
+         * allows support for individual capabilities to be queried. `_OS` should not be used by modern firmwares;
+         * we follow the NT interpreter and ACPICA by calling ourselves `Microsoft Windows NT`.
+         *
+         * See https://www.kernel.org/doc/html/latest/firmware-guide/acpi/osi.html for more information.
+         */
+        namespace
+            .insert(AmlName::from_str("\\_OS").unwrap(), Object::String("Microsoft Windows NT".to_string()).wrap())
+            .unwrap();
 
-        // TODO: add pre-defined objects as well - \GL, \OSI, etc.
+        /*
+         * `\_OSI` was introduced by ACPI 3.0 to improve the situation created by `\_OS`. Unfortunately, exactly
+         * the same problem was immediately repeated by introducing capabilities reflecting that an ACPI
+         * implementation is exactly the same as a particular version of Windows' (e.g. firmwares will call
+         * `\_OSI("Windows 2001")`).
+         *
+         * We basically follow suit with whatever Linux does, as this will hopefully minimise breakage:
+         *    - We always claim `Windows *` compatability
+         *    - We answer 'yes' to `_OSI("Darwin")
+         *    - We answer 'no' to `_OSI("Linux")`, and report that the tables are doing the wrong thing
+         */
+        namespace
+            .insert(
+                AmlName::from_str("\\_OSI").unwrap(),
+                Object::native_method(1, |args| {
+                    if args.len() != 1 {
+                        return Err(AmlError::MethodArgCountIncorrect);
+                    }
+                    let Object::String(ref feature) = *args[0] else {
+                        return Err(AmlError::ObjectNotOfExpectedType {
+                            expected: ObjectType::String,
+                            got: args[0].typ(),
+                        });
+                    };
+
+                    let is_supported = match feature.as_str() {
+                        "Windows 2000" => true,       // 2000
+                        "Windows 2001" => true,       // XP
+                        "Windows 2001 SP1" => true,   // XP SP1
+                        "Windows 2001 SP2" => true,   // XP SP2
+                        "Windows 2001.1" => true,     // Server 2003
+                        "Windows 2001.1 SP1" => true, // Server 2003 SP1
+                        "Windows 2006" => true,       // Vista
+                        "Windows 2006 SP1" => true,   // Vista SP1
+                        "Windows 2006 SP2" => true,   // Vista SP2
+                        "Windows 2006.1" => true,     // Server 2008
+                        "Windows 2009" => true,       // 7 and Server 2008 R2
+                        "Windows 2012" => true,       // 8 and Server 2012
+                        "Windows 2013" => true,       // 8.1 and Server 2012 R2
+                        "Windows 2015" => true,       // 10
+                        "Windows 2016" => true,       // 10 version 1607
+                        "Windows 2017" => true,       // 10 version 1703
+                        "Windows 2017.2" => true,     // 10 version 1709
+                        "Windows 2018" => true,       // 10 version 1803
+                        "Windows 2018.2" => true,     // 10 version 1809
+                        "Windows 2019" => true,       // 10 version 1903
+                        "Windows 2020" => true,       // 10 version 20H1
+                        "Windows 2021" => true,       // 11
+                        "Windows 2022" => true,       // 11 version 22H2
+
+                        // TODO: Linux answers yes to this, NT answers no. Maybe make configurable
+                        "Darwin" => false,
+
+                        "Linux" => {
+                            // TODO: should we allow users to specify that this should be true? Linux has a
+                            // command line option for this.
+                            warn!("ACPI evaluated `_OSI(\"Linux\")`. This is a bug. Reporting no support.");
+                            false
+                        }
+
+                        "Extended Address Space Descriptor" => true,
+                        "Module Device" => true,
+                        "3.0 Thermal Model" => true,
+                        "3.0 _SCP Extensions" => true,
+                        "Processor Aggregator Device" => true,
+                        _ => false,
+                    };
+
+                    Ok(Object::Integer(if is_supported { u64::MAX } else { 0 }).wrap())
+                })
+                .wrap(),
+            )
+            .unwrap();
+
+        /*
+         * `\_REV` evaluates to the version of the ACPI specification supported by this interpreter. Linux did this
+         * correctly until 2015, but firmwares misused this to detect Linux (as even modern versions of Windows
+         * return `2`), and so they switched to just returning `2` (as we'll also do). `_REV` should be considered
+         * useless and deprecated (this is mirrored in newer specs, which claim `2` means "ACPI 2 or greater").
+         */
+        namespace.insert(AmlName::from_str("\\_REV").unwrap(), Object::Integer(2).wrap()).unwrap();
+
+        // TODO: _GL
 
         namespace
     }
