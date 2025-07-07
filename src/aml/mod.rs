@@ -20,7 +20,7 @@ pub mod resource;
 
 pub use pci_types::PciAddress;
 
-use crate::{AcpiError, AcpiHandler, AcpiTables, AmlTable, sdt::SdtHeader};
+use crate::{AcpiError, AcpiTables, AmlTable, RegionMapper, sdt::SdtHeader};
 use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
@@ -86,23 +86,21 @@ where
 
     /// Construct a new `Interpreter` with the given set of ACPI tables. This will automatically
     /// load the DSDT and any SSDTs in the supplied [`AcpiTables`].
-    // TODO: maybe merge handler types? Maybe make one a supertrait of the other?
-    pub fn new_from_tables<AH: AcpiHandler>(
-        acpi_handler: AH,
-        aml_handler: H,
-        tables: &AcpiTables<AH>,
+    pub fn new_from_tables<M: RegionMapper>(
+        mapper: M,
+        handler: H,
+        tables: &AcpiTables<M>,
     ) -> Result<Interpreter<H>, AcpiError> {
-        fn load_table<H: Handler, AH: AcpiHandler>(
+        fn load_table<M: RegionMapper, H: Handler>(
             interpreter: &Interpreter<H>,
-            acpi_handler: &AH,
+            mapper: &M,
             table: AmlTable,
         ) -> Result<(), AcpiError> {
-            let mapping = unsafe {
-                acpi_handler.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize)
-            };
+            let mapping =
+                unsafe { mapper.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize) };
             let stream = unsafe {
                 slice::from_raw_parts(
-                    mapping.virtual_start().as_ptr().byte_add(mem::size_of::<SdtHeader>()) as *const u8,
+                    mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) as *const u8,
                     table.length as usize - mem::size_of::<SdtHeader>(),
                 )
             };
@@ -111,11 +109,11 @@ where
         }
 
         let dsdt = tables.dsdt()?;
-        let interpreter = Interpreter::new(aml_handler, dsdt.revision);
-        load_table(&interpreter, &acpi_handler, dsdt)?;
+        let interpreter = Interpreter::new(handler, dsdt.revision);
+        load_table(&interpreter, &mapper, dsdt)?;
 
         for ssdt in tables.ssdts() {
-            load_table(&interpreter, &acpi_handler, ssdt)?;
+            load_table(&interpreter, &mapper, ssdt)?;
         }
 
         Ok(interpreter)

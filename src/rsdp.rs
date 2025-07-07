@@ -1,4 +1,4 @@
-use crate::{AcpiError, AcpiHandler, PhysicalMapping};
+use crate::{AcpiError, PhysicalMapping, RegionMapper};
 use core::{mem, ops::Range, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
@@ -54,7 +54,7 @@ impl Rsdp {
     /// You should search the entire table for the v2.0 GUID before searching for the v1.0 one.
     pub unsafe fn search_for_on_bios<H>(handler: H) -> Result<PhysicalMapping<H, Rsdp>, AcpiError>
     where
-        H: AcpiHandler,
+        H: RegionMapper,
     {
         let rsdp_address = find_search_areas(handler.clone()).iter().find_map(|area| {
             // Map the search area for the RSDP followed by `RSDP_V2_EXT_LENGTH` bytes so an ACPI 1.0 RSDP at the
@@ -64,15 +64,14 @@ impl Rsdp {
             };
 
             let extended_area_bytes =
-                unsafe { slice::from_raw_parts(mapping.virtual_start().as_ptr(), mapping.region_length()) };
+                unsafe { slice::from_raw_parts(mapping.virtual_start.as_ptr(), mapping.region_length) };
 
             // Search `Rsdp`-sized windows at 16-byte boundaries relative to the base of the area (which is also
             // aligned to 16 bytes due to the implementation of `find_search_areas`)
             extended_area_bytes.windows(mem::size_of::<Rsdp>()).step_by(16).find_map(|maybe_rsdp_bytes_slice| {
                 let maybe_rsdp_virt_ptr = maybe_rsdp_bytes_slice.as_ptr().cast::<Rsdp>();
-                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize
-                    - mapping.virtual_start().as_ptr() as usize
-                    + mapping.physical_start();
+                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize - mapping.virtual_start.as_ptr() as usize
+                    + mapping.physical_start;
                 // SAFETY: `maybe_rsdp_virt_ptr` points to an aligned, readable `Rsdp`-sized value, and the `Rsdp`
                 // struct's fields are always initialized.
                 let maybe_rsdp = unsafe { &*maybe_rsdp_virt_ptr };
@@ -172,7 +171,7 @@ impl Rsdp {
 /// Find the areas we should search for the RSDP in.
 fn find_search_areas<H>(handler: H) -> [Range<usize>; 2]
 where
-    H: AcpiHandler,
+    H: RegionMapper,
 {
     /*
      * Read the base address of the EBDA from its location in the BDA (BIOS Data Area). Not all BIOSs fill this out

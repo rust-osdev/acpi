@@ -44,34 +44,38 @@ extern crate alloc;
 pub mod address;
 #[cfg(feature = "aml")]
 pub mod aml;
-pub mod handler;
 #[cfg(feature = "alloc")]
 pub mod platform;
 pub mod rsdp;
 pub mod sdt;
 
-pub use handler::{AcpiHandler, PhysicalMapping};
 pub use sdt::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
 
 use crate::sdt::{SdtHeader, Signature};
-use core::mem;
+use core::{
+    fmt,
+    mem,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    ptr::NonNull,
+};
 use log::warn;
 use rsdp::Rsdp;
 
 /// `AcpiTables` should be constructed after finding the RSDP or RSDT/XSDT and allows enumeration
 /// of the system's ACPI tables.
-pub struct AcpiTables<H: AcpiHandler> {
+pub struct AcpiTables<H: RegionMapper> {
     rsdt_mapping: PhysicalMapping<H, SdtHeader>,
     pub rsdp_revision: u8,
     handler: H,
 }
 
-unsafe impl<H> Send for AcpiTables<H> where H: AcpiHandler + Send {}
-unsafe impl<H> Sync for AcpiTables<H> where H: AcpiHandler + Send {}
+unsafe impl<H> Send for AcpiTables<H> where H: RegionMapper + Send {}
+unsafe impl<H> Sync for AcpiTables<H> where H: RegionMapper + Send {}
 
 impl<H> AcpiTables<H>
 where
-    H: AcpiHandler,
+    H: RegionMapper,
 {
     /// Construct an `AcpiTables` from the **physical** address of the RSDP.
     pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
@@ -124,9 +128,8 @@ where
     pub fn table_entries(&self) -> impl Iterator<Item = usize> {
         let entry_size = if self.rsdp_revision == 0 { 4 } else { 8 };
         let mut table_entries_ptr =
-            unsafe { self.rsdt_mapping.virtual_start().as_ptr().byte_add(mem::size_of::<SdtHeader>()) }
-                .cast::<u8>();
-        let mut num_entries = (self.rsdt_mapping.region_length() - mem::size_of::<SdtHeader>()) / entry_size;
+            unsafe { self.rsdt_mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }.cast::<u8>();
+        let mut num_entries = (self.rsdt_mapping.region_length - mem::size_of::<SdtHeader>()) / entry_size;
 
         core::iter::from_fn(move || {
             if num_entries > 0 {
@@ -256,4 +259,124 @@ pub enum AcpiError {
 
     #[cfg(feature = "alloc")]
     Aml(aml::AmlError),
+}
+
+/// Describes a physical mapping created by [`RegionMapper::map_physical_region`] and unmapped by
+/// [`RegionMapper::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
+/// bytes, but may be bigger.
+pub struct PhysicalMapping<M, T>
+where
+    M: RegionMapper,
+{
+    /// The physical address of the mapped structure. The actual mapping may start at a lower address
+    /// if the requested physical address is not well-aligned.
+    pub physical_start: usize,
+    /// The virtual address of the mapped structure. It must be a valid, non-null pointer to the
+    /// start of the requested structure. The actual virtual mapping may start at a lower address
+    /// if the requested address is not well-aligned.
+    pub virtual_start: NonNull<T>,
+    /// The size of the requested region, in bytes. Can be equal or larger to `size_of::<T>()`. If a
+    /// larger region has been mapped, this should still be the requested size.
+    pub region_length: usize,
+    /// The total size of the produced mapping. This may be the same as `region_length`, or larger to
+    /// meet requirements of the mapping implementation.
+    pub mapped_length: usize,
+    /// The [`RegionMapper`] that was used to produce the mapping. When this mapping is dropped, this
+    /// mapper will be used to unmap the region.
+    pub mapper: M,
+}
+
+impl<M, T> PhysicalMapping<M, T>
+where
+    M: RegionMapper,
+{
+    /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,
+    /// otherwise the mapping can simply be dereferenced to access the inner type.
+    pub fn get(&self) -> Pin<&T> {
+        unsafe { Pin::new_unchecked(self.virtual_start.as_ref()) }
+    }
+}
+
+impl<R, T> fmt::Debug for PhysicalMapping<R, T>
+where
+    R: RegionMapper,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PhysicalMapping")
+            .field("physical_start", &self.physical_start)
+            .field("virtual_start", &self.virtual_start)
+            .field("region_length", &self.region_length)
+            .field("mapped_length", &self.mapped_length)
+            .field("mapper", &())
+            .finish()
+    }
+}
+
+unsafe impl<M: RegionMapper + Send, T: Send> Send for PhysicalMapping<M, T> {}
+
+impl<M, T> Deref for PhysicalMapping<M, T>
+where
+    T: Unpin,
+    M: RegionMapper,
+{
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        unsafe { self.virtual_start.as_ref() }
+    }
+}
+
+impl<M, T> DerefMut for PhysicalMapping<M, T>
+where
+    T: Unpin,
+    M: RegionMapper,
+{
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { self.virtual_start.as_mut() }
+    }
+}
+
+impl<M, T> Drop for PhysicalMapping<M, T>
+where
+    M: RegionMapper,
+{
+    fn drop(&mut self) {
+        M::unmap_physical_region(self)
+    }
+}
+
+/// An implementation of this trait must be provided to allow `acpi` to map regions of physical memory to
+/// access ACPI tables and other structures. This should be cheaply clonable (e.g. a reference, `Arc`,
+/// marker struct, etc.) as a copy of the mapper is stored in each `PhysicalMapping` to facilitate unmapping.
+pub trait RegionMapper: Clone {
+    /// Given a physical address and a size, map a region of physical memory that contains `T` (note: the passed
+    /// size may be larger than `size_of::<T>()`). The address is not neccessarily page-aligned, so the
+    /// implementation may need to map more than `size` bytes. The virtual address the region is mapped to does not
+    /// matter, as long as it is accessible to `acpi`. Refer to the fields on [`PhysicalMapping`] to understand how
+    /// to produce one properly.
+    ///
+    /// ## Safety
+    ///
+    /// - `physical_address` must point to a valid `T` in physical memory.
+    /// - `size` must be at least `size_of::<T>()`.
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
+
+    /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped, you should **not** manually call this.
+    ///
+    /// Note: A reference to the `RegionMapper` used to construct `region` can be acquired by calling [`PhysicalMapping::mapper`].
+    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(dead_code)]
+    fn test_physical_mapping_send_sync() {
+        fn test_send_sync<T: Send>() {}
+        fn caller<M: RegionMapper + Send, T: Send>() {
+            test_send_sync::<PhysicalMapping<M, T>>();
+        }
+    }
 }

@@ -1,7 +1,7 @@
 use super::{Processor, ProcessorInfo, ProcessorState};
 use crate::{
     AcpiError,
-    AcpiHandler,
+    RegionMapper,
     AcpiTables,
     MadtError,
     sdt::{
@@ -27,7 +27,7 @@ pub enum InterruptModel<A: Allocator = Global> {
 }
 
 impl InterruptModel<Global> {
-    pub fn new<H: AcpiHandler>(
+    pub fn new<H: RegionMapper>(
         tables: &AcpiTables<H>,
     ) -> Result<(InterruptModel<Global>, Option<ProcessorInfo<Global>>), AcpiError> {
         Self::new_in(tables, Global)
@@ -35,7 +35,7 @@ impl InterruptModel<Global> {
 }
 
 impl<A: Allocator + Clone> InterruptModel<A> {
-    pub fn new_in<H: AcpiHandler>(
+    pub fn new_in<H: RegionMapper>(
         tables: &AcpiTables<H>,
         allocator: A,
     ) -> Result<(InterruptModel<A>, Option<ProcessorInfo<A>>), AcpiError> {
