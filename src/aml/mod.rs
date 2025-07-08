@@ -48,6 +48,9 @@ use object::{
 use op_region::{OpRegion, RegionHandler, RegionSpace};
 use spinning_top::Spinlock;
 
+/// `Interpreter` implements a virtual machine for the dynamic AML bytecode. It can be used by a
+/// host operating system to load tables containing AML bytecode (generally the DSDT and SSDTs) and
+/// will then manage the AML namespace and all objects created during the life of the system.
 pub struct Interpreter<H>
 where
     H: Handler,
@@ -58,6 +61,7 @@ where
     context_stack: Spinlock<Vec<MethodContext>>,
     dsdt_revision: u8,
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
+    global_lock_mutex: Handle,
 }
 
 unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
@@ -74,13 +78,17 @@ where
     /// already, use [`Interpreter::new_from_tables`] instead.
     pub fn new(handler: H, dsdt_revision: u8) -> Interpreter<H> {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
+
+        let global_lock_mutex = handler.create_mutex();
+
         Interpreter {
             handler,
-            namespace: Spinlock::new(Namespace::new()),
+            namespace: Spinlock::new(Namespace::new(global_lock_mutex)),
             object_token: Spinlock::new(unsafe { ObjectToken::create_interpreter_token() }),
             context_stack: Spinlock::new(Vec::new()),
             dsdt_revision,
             region_handlers: Spinlock::new(BTreeMap::new()),
+            global_lock_mutex,
         }
     }
 

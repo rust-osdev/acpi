@@ -1,5 +1,6 @@
 use super::{
     AmlError,
+    Handle,
     object::{Object, ObjectType, WrappedObject},
 };
 use alloc::{
@@ -19,7 +20,7 @@ pub struct Namespace {
 
 impl Namespace {
     /// Create a new AML namespace, with the expected pre-defined objects.
-    pub fn new() -> Namespace {
+    pub fn new(global_lock_mutex: Handle) -> Namespace {
         let mut namespace = Namespace { root: NamespaceLevel::new(NamespaceLevelKind::Scope) };
 
         namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), NamespaceLevelKind::Scope).unwrap();
@@ -27,6 +28,13 @@ impl Namespace {
         namespace.add_level(AmlName::from_str("\\_SI").unwrap(), NamespaceLevelKind::Scope).unwrap();
         namespace.add_level(AmlName::from_str("\\_PR").unwrap(), NamespaceLevelKind::Scope).unwrap();
         namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), NamespaceLevelKind::Scope).unwrap();
+
+        namespace
+            .insert(
+                AmlName::from_str("\\_GL").unwrap(),
+                Object::Mutex { mutex: global_lock_mutex, sync_level: 0 }.wrap(),
+            )
+            .unwrap();
 
         /*
          * In the dark ages of ACPI 1.0, before `\_OSI`, `\_OS` was used to communicate to the firmware which OS
@@ -121,8 +129,6 @@ impl Namespace {
          * useless and deprecated (this is mirrored in newer specs, which claim `2` means "ACPI 2 or greater").
          */
         namespace.insert(AmlName::from_str("\\_REV").unwrap(), Object::Integer(2).wrap()).unwrap();
-
-        // TODO: _GL
 
         namespace
     }
