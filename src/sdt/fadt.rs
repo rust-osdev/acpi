@@ -1,7 +1,7 @@
 use crate::{
     AcpiError,
     AcpiTable,
-    address::{AccessSize, AddressSpace, GenericAddress, RawGenericAddress},
+    address::{AddressSpace, GenericAddress, RawGenericAddress, StandardAccessSize},
     sdt::{ExtendedField, SdtHeader, Signature},
 };
 use bit_field::BitField;
@@ -179,7 +179,7 @@ impl Fadt {
             address_space: AddressSpace::SystemIo,
             bit_width: self.pm1_event_length * 8,
             bit_offset: 0,
-            access_size: AccessSize::Undefined,
+            access_size: 0,
             address: self.pm1a_event_block.into(),
         })
     }
@@ -196,7 +196,7 @@ impl Fadt {
                 address_space: AddressSpace::SystemIo,
                 bit_width: self.pm1_event_length * 8,
                 bit_offset: 0,
-                access_size: AccessSize::Undefined,
+                access_size: 0,
                 address: self.pm1b_event_block.into(),
             }))
         } else {
@@ -215,7 +215,7 @@ impl Fadt {
             address_space: AddressSpace::SystemIo,
             bit_width: self.pm1_control_length * 8,
             bit_offset: 0,
-            access_size: AccessSize::Undefined,
+            access_size: 0,
             address: self.pm1a_control_block.into(),
         })
     }
@@ -232,7 +232,7 @@ impl Fadt {
                 address_space: AddressSpace::SystemIo,
                 bit_width: self.pm1_control_length * 8,
                 bit_offset: 0,
-                access_size: AccessSize::Undefined,
+                access_size: 0,
                 address: self.pm1b_control_block.into(),
             }))
         } else {
@@ -252,7 +252,7 @@ impl Fadt {
                 address_space: AddressSpace::SystemIo,
                 bit_width: self.pm2_control_length * 8,
                 bit_offset: 0,
-                access_size: AccessSize::Undefined,
+                access_size: 0,
                 address: self.pm2_control_block.into(),
             }))
         } else {
@@ -279,7 +279,7 @@ impl Fadt {
                 address_space: AddressSpace::SystemIo,
                 bit_width: 32,
                 bit_offset: 0,
-                access_size: AccessSize::Undefined,
+                access_size: 0,
                 address: self.pm_timer_block.into(),
             }))
         } else {
@@ -299,7 +299,7 @@ impl Fadt {
                 address_space: AddressSpace::SystemIo,
                 bit_width: self.gpe0_block_length * 8,
                 bit_offset: 0,
-                access_size: AccessSize::Undefined,
+                access_size: 0,
                 address: self.gpe0_block.into(),
             }))
         } else {
@@ -319,7 +319,7 @@ impl Fadt {
                 address_space: AddressSpace::SystemIo,
                 bit_width: self.gpe1_block_length * 8,
                 bit_offset: 0,
-                access_size: AccessSize::Undefined,
+                access_size: 0,
                 address: self.gpe1_block.into(),
             }))
         } else {

@@ -49,8 +49,10 @@ pub enum AddressSpace {
     OemDefined(u8),
 }
 
+/// Specifies a standard access size. The access size of a GAS can be non-standard, and is defined
+/// by the Address Space ID in such cases.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum AccessSize {
+pub enum StandardAccessSize {
     Undefined,
     ByteAccess,
     WordAccess,
@@ -58,16 +60,16 @@ pub enum AccessSize {
     QWordAccess,
 }
 
-impl TryFrom<u8> for AccessSize {
+impl TryFrom<u8> for StandardAccessSize {
     type Error = AcpiError;
 
     fn try_from(size: u8) -> Result<Self, Self::Error> {
         match size {
-            0 => Ok(AccessSize::Undefined),
-            1 => Ok(AccessSize::ByteAccess),
-            2 => Ok(AccessSize::WordAccess),
-            3 => Ok(AccessSize::DWordAccess),
-            4 => Ok(AccessSize::QWordAccess),
+            0 => Ok(StandardAccessSize::Undefined),
+            1 => Ok(StandardAccessSize::ByteAccess),
+            2 => Ok(StandardAccessSize::WordAccess),
+            3 => Ok(StandardAccessSize::DWordAccess),
+            4 => Ok(StandardAccessSize::QWordAccess),
             _ => Err(AcpiError::InvalidGenericAddress),
         }
     }
@@ -78,7 +80,7 @@ pub struct GenericAddress {
     pub address_space: AddressSpace,
     pub bit_width: u8,
     pub bit_offset: u8,
-    pub access_size: AccessSize,
+    pub access_size: u8,
     pub address: u64,
 }
 
@@ -106,8 +108,12 @@ impl GenericAddress {
             address_space,
             bit_width: raw.bit_width,
             bit_offset: raw.bit_offset,
-            access_size: AccessSize::try_from(raw.access_size)?,
+            access_size: raw.access_size,
             address: raw.address,
         })
+    }
+
+    pub fn standard_access_size(&self) -> Result<StandardAccessSize, AcpiError> {
+        StandardAccessSize::try_from(self.access_size)
     }
 }
