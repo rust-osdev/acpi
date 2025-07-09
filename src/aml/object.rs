@@ -43,20 +43,20 @@ impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Object::Uninitialized => write!(f, "[Uninitialized]"),
-            Object::Buffer(bytes) => write!(f, "Buffer({:x?})", bytes),
+            Object::Buffer(bytes) => write!(f, "Buffer({bytes:x?})"),
             // TODO: include fields here
             Object::BufferField { buffer, offset, length } => write!(f, "BufferField {{ .. }}"),
             Object::Device => write!(f, "Device"),
             Object::Event => write!(f, "Event"),
             // TODO: include fields
             Object::FieldUnit(_) => write!(f, "FieldUnit"),
-            Object::Integer(value) => write!(f, "Integer({})", value),
+            Object::Integer(value) => write!(f, "Integer({value})"),
             // TODO: decode flags here
             Object::Method { code, flags } => write!(f, "Method"),
             Object::NativeMethod { .. } => write!(f, "NativeMethod"),
             Object::Mutex { mutex, sync_level } => write!(f, "Mutex"),
             Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, **inner),
-            Object::OpRegion(region) => write!(f, "{:?}", region),
+            Object::OpRegion(region) => write!(f, "{region:?}"),
             Object::Package(elements) => {
                 write!(f, "Package {{ ")?;
                 for (i, element) in elements.iter().enumerate() {
@@ -74,7 +74,7 @@ impl fmt::Display for Object {
             // TODO: include fields
             Object::Processor { proc_id, pblk_address, pblk_length } => write!(f, "Processor"),
             Object::RawDataBuffer => write!(f, "RawDataBuffer"),
-            Object::String(value) => write!(f, "String({:?})", value),
+            Object::String(value) => write!(f, "String({value:?})"),
             Object::ThermalZone => write!(f, "ThermalZone"),
             Object::Debug => write!(f, "Debug"),
         }
@@ -101,15 +101,18 @@ pub struct WrappedObject(Arc<UnsafeCell<Object>>);
 
 impl WrappedObject {
     pub fn new(object: Object) -> WrappedObject {
+        #[allow(clippy::arc_with_non_send_sync)]
         WrappedObject(Arc::new(UnsafeCell::new(object)))
     }
 
-    /// Gain a mutable reference to an [`Object`] from this [`WrappedObject`]. This requires an
-    /// [`ObjectToken`] which is protected by a lock on [`super::Interpreter`], which prevents
-    /// mutable access to objects from multiple contexts. It does not, however, prevent the same
-    /// object, referenced from multiple [`WrappedObject`]s, having multiple mutable (and therefore
-    /// aliasing) references being made to it, and therefore care must be taken in the interpreter
-    /// to prevent this.
+    /// Gain a mutable reference to an [`Object`] from this [`WrappedObject`].
+    ///
+    /// # Safety
+    /// This requires an [`ObjectToken`] which is protected by a lock on [`super::Interpreter`],
+    /// which prevents mutable access to objects from multiple contexts. It does not, however,
+    /// prevent the same object, referenced from multiple [`WrappedObject`]s, having multiple
+    /// mutable (and therefore aliasing) references being made to it, and therefore care must be
+    /// taken in the interpreter to prevent this.
     pub unsafe fn gain_mut<'r, 'a, 't>(&'a self, _token: &'t ObjectToken) -> &'r mut Object
     where
         't: 'r,
@@ -449,7 +452,7 @@ pub(crate) fn copy_bits(
         }
 
         let dst_shift = dst_index & 7;
-        let mut dst_mask: u16 = if length < 8 { ((1 << length) - 1) as u16 } else { 0xff as u16 } << dst_shift;
+        let mut dst_mask: u16 = if length < 8 { ((1 << length) - 1) as u16 } else { 0xff_u16 } << dst_shift;
         dst[dst_index / 8] =
             (dst[dst_index / 8] & !(dst_mask as u8)) | ((src_bits << dst_shift) & (dst_mask as u8));
 

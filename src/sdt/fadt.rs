@@ -1,7 +1,7 @@
 use crate::{
     AcpiError,
     AcpiTable,
-    address::{AddressSpace, GenericAddress, RawGenericAddress, StandardAccessSize},
+    address::{AddressSpace, GenericAddress, RawGenericAddress},
     sdt::{ExtendedField, SdtHeader, Signature},
 };
 use bit_field::BitField;
@@ -169,10 +169,10 @@ impl Fadt {
     }
 
     pub fn pm1a_event_block(&self) -> Result<GenericAddress, AcpiError> {
-        if let Some(raw) = unsafe { self.x_pm1a_event_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return GenericAddress::from_raw(raw);
-            }
+        if let Some(raw) = unsafe { self.x_pm1a_event_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return GenericAddress::from_raw(raw);
         }
 
         Ok(GenericAddress {
@@ -185,10 +185,10 @@ impl Fadt {
     }
 
     pub fn pm1b_event_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
-        if let Some(raw) = unsafe { self.x_pm1b_event_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return Ok(Some(GenericAddress::from_raw(raw)?));
-            }
+        if let Some(raw) = unsafe { self.x_pm1b_event_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return Ok(Some(GenericAddress::from_raw(raw)?));
         }
 
         if self.pm1b_event_block != 0 {
@@ -205,10 +205,10 @@ impl Fadt {
     }
 
     pub fn pm1a_control_block(&self) -> Result<GenericAddress, AcpiError> {
-        if let Some(raw) = unsafe { self.x_pm1a_control_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return GenericAddress::from_raw(raw);
-            }
+        if let Some(raw) = unsafe { self.x_pm1a_control_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return GenericAddress::from_raw(raw);
         }
 
         Ok(GenericAddress {
@@ -221,10 +221,10 @@ impl Fadt {
     }
 
     pub fn pm1b_control_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
-        if let Some(raw) = unsafe { self.x_pm1b_control_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return Ok(Some(GenericAddress::from_raw(raw)?));
-            }
+        if let Some(raw) = unsafe { self.x_pm1b_control_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return Ok(Some(GenericAddress::from_raw(raw)?));
         }
 
         if self.pm1b_control_block != 0 {
@@ -241,10 +241,10 @@ impl Fadt {
     }
 
     pub fn pm2_control_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
-        if let Some(raw) = unsafe { self.x_pm2_control_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return Ok(Some(GenericAddress::from_raw(raw)?));
-            }
+        if let Some(raw) = unsafe { self.x_pm2_control_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return Ok(Some(GenericAddress::from_raw(raw)?));
         }
 
         if self.pm2_control_block != 0 {
@@ -268,10 +268,10 @@ impl Fadt {
             return Ok(None);
         }
 
-        if let Some(raw) = unsafe { self.x_pm_timer_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return Ok(Some(GenericAddress::from_raw(raw)?));
-            }
+        if let Some(raw) = unsafe { self.x_pm_timer_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return Ok(Some(GenericAddress::from_raw(raw)?));
         }
 
         if self.pm_timer_block != 0 {
@@ -288,10 +288,10 @@ impl Fadt {
     }
 
     pub fn gpe0_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
-        if let Some(raw) = unsafe { self.x_gpe0_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return Ok(Some(GenericAddress::from_raw(raw)?));
-            }
+        if let Some(raw) = unsafe { self.x_gpe0_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return Ok(Some(GenericAddress::from_raw(raw)?));
         }
 
         if self.gpe0_block != 0 {
@@ -308,10 +308,10 @@ impl Fadt {
     }
 
     pub fn gpe1_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
-        if let Some(raw) = unsafe { self.x_gpe1_block.access(self.header().revision) } {
-            if raw.address != 0x0 {
-                return Ok(Some(GenericAddress::from_raw(raw)?));
-            }
+        if let Some(raw) = unsafe { self.x_gpe1_block.access(self.header().revision) }
+            && raw.address != 0x0
+        {
+            return Ok(Some(GenericAddress::from_raw(raw)?));
         }
 
         if self.gpe1_block != 0 {

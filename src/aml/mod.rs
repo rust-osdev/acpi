@@ -112,7 +112,7 @@ where
                     table.length as usize - mem::size_of::<SdtHeader>(),
                 )
             };
-            interpreter.load_table(stream).map_err(|err| AcpiError::Aml(err))?;
+            interpreter.load_table(stream).map_err(AcpiError::Aml)?;
             Ok(())
         }
 
@@ -308,7 +308,7 @@ where
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
                         let token = self.object_token.lock();
-                        let Object::Integer(operand) = (unsafe { operand.gain_mut(&*token) }) else {
+                        let Object::Integer(operand) = (unsafe { operand.gain_mut(&token) }) else {
                             Err(AmlError::ObjectNotOfExpectedType {
                                 expected: ObjectType::Integer,
                                 got: operand.typ(),
@@ -564,7 +564,7 @@ where
                     }
                     Opcode::Store => {
                         let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
-                        self.do_store(&target, object.clone())?;
+                        self.do_store(target, object.clone())?;
                         context.retire_op(op);
                     }
                     Opcode::RefOf => {
@@ -788,7 +788,7 @@ where
                             }
                         }
                         BlockKind::Scope { old_scope } => {
-                            assert!(context.block_stack.len() > 0);
+                            assert!(!context.block_stack.is_empty());
                             context.current_block = context.block_stack.pop().unwrap();
                             context.current_scope = old_scope;
                             // Go round the loop again to get the next opcode for the new block
@@ -804,7 +804,7 @@ where
                              * *distinct* uninitialized objects, and go round again to complete the
                              * in-flight op.
                              */
-                            assert!(context.block_stack.len() > 0);
+                            assert!(!context.block_stack.is_empty());
 
                             if let Some(package_op) = context.in_flight.last_mut()
                                 && (package_op.op == Opcode::Package || package_op.op == Opcode::VarPackage)
@@ -1626,7 +1626,7 @@ where
                  * Apparently, the NT interpreter always uses the first 8 bytes of the buffer.
                  */
                 let mut to_interpret = [0u8; 8];
-                (to_interpret[0..usize::min(bytes.len(), 8)]).copy_from_slice(&bytes);
+                (to_interpret[0..usize::min(bytes.len(), 8)]).copy_from_slice(bytes);
                 Object::Integer(u64::from_le_bytes(to_interpret))
             }
             Object::String(ref value) => {
@@ -1642,8 +1642,9 @@ where
                     })?;
                     Object::Integer(parsed)
                 } else {
-                    let parsed = u64::from_str_radix(value, 10).map_err(|_| {
-                        AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
+                    let parsed = str::parse::<u64>(value).map_err(|_| AmlError::InvalidOperationOnObject {
+                        op: Operation::ToInteger,
+                        typ: ObjectType::String,
                     })?;
                     Object::Integer(parsed)
                 }
@@ -1694,7 +1695,7 @@ where
             Object::String(ref value) => Object::String(value.clone()),
             Object::Integer(value) => match op.op {
                 Opcode::ToDecimalString => Object::String(value.to_string()),
-                Opcode::ToHexString => Object::String(alloc::format!("{:#x}", value)),
+                Opcode::ToHexString => Object::String(alloc::format!("{value:#x}")),
                 _ => panic!(),
             },
             Object::Buffer(ref bytes) => {
@@ -1704,8 +1705,8 @@ where
                     let mut string = String::new();
                     for byte in bytes {
                         let as_str = match op.op {
-                            Opcode::ToDecimalString => alloc::format!("{},", byte),
-                            Opcode::ToHexString => alloc::format!("{:#04X},", byte),
+                            Opcode::ToDecimalString => alloc::format!("{byte},"),
+                            Opcode::ToHexString => alloc::format!("{byte:#04X},"),
                             _ => panic!(),
                         };
                         string.push_str(&as_str);
@@ -1773,7 +1774,7 @@ where
         fn resolve_as_string(obj: &Object) -> String {
             match obj {
                 Object::Uninitialized => "[Uninitialized Object]".to_string(),
-                Object::Buffer(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                Object::Buffer(bytes) => String::from_utf8_lossy(bytes).into_owned(),
                 Object::BufferField { .. } => "[Buffer Field]".to_string(),
                 Object::Device => "[Device]".to_string(),
                 Object::Event => "[Event]".to_string(),
@@ -1781,7 +1782,7 @@ where
                 Object::Integer(value) => value.to_string(),
                 Object::Method { .. } | Object::NativeMethod { .. } => "[Control Method]".to_string(),
                 Object::Mutex { .. } => "[Mutex]".to_string(),
-                Object::Reference { inner, .. } => resolve_as_string(&*(inner.clone().unwrap_reference())),
+                Object::Reference { inner, .. } => resolve_as_string(&(inner.clone().unwrap_reference())),
                 Object::OpRegion(_) => "[Operation Region]".to_string(),
                 Object::Package(_) => "[Package]".to_string(),
                 Object::PowerResource { .. } => "[Power Resource]".to_string(),
@@ -1813,7 +1814,7 @@ where
                 buffer.extend(source2.to_buffer(if self.dsdt_revision >= 2 { 8 } else { 4 })?);
                 Object::Buffer(buffer).wrap()
             }
-            ObjectType::String | _ => {
+            _ => {
                 let source1 = resolve_as_string(&source1);
                 let source2 = resolve_as_string(&source2);
                 Object::String(source1 + &source2).wrap()
@@ -1944,14 +1945,14 @@ where
         let to_return = object.clone();
 
         match target {
-            Argument::Object(target) => match unsafe { target.gain_mut(&*token) } {
-                Object::Integer(target) => match unsafe { object.gain_mut(&*token) } {
+            Argument::Object(target) => match unsafe { target.gain_mut(&token) } {
+                Object::Integer(target) => match unsafe { object.gain_mut(&token) } {
                     Object::Integer(value) => {
                         *target = *value;
                     }
                     Object::BufferField { .. } => {
                         let mut buffer = [0u8; 8];
-                        unsafe { object.gain_mut(&*token) }.read_buffer_field(&mut buffer)?;
+                        unsafe { object.gain_mut(&token) }.read_buffer_field(&mut buffer)?;
                         let value = u64::from_le_bytes(buffer);
                         *target = value;
                     }
@@ -1964,12 +1965,12 @@ where
                         *target = as_integer;
                     }
                 },
-                Object::BufferField { .. } => match unsafe { object.gain_mut(&*token) } {
+                Object::BufferField { .. } => match unsafe { object.gain_mut(&token) } {
                     Object::Integer(value) => {
-                        unsafe { target.gain_mut(&*token) }.write_buffer_field(&value.to_le_bytes(), &*token)?;
+                        unsafe { target.gain_mut(&token) }.write_buffer_field(&value.to_le_bytes(), &token)?;
                     }
                     Object::Buffer(value) => {
-                        unsafe { target.gain_mut(&*token) }.write_buffer_field(&value.as_slice(), &*token)?;
+                        unsafe { target.gain_mut(&token) }.write_buffer_field(value.as_slice(), &token)?;
                     }
                     _ => panic!(),
                 },
@@ -1982,12 +1983,12 @@ where
                                 // TODO: this should store into the reference, potentially doing an
                                 // implicit cast
                                 unsafe {
-                                    *inner_inner.gain_mut(&*token) = object.gain_mut(&*token).clone();
+                                    *inner_inner.gain_mut(&token) = object.gain_mut(&token).clone();
                                 }
                             } else {
                                 // Overwrite the value
                                 unsafe {
-                                    *inner.gain_mut(&*token) = object.gain_mut(&*token).clone();
+                                    *inner.gain_mut(&token) = object.gain_mut(&token).clone();
                                 }
                             }
                         }
@@ -1995,7 +1996,7 @@ where
                     }
                 }
                 Object::Debug => {
-                    self.handler.handle_debug(&*object);
+                    self.handler.handle_debug(&object);
                 }
                 _ => panic!("Stores to objects like {:?} are not yet supported", target),
             },
@@ -2090,7 +2091,7 @@ where
 
         let value_bytes = match &*value {
             Object::Integer(value) => &value.to_le_bytes() as &[u8],
-            Object::Buffer(bytes) => &bytes,
+            Object::Buffer(bytes) => bytes,
             _ => Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: value.typ() })?,
         };
         let access_width_bits = field.flags.access_type_bytes()? * 8;
@@ -2173,7 +2174,7 @@ where
                     1 => self.handler.read_u8(address) as u64,
                     2 => self.handler.read_u16(address) as u64,
                     4 => self.handler.read_u32(address) as u64,
-                    8 => self.handler.read_u64(address) as u64,
+                    8 => self.handler.read_u64(address),
                     _ => panic!(),
                 }
             }),
@@ -2230,7 +2231,7 @@ where
         );
 
         match region.space {
-            RegionSpace::SystemMemory => Ok({
+            RegionSpace::SystemMemory => {
                 let address = region.base as usize + offset;
                 match length {
                     1 => self.handler.write_u8(address, value as u8),
@@ -2239,8 +2240,9 @@ where
                     8 => self.handler.write_u64(address, value),
                     _ => panic!(),
                 }
-            }),
-            RegionSpace::SystemIO => Ok({
+                Ok(())
+            }
+            RegionSpace::SystemIO => {
                 let address = region.base as u16 + offset as u16;
                 match length {
                     1 => self.handler.write_io_u8(address, value as u8),
@@ -2248,7 +2250,8 @@ where
                     4 => self.handler.write_io_u32(address, value as u32),
                     _ => panic!(),
                 }
-            }),
+                Ok(())
+            }
             RegionSpace::PciConfig => {
                 let address = self.pci_address_for_device(&region.parent_device_path)?;
                 match length {
@@ -2434,10 +2437,10 @@ impl MethodContext {
     }
 
     fn contribute_arg(&mut self, arg: Argument) {
-        if let Some(in_flight) = self.in_flight.last_mut() {
-            if in_flight.arguments.len() < in_flight.expected_arguments {
-                in_flight.arguments.push(arg);
-            }
+        if let Some(in_flight) = self.in_flight.last_mut()
+            && in_flight.arguments.len() < in_flight.expected_arguments
+        {
+            in_flight.arguments.push(arg);
         }
     }
 

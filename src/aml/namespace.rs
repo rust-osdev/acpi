@@ -10,7 +10,10 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{fmt, str, str::FromStr};
+use core::{
+    fmt,
+    str::{self, FromStr},
+};
 use log::{trace, warn};
 
 #[derive(Clone)]
@@ -257,10 +260,10 @@ impl Namespace {
 
             loop {
                 let name = level_name.resolve(&scope)?;
-                if let Ok((level, last_seg)) = self.get_level_for_path(&name) {
-                    if level.children.contains_key(&last_seg) {
-                        return Ok(name);
-                    }
+                if let Ok((level, last_seg)) = self.get_level_for_path(&name)
+                    && level.children.contains_key(&last_seg)
+                {
+                    return Ok(name);
                 }
 
                 // If we don't find it, move the scope up a level and search for it there recursively
@@ -296,7 +299,7 @@ impl Namespace {
                 panic!();
             };
             current_level =
-                current_level.children.get(&segment).ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
+                current_level.children.get(segment).ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
         }
 
         Ok((current_level, *last_seg))
@@ -326,7 +329,7 @@ impl Namespace {
             };
             current_level = current_level
                 .children
-                .get_mut(&segment)
+                .get_mut(segment)
                 .ok_or(AmlError::LevelDoesNotExist(traversed_path.clone()))?;
         }
 
@@ -369,12 +372,7 @@ impl fmt::Display for Namespace {
         const BRANCH: &str = "├── ";
         const END: &str = "└── ";
 
-        fn print_level(
-            namespace: &Namespace,
-            f: &mut fmt::Formatter<'_>,
-            level: &NamespaceLevel,
-            indent_stack: String,
-        ) -> fmt::Result {
+        fn print_level(f: &mut fmt::Formatter<'_>, level: &NamespaceLevel, indent_stack: String) -> fmt::Result {
             for (i, (name, (flags, object))) in level.values.iter().enumerate() {
                 let end = (i == level.values.len() - 1)
                     && level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).count() == 0;
@@ -389,9 +387,8 @@ impl fmt::Display for Namespace {
                 )?;
 
                 // If the object has a corresponding scope, print it here
-                if let Some(child_level) = level.children.get(&name) {
+                if let Some(child_level) = level.children.get(name) {
                     print_level(
-                        namespace,
                         f,
                         child_level,
                         if end { indent_stack.clone() + "    " } else { indent_stack.clone() + STEM },
@@ -404,14 +401,14 @@ impl fmt::Display for Namespace {
             for (i, (name, sub_level)) in remaining_scopes.iter().enumerate() {
                 let end = i == remaining_scopes.len() - 1;
                 writeln!(f, "{}{}{}:", &indent_stack, if end { END } else { BRANCH }, name.as_str())?;
-                print_level(namespace, f, sub_level, indent_stack.clone() + STEM)?;
+                print_level(f, sub_level, indent_stack.clone() + STEM)?;
             }
 
             Ok(())
         }
 
         writeln!(f, "\n    \\:")?;
-        print_level(self, f, &self.root, String::from("    "))
+        print_level(f, &self.root, String::from("    "))
     }
 }
 
@@ -615,33 +612,6 @@ impl fmt::Display for AmlName {
 pub struct NameSeg(pub(crate) [u8; 4]);
 
 impl NameSeg {
-    pub fn from_str(string: &str) -> Result<NameSeg, AmlError> {
-        // Each NameSeg can only have four chars, and must have at least one
-        if string.is_empty() || string.len() > 4 {
-            return Err(AmlError::InvalidNameSeg([0xff, 0xff, 0xff, 0xff]));
-        }
-
-        // We pre-fill the array with '_', so it will already be correct if the length is < 4
-        let mut seg = [b'_'; 4];
-        let bytes = string.as_bytes();
-
-        // Manually do the first one, because we have to check it's a LeadNameChar
-        if !is_lead_name_char(bytes[0]) {
-            return Err(AmlError::InvalidNameSeg([bytes[0], bytes[1], bytes[2], bytes[3]]));
-        }
-        seg[0] = bytes[0];
-
-        // Copy the rest of the chars, checking that they're NameChars
-        for i in 1..bytes.len() {
-            if !is_name_char(bytes[i]) {
-                return Err(AmlError::InvalidNameSeg([bytes[0], bytes[1], bytes[2], bytes[3]]));
-            }
-            seg[i] = bytes[i];
-        }
-
-        Ok(NameSeg(seg))
-    }
-
     pub fn from_bytes(bytes: [u8; 4]) -> Result<NameSeg, AmlError> {
         if !is_lead_name_char(bytes[0]) {
             return Err(AmlError::InvalidNameSeg(bytes));
@@ -661,6 +631,37 @@ impl NameSeg {
     pub fn as_str(&self) -> &str {
         // We should only construct valid ASCII name segments
         unsafe { str::from_utf8_unchecked(&self.0) }
+    }
+}
+
+impl FromStr for NameSeg {
+    type Err = AmlError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Each NameSeg can only have four chars, and must have at least one
+        if s.is_empty() || s.len() > 4 {
+            return Err(AmlError::InvalidNameSeg([0xff, 0xff, 0xff, 0xff]));
+        }
+
+        // We pre-fill the array with '_', so it will already be correct if the length is < 4
+        let mut seg = [b'_'; 4];
+        let bytes = s.as_bytes();
+
+        // Manually do the first one, because we have to check it's a LeadNameChar
+        if !is_lead_name_char(bytes[0]) {
+            return Err(AmlError::InvalidNameSeg([bytes[0], bytes[1], bytes[2], bytes[3]]));
+        }
+        seg[0] = bytes[0];
+
+        // Copy the rest of the chars, checking that they're NameChars
+        for i in 1..bytes.len() {
+            if !is_name_char(bytes[i]) {
+                return Err(AmlError::InvalidNameSeg([bytes[0], bytes[1], bytes[2], bytes[3]]));
+            }
+            seg[i] = bytes[i];
+        }
+
+        Ok(NameSeg(seg))
     }
 }
 

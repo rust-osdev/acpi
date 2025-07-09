@@ -6,9 +6,9 @@ pub use pci::PciConfigRegions;
 
 use crate::{
     AcpiError,
-    RegionMapper,
     AcpiTables,
     PowerProfile,
+    RegionMapper,
     address::GenericAddress,
     sdt::{
         Signature,
@@ -54,6 +54,10 @@ impl<H: RegionMapper, A: Allocator + Clone> AcpiPlatform<H, A> {
     /// On Intel processors, this will start the AP in long-mode, with interrupts disabled and a
     /// single page with the supplied waking vector identity-mapped (it is therefore advisable to
     /// align your waking vector to start at a page boundary and fit within one page).
+    ///
+    /// # Safety
+    /// An appropriate environment must exist for the AP to boot into at the given address, or the
+    /// AP could fault or cause unexpected behaviour.
     pub unsafe fn wake_aps(
         &self,
         apic_id: u32,

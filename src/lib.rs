@@ -78,6 +78,9 @@ where
     H: RegionMapper,
 {
     /// Construct an `AcpiTables` from the **physical** address of the RSDP.
+    ///
+    /// # Safety
+    /// The address of the RSDP must be valid.
     pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
 
@@ -112,6 +115,9 @@ where
 
     /// Construct an `AcpiTables` from the **physical** address of the RSDT/XSDT, and the revision
     /// found in the RSDP.
+    ///
+    /// # Safety
+    /// The address of the RSDT must be valid.
     pub unsafe fn from_rsdt(
         handler: H,
         rsdp_revision: u8,

@@ -125,7 +125,7 @@ impl PciRoutingTable {
                             let link_object_name = interpreter
                                 .namespace
                                 .lock()
-                                .search_for_level(&AmlName::from_str(&name)?, &prt_path)?;
+                                .search_for_level(&AmlName::from_str(name)?, &prt_path)?;
                             entries.push(PciRoute {
                                 device,
                                 function,
@@ -142,7 +142,7 @@ impl PciRoutingTable {
 
             Ok(PciRoutingTable { entries })
         } else {
-            return Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: prt.typ() });
+            Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: prt.typ() })
         }
     }
 
