@@ -187,10 +187,10 @@ where
         /*
          * This should match the initialization order of ACPICA and uACPI.
          */
-        if let Err(err) = self.evaluate(AmlName::from_str("\\_INI").unwrap(), vec![]) {
+        if let Err(err) = self.evaluate_if_present(AmlName::from_str("\\_INI").unwrap(), vec![]) {
             warn!("Invoking \\_INI failed: {:?}", err);
         }
-        if let Err(err) = self.evaluate(AmlName::from_str("\\_SB._INI").unwrap(), vec![]) {
+        if let Err(err) = self.evaluate_if_present(AmlName::from_str("\\_SB._INI").unwrap(), vec![]) {
             warn!("Invoking \\_SB._INI failed: {:?}", err);
         }
 
