@@ -1,8 +1,8 @@
 use crate::{
     AcpiError,
-    RegionMapper,
     AcpiTable,
     AcpiTables,
+    Handler,
     address::RawGenericAddress,
     sdt::{SdtHeader, Signature},
 };
@@ -37,7 +37,7 @@ pub struct HpetInfo {
 impl HpetInfo {
     pub fn new<H>(tables: &AcpiTables<H>) -> Result<HpetInfo, AcpiError>
     where
-        H: RegionMapper,
+        H: Handler,
     {
         let Some(hpet) = tables.find_table::<HpetTable>() else { Err(AcpiError::TableNotFound(Signature::HPET))? };
 

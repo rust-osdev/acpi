@@ -18,9 +18,15 @@ pub mod op_region;
 pub mod pci_routing;
 pub mod resource;
 
-pub use pci_types::PciAddress;
-
-use crate::{AcpiError, AcpiTables, AmlTable, RegionMapper, sdt::SdtHeader};
+use crate::{
+    AcpiError,
+    AcpiTables,
+    AmlTable,
+    Handle,
+    Handler,
+    PhysicalMapping,
+    sdt::{SdtHeader, facs::Facs, fadt::Fadt},
+};
 use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
@@ -29,7 +35,7 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{mem, slice, str::FromStr};
+use core::{mem, slice, str::FromStr, sync::atomic::Ordering};
 use log::{info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
@@ -46,6 +52,7 @@ use object::{
     WrappedObject,
 };
 use op_region::{OpRegion, RegionHandler, RegionSpace};
+use pci_types::PciAddress;
 use spinning_top::Spinlock;
 
 /// `Interpreter` implements a virtual machine for the dynamic AML bytecode. It can be used by a
@@ -61,7 +68,9 @@ where
     context_stack: Spinlock<Vec<MethodContext>>,
     dsdt_revision: u8,
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
+
     global_lock_mutex: Handle,
+    facs: PhysicalMapping<H, Facs>,
 }
 
 unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
@@ -76,7 +85,7 @@ where
 {
     /// Construct a new `Interpreter`. This does not load any tables - if you have an `AcpiTables`
     /// already, use [`Interpreter::new_from_tables`] instead.
-    pub fn new(handler: H, dsdt_revision: u8) -> Interpreter<H> {
+    pub fn new(handler: H, dsdt_revision: u8, facs: PhysicalMapping<H, Facs>) -> Interpreter<H> {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
 
         let global_lock_mutex = handler.create_mutex();
@@ -89,23 +98,17 @@ where
             dsdt_revision,
             region_handlers: Spinlock::new(BTreeMap::new()),
             global_lock_mutex,
+            facs,
         }
     }
 
     /// Construct a new `Interpreter` with the given set of ACPI tables. This will automatically
     /// load the DSDT and any SSDTs in the supplied [`AcpiTables`].
-    pub fn new_from_tables<M: RegionMapper>(
-        mapper: M,
-        handler: H,
-        tables: &AcpiTables<M>,
-    ) -> Result<Interpreter<H>, AcpiError> {
-        fn load_table<M: RegionMapper, H: Handler>(
-            interpreter: &Interpreter<H>,
-            mapper: &M,
-            table: AmlTable,
-        ) -> Result<(), AcpiError> {
-            let mapping =
-                unsafe { mapper.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize) };
+    pub fn new_from_tables(handler: H, tables: &AcpiTables<H>) -> Result<Interpreter<H>, AcpiError> {
+        fn load_table(interpreter: &Interpreter<impl Handler>, table: AmlTable) -> Result<(), AcpiError> {
+            let mapping = unsafe {
+                interpreter.handler.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize)
+            };
             let stream = unsafe {
                 slice::from_raw_parts(
                     mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) as *const u8,
@@ -116,12 +119,17 @@ where
             Ok(())
         }
 
+        let facs = {
+            let fadt = tables.find_table::<Fadt>().unwrap();
+            unsafe { handler.map_physical_region(fadt.facs_address()?, mem::size_of::<Facs>()) }
+        };
+
         let dsdt = tables.dsdt()?;
-        let interpreter = Interpreter::new(handler, dsdt.revision);
-        load_table(&interpreter, &mapper, dsdt)?;
+        let interpreter = Interpreter::new(handler, dsdt.revision, facs);
+        load_table(&interpreter, dsdt)?;
 
         for ssdt in tables.ssdts() {
-            load_table(&interpreter, &mapper, ssdt)?;
+            load_table(&interpreter, ssdt)?;
         }
 
         Ok(interpreter)
@@ -2904,145 +2912,4 @@ pub enum AmlError {
     PrtInvalidGsi,
     PrtInvalidSource,
     PrtNoEntry,
-}
-
-/// A `Handle` is an opaque reference to an object that is managed by the user of this library.
-/// They should be returned by the `create_*` methods on `Handler`, and are then used by methods to
-/// refer to a specific object.
-///
-/// The library will treat the value of a handle as entirely opaque. You may manage handles
-/// however you wish, and the same value can be used to refer to objects of different types, if
-/// desired.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-pub struct Handle(pub u32);
-
-/// This trait represents the interface from the `Interpreter` to the hosting kernel, and allows
-/// AML to interact with the underlying hardware.
-///
-/// ### Implementation notes
-/// Reads and writes to PCI devices must succeed for devices that are not detected during
-/// enumeration of the PCI bus / do not exist.
-pub trait Handler: Send + Sync {
-    fn read_u8(&self, address: usize) -> u8;
-    fn read_u16(&self, address: usize) -> u16;
-    fn read_u32(&self, address: usize) -> u32;
-    fn read_u64(&self, address: usize) -> u64;
-
-    fn write_u8(&self, address: usize, value: u8);
-    fn write_u16(&self, address: usize, value: u16);
-    fn write_u32(&self, address: usize, value: u32);
-    fn write_u64(&self, address: usize, value: u64);
-
-    fn read_io_u8(&self, port: u16) -> u8;
-    fn read_io_u16(&self, port: u16) -> u16;
-    fn read_io_u32(&self, port: u16) -> u32;
-
-    fn write_io_u8(&self, port: u16, value: u8);
-    fn write_io_u16(&self, port: u16, value: u16);
-    fn write_io_u32(&self, port: u16, value: u32);
-
-    fn read_pci_u8(&self, address: PciAddress, offset: u16) -> u8;
-    fn read_pci_u16(&self, address: PciAddress, offset: u16) -> u16;
-    fn read_pci_u32(&self, address: PciAddress, offset: u16) -> u32;
-
-    fn write_pci_u8(&self, address: PciAddress, offset: u16, value: u8);
-    fn write_pci_u16(&self, address: PciAddress, offset: u16, value: u16);
-    fn write_pci_u32(&self, address: PciAddress, offset: u16, value: u32);
-
-    /// Returns a monotonically-increasing value of nanoseconds.
-    fn nanos_since_boot(&self) -> u64;
-
-    /// Stall for at least the given number of **microseconds**. An implementation should not relinquish control of
-    /// the processor during the stall, and for this reason, firmwares should not stall for periods of more than
-    /// 100 microseconds.
-    fn stall(&self, microseconds: u64);
-
-    /// Sleep for at least the given number of **milliseconds**. An implementation may round to the closest sleep
-    /// time supported, and should relinquish the processor.
-    fn sleep(&self, milliseconds: u64);
-
-    fn create_mutex(&self) -> Handle;
-
-    /// Acquire the mutex referred to by the given handle. `timeout` is a millisecond timeout value
-    /// with the following meaning:
-    ///    - `0` - try to acquire the mutex once, in a non-blocking manner. If the mutex cannot be
-    ///      acquired immediately, return `Err(AmlError::MutexAcquireTimeout)`
-    ///    - `1-0xfffe` - try to acquire the mutex for at least `timeout` milliseconds.
-    ///    - `0xffff` - try to acquire the mutex indefinitely. Should not return `MutexAcquireTimeout`.
-    ///
-    /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
-    /// without causing a deadlock.
-    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), AmlError>;
-    fn release(&self, mutex: Handle);
-
-    fn breakpoint(&self) {}
-
-    fn handle_debug(&self, _object: &Object) {}
-
-    fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
-        panic!(
-            "Fatal error while executing AML (encountered DefFatalOp). fatal_type = {}, fatal_code = {}, fatal_arg = {}",
-            fatal_type, fatal_code, fatal_arg
-        );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::str::FromStr;
-
-    struct TestHandler;
-    #[rustfmt::skip]
-    impl Handler for TestHandler {
-        fn read_u8(&self, _address: usize) -> u8 {0}
-        fn read_u16(&self, _address: usize) -> u16 {0}
-        fn read_u32(&self, _address: usize) -> u32 {0}
-        fn read_u64(&self, _address: usize) -> u64 {0}
-        fn write_u8(&self, _address: usize, _value: u8) {}
-        fn write_u16(&self, _address: usize, _value: u16) {}
-        fn write_u32(&self, _address: usize, _value: u32) {}
-        fn write_u64(&self, _address: usize, _value: u64) {}
-        fn read_io_u8(&self, _port: u16) -> u8 {0}
-        fn read_io_u16(&self, _port: u16) -> u16 {0}
-        fn read_io_u32(&self, _port: u16) -> u32 {0}
-        fn write_io_u8(&self, _port: u16, _value: u8) {}
-        fn write_io_u16(&self, _port: u16, _value: u16) {}
-        fn write_io_u32(&self, _port: u16, _value: u32) {}
-        fn read_pci_u8(&self, _address: PciAddress, _offset: u16) -> u8 {0}
-        fn read_pci_u16(&self, _address: PciAddress, _offset: u16) -> u16 {0}
-        fn read_pci_u32(&self, _address: PciAddress, _offset: u16) -> u32 {0}
-        fn write_pci_u8(&self, _address: PciAddress, _offset: u16, _value: u8) {}
-        fn write_pci_u16(&self, _address: PciAddress, _offset: u16, _value: u16) {}
-        fn write_pci_u32(&self, _address: PciAddress, _offset: u16, _value: u32) {}
-        fn nanos_since_boot(&self) -> u64 {0}
-        fn stall(&self, _microseconds: u64) {}
-        fn sleep(&self, _milliseconds: u64) {}
-        fn create_mutex(&self) -> Handle { Handle(0) }
-        fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> { Ok(()) }
-        fn release(&self, _mutex: Handle) {}
-    }
-
-    #[test]
-    fn verify_interpreter_send_sync() {
-        fn test_send_sync<T: Send + Sync>() {}
-        test_send_sync::<Interpreter<TestHandler>>();
-    }
-
-    #[test]
-    fn add_op() {
-        let interpreter = Interpreter::new(TestHandler, 2);
-        // AddOp 0x0e 0x06 => Local2
-        interpreter.load_table(&[0x72, 0x0b, 0x0e, 0x00, 0x0a, 0x06, 0x62]).unwrap();
-        // AddOp 0x0e (AddOp 0x01 0x03 => Local1) => Local1
-        interpreter.load_table(&[0x72, 0x0a, 0x0e, 0x72, 0x0a, 0x01, 0x0a, 0x03, 0x61, 0x61]).unwrap();
-    }
-
-    #[test]
-    fn names() {
-        assert_eq!(
-            unsafe { MethodContext::new_from_table(b"\\\x2eABC_DEF_\0") }.namestring(),
-            Ok(AmlName::from_str("\\ABC.DEF").unwrap())
-        );
-    }
 }

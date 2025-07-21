@@ -14,13 +14,13 @@
 //! tables.
 //!
 //! ### Usage
-//! To use the library, you will need to provide an implementation of the [`AcpiHandler`] trait,
+//! To use the library, you will need to provide an implementation of the [`Handler`] trait,
 //! which allows the library to make requests such as mapping a particular region of physical
 //! memory into the virtual address space.
 //!
 //! Next, you'll need to get the physical address of either the RSDP, or the RSDT/XSDT. The method
 //! for doing this depends on the platform you're running on and how you were booted. If you know
-//! the system was booted via the BIOS, you can use [`Rsdp::search_for_rsdp_bios`]. UEFI provides a
+//! the system was booted via the BIOS, you can use [`rsdp::Rsdp::search_for_on_bios`]. UEFI provides a
 //! separate mechanism for getting the address of the RSDP.
 //!
 //! You then need to construct an instance of [`AcpiTables`], which can be done in a few ways
@@ -28,7 +28,7 @@
 //! * Use [`AcpiTables::from_rsdp`] if you have the physical address of the RSDP
 //! * Use [`AcpiTables::from_rsdt`] if you have the physical address of the RSDT/XSDT
 //!
-//! Once you have an `AcpiTables`, you can search for relevant tables, or use the higher-level
+//! Once you have an [`AcpiTables`], you can search for relevant tables, or use the higher-level
 //! interfaces, such as [`PlatformInfo`], [`PciConfigRegions`], or [`HpetInfo`].
 
 #![no_std]
@@ -49,6 +49,7 @@ pub mod platform;
 pub mod rsdp;
 pub mod sdt;
 
+pub use pci_types::PciAddress;
 pub use sdt::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
 
 use crate::sdt::{SdtHeader, Signature};
@@ -64,18 +65,18 @@ use rsdp::Rsdp;
 
 /// `AcpiTables` should be constructed after finding the RSDP or RSDT/XSDT and allows enumeration
 /// of the system's ACPI tables.
-pub struct AcpiTables<H: RegionMapper> {
+pub struct AcpiTables<H: Handler> {
     rsdt_mapping: PhysicalMapping<H, SdtHeader>,
     pub rsdp_revision: u8,
     handler: H,
 }
 
-unsafe impl<H> Send for AcpiTables<H> where H: RegionMapper + Send {}
-unsafe impl<H> Sync for AcpiTables<H> where H: RegionMapper + Send {}
+unsafe impl<H> Send for AcpiTables<H> where H: Handler + Send {}
+unsafe impl<H> Sync for AcpiTables<H> where H: Handler + Send {}
 
 impl<H> AcpiTables<H>
 where
-    H: RegionMapper,
+    H: Handler,
 {
     /// Construct an `AcpiTables` from the **physical** address of the RSDP.
     ///
@@ -265,14 +266,19 @@ pub enum AcpiError {
 
     #[cfg(feature = "alloc")]
     Aml(aml::AmlError),
+
+    /// This can be returned by the host (user of the library) to signal that required behaviour
+    /// has not been implemented. This will cause the error to be propagated back to the host if an
+    /// operation that requires that behaviour is performed.
+    HostUnimplemented,
 }
 
-/// Describes a physical mapping created by [`RegionMapper::map_physical_region`] and unmapped by
-/// [`RegionMapper::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
+/// Describes a physical mapping created by [`Handler::map_physical_region`] and unmapped by
+/// [`Handler::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
 /// bytes, but may be bigger.
-pub struct PhysicalMapping<M, T>
+pub struct PhysicalMapping<H, T>
 where
-    M: RegionMapper,
+    H: Handler,
 {
     /// The physical address of the mapped structure. The actual mapping may start at a lower address
     /// if the requested physical address is not well-aligned.
@@ -287,14 +293,14 @@ where
     /// The total size of the produced mapping. This may be the same as `region_length`, or larger to
     /// meet requirements of the mapping implementation.
     pub mapped_length: usize,
-    /// The [`RegionMapper`] that was used to produce the mapping. When this mapping is dropped, this
-    /// mapper will be used to unmap the region.
-    pub mapper: M,
+    /// The [`Handler`] that was used to produce the mapping. When this mapping is dropped, this
+    /// handler will be used to unmap the region.
+    pub handler: H,
 }
 
-impl<M, T> PhysicalMapping<M, T>
+impl<H, T> PhysicalMapping<H, T>
 where
-    M: RegionMapper,
+    H: Handler,
 {
     /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,
     /// otherwise the mapping can simply be dereferenced to access the inner type.
@@ -303,9 +309,9 @@ where
     }
 }
 
-impl<R, T> fmt::Debug for PhysicalMapping<R, T>
+impl<H, T> fmt::Debug for PhysicalMapping<H, T>
 where
-    R: RegionMapper,
+    H: Handler,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PhysicalMapping")
@@ -313,17 +319,17 @@ where
             .field("virtual_start", &self.virtual_start)
             .field("region_length", &self.region_length)
             .field("mapped_length", &self.mapped_length)
-            .field("mapper", &())
+            .field("handler", &())
             .finish()
     }
 }
 
-unsafe impl<M: RegionMapper + Send, T: Send> Send for PhysicalMapping<M, T> {}
+unsafe impl<H: Handler + Send, T: Send> Send for PhysicalMapping<H, T> {}
 
-impl<M, T> Deref for PhysicalMapping<M, T>
+impl<H, T> Deref for PhysicalMapping<H, T>
 where
     T: Unpin,
-    M: RegionMapper,
+    H: Handler,
 {
     type Target = T;
 
@@ -332,29 +338,47 @@ where
     }
 }
 
-impl<M, T> DerefMut for PhysicalMapping<M, T>
+impl<H, T> DerefMut for PhysicalMapping<H, T>
 where
     T: Unpin,
-    M: RegionMapper,
+    H: Handler,
 {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { self.virtual_start.as_mut() }
     }
 }
 
-impl<M, T> Drop for PhysicalMapping<M, T>
+impl<H, T> Drop for PhysicalMapping<H, T>
 where
-    M: RegionMapper,
+    H: Handler,
 {
     fn drop(&mut self) {
-        M::unmap_physical_region(self)
+        H::unmap_physical_region(self)
     }
 }
 
-/// An implementation of this trait must be provided to allow `acpi` to map regions of physical memory to
-/// access ACPI tables and other structures. This should be cheaply clonable (e.g. a reference, `Arc`,
-/// marker struct, etc.) as a copy of the mapper is stored in each `PhysicalMapping` to facilitate unmapping.
-pub trait RegionMapper: Clone {
+/// A `Handle` is an opaque reference to an object that is managed by the host on behalf of this
+/// library.
+///
+/// The library will treat the value of a handle as entirely opaque. You may manage handles
+/// however you wish, and the same value can be used to refer to objects of different types, if
+/// desired.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+pub struct Handle(pub u32);
+
+/// An implementation of this trait must be provided to allow `acpi` to perform operations that
+/// interface with the underlying hardware and other systems in your host implementation. This
+/// interface is designed to be flexible to allow usage of the library from a variety of settings.
+///
+/// Depending on your usage of this library, not all functionality may be required. If you do not
+/// provide certain functionality, you should return [`AcpiError::HostUnimplemented`]. The library
+/// will attempt to propagate this error back to the host if an operation cannot be performed
+/// without that functionality.
+///
+/// The `Handler` must be cheaply clonable (e.g. a reference, `Arc`, marker struct, etc.) as a copy
+/// of the handler is stored in various structures, such as in each [`PhysicalMapping`] to
+/// facilitate unmapping.
+pub trait Handler: Clone {
     /// Given a physical address and a size, map a region of physical memory that contains `T` (note: the passed
     /// size may be larger than `size_of::<T>()`). The address is not neccessarily page-aligned, so the
     /// implementation may need to map more than `size` bytes. The virtual address the region is mapped to does not
@@ -369,8 +393,80 @@ pub trait RegionMapper: Clone {
 
     /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped, you should **not** manually call this.
     ///
-    /// Note: A reference to the `RegionMapper` used to construct `region` can be acquired by calling [`PhysicalMapping::mapper`].
+    /// Note: A reference to the `Handler` used to construct `region` can be acquired by calling [`PhysicalMapping::mapper`].
     fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
+
+    // TODO: maybe we should map stuff ourselves in the AML interpreter and do this internally?
+    // Maybe provide a hook for tracing the IO / emit trace events ourselves if we do do that?
+    fn read_u8(&self, address: usize) -> u8;
+    fn read_u16(&self, address: usize) -> u16;
+    fn read_u32(&self, address: usize) -> u32;
+    fn read_u64(&self, address: usize) -> u64;
+
+    fn write_u8(&self, address: usize, value: u8);
+    fn write_u16(&self, address: usize, value: u16);
+    fn write_u32(&self, address: usize, value: u32);
+    fn write_u64(&self, address: usize, value: u64);
+
+    // TODO: would be nice to provide defaults that just do the actual port IO on x86?
+    fn read_io_u8(&self, port: u16) -> u8;
+    fn read_io_u16(&self, port: u16) -> u16;
+    fn read_io_u32(&self, port: u16) -> u32;
+
+    fn write_io_u8(&self, port: u16, value: u8);
+    fn write_io_u16(&self, port: u16, value: u16);
+    fn write_io_u32(&self, port: u16, value: u32);
+
+    fn read_pci_u8(&self, address: PciAddress, offset: u16) -> u8;
+    fn read_pci_u16(&self, address: PciAddress, offset: u16) -> u16;
+    fn read_pci_u32(&self, address: PciAddress, offset: u16) -> u32;
+
+    fn write_pci_u8(&self, address: PciAddress, offset: u16, value: u8);
+    fn write_pci_u16(&self, address: PciAddress, offset: u16, value: u16);
+    fn write_pci_u32(&self, address: PciAddress, offset: u16, value: u32);
+
+    /// Returns a monotonically-increasing value of nanoseconds.
+    fn nanos_since_boot(&self) -> u64;
+
+    /// Stall for at least the given number of **microseconds**. An implementation should not relinquish control of
+    /// the processor during the stall, and for this reason, firmwares should not stall for periods of more than
+    /// 100 microseconds.
+    fn stall(&self, microseconds: u64);
+
+    /// Sleep for at least the given number of **milliseconds**. An implementation may round to the closest sleep
+    /// time supported, and should relinquish the processor.
+    fn sleep(&self, milliseconds: u64);
+
+    #[cfg(feature = "aml")]
+    fn create_mutex(&self) -> Handle;
+
+    /// Acquire the mutex referred to by the given handle. `timeout` is a millisecond timeout value
+    /// with the following meaning:
+    ///    - `0` - try to acquire the mutex once, in a non-blocking manner. If the mutex cannot be
+    ///      acquired immediately, return `Err(AmlError::MutexAcquireTimeout)`
+    ///    - `1-0xfffe` - try to acquire the mutex for at least `timeout` milliseconds.
+    ///    - `0xffff` - try to acquire the mutex indefinitely. Should not return `MutexAcquireTimeout`.
+    ///
+    /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
+    /// without causing a deadlock.
+    #[cfg(feature = "aml")]
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError>;
+    #[cfg(feature = "aml")]
+    fn release(&self, mutex: Handle);
+
+    #[cfg(feature = "aml")]
+    fn breakpoint(&self) {}
+
+    #[cfg(feature = "aml")]
+    fn handle_debug(&self, _object: &aml::object::Object) {}
+
+    #[cfg(feature = "aml")]
+    fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
+        panic!(
+            "Fatal error while executing AML (encountered DefFatalOp). fatal_type = {}, fatal_code = {}, fatal_arg = {}",
+            fatal_type, fatal_code, fatal_arg
+        );
+    }
 }
 
 #[cfg(test)]
@@ -381,8 +477,8 @@ mod tests {
     #[allow(dead_code)]
     fn test_physical_mapping_send_sync() {
         fn test_send_sync<T: Send>() {}
-        fn caller<M: RegionMapper + Send, T: Send>() {
-            test_send_sync::<PhysicalMapping<M, T>>();
+        fn caller<H: Handler + Send, T: Send>() {
+            test_send_sync::<PhysicalMapping<H, T>>();
         }
     }
 }

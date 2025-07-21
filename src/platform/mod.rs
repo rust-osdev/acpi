@@ -7,8 +7,8 @@ pub use pci::PciConfigRegions;
 use crate::{
     AcpiError,
     AcpiTables,
+    Handler,
     PowerProfile,
-    RegionMapper,
     address::GenericAddress,
     sdt::{
         Signature,
@@ -21,7 +21,7 @@ use core::{alloc::Allocator, mem, ptr};
 
 /// `AcpiPlatform` is a higher-level view of the ACPI tables that makes it easier to perform common
 /// tasks with ACPI. It requires allocator support.
-pub struct AcpiPlatform<H: RegionMapper, A: Allocator = Global> {
+pub struct AcpiPlatform<H: Handler, A: Allocator = Global> {
     pub tables: AcpiTables<H>,
     pub power_profile: PowerProfile,
     pub interrupt_model: InterruptModel<A>,
@@ -31,14 +31,27 @@ pub struct AcpiPlatform<H: RegionMapper, A: Allocator = Global> {
     pub pm_timer: Option<PmTimer>,
 }
 
-impl<H: RegionMapper> AcpiPlatform<H, Global> {
-    pub fn new(tables: AcpiTables<H>) -> Result<Self, AcpiError> {
-        Self::new_in(tables, alloc::alloc::Global)
+unsafe impl<H, A> Send for AcpiPlatform<H, A>
+where
+    H: Handler,
+    A: Allocator,
+{
+}
+unsafe impl<H, A> Sync for AcpiPlatform<H, A>
+where
+    H: Handler,
+    A: Allocator,
+{
+}
+
+impl<H: Handler> AcpiPlatform<H, Global> {
+    pub fn new(tables: AcpiTables<H>, handler: H) -> Result<Self, AcpiError> {
+        Self::new_in(tables, handler, alloc::alloc::Global)
     }
 }
 
-impl<H: RegionMapper, A: Allocator + Clone> AcpiPlatform<H, A> {
-    pub fn new_in(tables: AcpiTables<H>, allocator: A) -> Result<Self, AcpiError> {
+impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
+    pub fn new_in(tables: AcpiTables<H>, handler: H, allocator: A) -> Result<Self, AcpiError> {
         let Some(fadt) = tables.find_table::<Fadt>() else { Err(AcpiError::TableNotFound(Signature::FADT))? };
         let power_profile = fadt.power_profile();
 

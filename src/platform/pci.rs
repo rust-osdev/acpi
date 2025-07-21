@@ -1,7 +1,7 @@
 use crate::{
     AcpiError,
-    RegionMapper,
     AcpiTables,
+    Handler,
     sdt::{
         Signature,
         mcfg::{Mcfg, McfgEntry},
@@ -24,7 +24,7 @@ pub struct PciConfigRegions<A: Allocator = Global> {
 impl PciConfigRegions<Global> {
     pub fn new<H>(tables: &AcpiTables<H>) -> Result<PciConfigRegions<Global>, AcpiError>
     where
-        H: RegionMapper,
+        H: Handler,
     {
         Self::new_in(tables, Global)
     }
@@ -33,7 +33,7 @@ impl PciConfigRegions<Global> {
 impl<A: Allocator> PciConfigRegions<A> {
     pub fn new_in<H>(tables: &AcpiTables<H>, allocator: A) -> Result<PciConfigRegions<A>, AcpiError>
     where
-        H: RegionMapper,
+        H: Handler,
     {
         let Some(mcfg) = tables.find_table::<Mcfg>() else { Err(AcpiError::TableNotFound(Signature::MCFG))? };
         let regions = mcfg.entries().to_vec_in(allocator);

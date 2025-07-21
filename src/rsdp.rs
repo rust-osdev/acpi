@@ -1,4 +1,4 @@
-use crate::{AcpiError, PhysicalMapping, RegionMapper};
+use crate::{AcpiError, Handler, PhysicalMapping};
 use core::{mem, ops::Range, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
@@ -54,7 +54,7 @@ impl Rsdp {
     /// You should search the entire table for the v2.0 GUID before searching for the v1.0 one.
     pub unsafe fn search_for_on_bios<H>(handler: H) -> Result<PhysicalMapping<H, Rsdp>, AcpiError>
     where
-        H: RegionMapper,
+        H: Handler,
     {
         let rsdp_address = find_search_areas(handler.clone()).iter().find_map(|area| {
             // Map the search area for the RSDP followed by `RSDP_V2_EXT_LENGTH` bytes so an ACPI 1.0 RSDP at the
@@ -171,7 +171,7 @@ impl Rsdp {
 /// Find the areas we should search for the RSDP in.
 fn find_search_areas<H>(handler: H) -> [Range<usize>; 2]
 where
-    H: RegionMapper,
+    H: Handler,
 {
     /*
      * Read the base address of the EBDA from its location in the BDA (BIOS Data Area). Not all BIOSs fill this out

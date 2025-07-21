@@ -115,7 +115,8 @@ pub struct Fadt {
     pub hypervisor_vendor_id: ExtendedField<u64, 2>,
 }
 
-/// ### Safety: Implementation properly represents a valid FADT.
+/// ## Safety
+/// Implementation properly represents a valid FADT.
 unsafe impl AcpiTable for Fadt {
     const SIGNATURE: Signature = Signature::FADT;
 
