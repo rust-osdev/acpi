@@ -59,6 +59,8 @@ pub enum TriggerMode {
 /// models. For example, if a device is connected to ISA IRQ 0 and IOAPIC input 2, an override will
 /// appear mapping source 0 to GSI 2. Currently these will only be created for ISA interrupt
 /// sources.
+///
+/// https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html#interrupt-source-override-structure
 #[derive(Debug, Clone, Copy)]
 pub struct InterruptSourceOverride {
     pub isa_source: u8,
