@@ -73,6 +73,8 @@ pub mod mcfg;
 pub mod rsdp;
 pub mod sdt;
 pub mod spcr;
+pub mod tcpa;
+pub mod tpm2;
 
 #[cfg(feature = "allocator_api")]
 mod managed_slice;
