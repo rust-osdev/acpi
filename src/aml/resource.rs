@@ -585,7 +585,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value = Arc::new(Object::Buffer(bytes));
+        let value = Object::Buffer(bytes).wrap();
         let resources = resource_descriptor_list(value).unwrap();
 
         assert_eq!(
@@ -695,7 +695,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value = Arc::new(Object::Buffer(bytes));
+        let value = Object::Buffer(bytes).wrap();
         let resources = resource_descriptor_list(value).unwrap();
 
         assert_eq!(
@@ -796,7 +796,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value = Arc::new(Object::Buffer(bytes));
+        let value = Object::Buffer(bytes).wrap();
         let resources = resource_descriptor_list(value).unwrap();
 
         assert_eq!(
