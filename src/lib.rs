@@ -267,6 +267,10 @@ pub enum AcpiError {
     #[cfg(feature = "alloc")]
     Aml(aml::AmlError),
 
+    /// This is emitted to signal that the library does not support the requested behaviour. This
+    /// should eventually never be emitted.
+    LibUnimplemented,
+
     /// This can be returned by the host (user of the library) to signal that required behaviour
     /// has not been implemented. This will cause the error to be propagated back to the host if an
     /// operation that requires that behaviour is performed.
