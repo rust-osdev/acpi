@@ -20,17 +20,19 @@ pub mod resource;
 
 use crate::{
     AcpiError,
-    AcpiTables,
     AmlTable,
     Handle,
     Handler,
     PhysicalMapping,
+    platform::AcpiPlatform,
+    registers::{FixedRegisters, Pm1ControlBit},
     sdt::{SdtHeader, facs::Facs, fadt::Fadt},
 };
 use alloc::{
     boxed::Box,
     collections::btree_map::BTreeMap,
     string::{String, ToString},
+    sync::Arc,
     vec,
     vec::Vec,
 };
@@ -70,6 +72,7 @@ where
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
 
     global_lock_mutex: Handle,
+    registers: Arc<FixedRegisters<H>>,
     facs: PhysicalMapping<H, Facs>,
 }
 
@@ -85,7 +88,12 @@ where
 {
     /// Construct a new `Interpreter`. This does not load any tables - if you have an `AcpiTables`
     /// already, use [`Interpreter::new_from_tables`] instead.
-    pub fn new(handler: H, dsdt_revision: u8, facs: PhysicalMapping<H, Facs>) -> Interpreter<H> {
+    pub fn new(
+        handler: H,
+        dsdt_revision: u8,
+        registers: Arc<FixedRegisters<H>>,
+        facs: PhysicalMapping<H, Facs>,
+    ) -> Interpreter<H> {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
 
         let global_lock_mutex = handler.create_mutex();
@@ -98,13 +106,14 @@ where
             dsdt_revision,
             region_handlers: Spinlock::new(BTreeMap::new()),
             global_lock_mutex,
+            registers,
             facs,
         }
     }
 
     /// Construct a new `Interpreter` with the given set of ACPI tables. This will automatically
     /// load the DSDT and any SSDTs in the supplied [`AcpiTables`].
-    pub fn new_from_tables(handler: H, tables: &AcpiTables<H>) -> Result<Interpreter<H>, AcpiError> {
+    pub fn new_from_platform(platform: &AcpiPlatform<H>) -> Result<Interpreter<H>, AcpiError> {
         fn load_table(interpreter: &Interpreter<impl Handler>, table: AmlTable) -> Result<(), AcpiError> {
             let mapping = unsafe {
                 interpreter.handler.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize)
@@ -119,16 +128,17 @@ where
             Ok(())
         }
 
+        let registers = platform.registers.clone();
         let facs = {
-            let fadt = tables.find_table::<Fadt>().unwrap();
-            unsafe { handler.map_physical_region(fadt.facs_address()?, mem::size_of::<Facs>()) }
+            let fadt = platform.tables.find_table::<Fadt>().unwrap();
+            unsafe { platform.handler.map_physical_region(fadt.facs_address()?, mem::size_of::<Facs>()) }
         };
 
-        let dsdt = tables.dsdt()?;
-        let interpreter = Interpreter::new(handler, dsdt.revision, facs);
+        let dsdt = platform.tables.dsdt()?;
+        let interpreter = Interpreter::new(platform.handler.clone(), dsdt.revision, registers, facs);
         load_table(&interpreter, dsdt)?;
 
-        for ssdt in tables.ssdts() {
+        for ssdt in platform.tables.ssdts() {
             load_table(&interpreter, ssdt)?;
         }
 
@@ -265,6 +275,88 @@ where
         }
 
         info!("Initialized {} devices", num_devices_initialized);
+    }
+
+    pub fn acquire_global_lock(&self, timeout: u16) -> Result<(), AmlError> {
+        self.handler.acquire(self.global_lock_mutex, timeout)?;
+
+        // Now we've acquired the AML-side mutex, acquire the hardware side
+        // TODO: count the number of times we have to go round this loop / enforce a timeout?
+        loop {
+            if self.try_do_acquire_firmware_lock() {
+                break Ok(());
+            } else {
+                /*
+                 * The lock is owned by the firmware. We have set the pending bit - we now need to
+                 * wait for the firmware to signal it has released the lock.
+                 *
+                 * TODO: this should wait for an interrupt from the firmware. That needs more infra
+                 * so for now let's just spin round and try and acquire it again...
+                 */
+                self.handler.release(self.global_lock_mutex);
+                continue;
+            }
+        }
+    }
+
+    /// Attempt to acquire the firmware lock, setting the owned bit if the lock is free. If the
+    /// lock is not free, sets the pending bit to instruct the firmware to alert us when we can
+    /// attempt to take ownership of the lock again. Returns `true` if we now have ownership of the
+    /// lock, and `false` if we need to wait for firmware to release it.
+    fn try_do_acquire_firmware_lock(&self) -> bool {
+        loop {
+            let global_lock = self.facs.global_lock.load(Ordering::Relaxed);
+            let is_owned = global_lock.get_bit(1);
+
+            /*
+             * Compute the new value: either the lock is already owned, and we need to set the
+             * pending bit and wait, or we can acquire ownership of the lock now. Either way, we
+             * unconditionally set the owned bit and set the pending bit if the lock is already
+             * owned.
+             */
+            let mut new_value = global_lock;
+            new_value.set_bit(0, is_owned);
+            new_value.set_bit(1, true);
+
+            if self
+                .facs
+                .global_lock
+                .compare_exchange(global_lock, new_value, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break !is_owned;
+            }
+        }
+    }
+
+    pub fn release_global_lock(&self) -> Result<(), AmlError> {
+        let is_pending = self.do_release_firmware_lock();
+        if is_pending {
+            self.registers.pm1_control_registers.set_bit(Pm1ControlBit::GlobalLockRelease, true).unwrap();
+        }
+        Ok(())
+    }
+
+    /// Atomically release the owned and pending bits of the global lock. Returns whether the
+    /// pending bit was set (this means the firmware is waiting to acquire the lock, and should be
+    /// informed we're finished with it).
+    fn do_release_firmware_lock(&self) -> bool {
+        loop {
+            let global_lock = self.facs.global_lock.load(Ordering::Relaxed);
+            let is_pending = global_lock.get_bit(0);
+            let mut new_value = global_lock;
+            new_value.set_bit(0, false);
+            new_value.set_bit(1, false);
+
+            if self
+                .facs
+                .global_lock
+                .compare_exchange(global_lock, new_value, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                break is_pending;
+            }
+        }
     }
 
     fn do_execute_method(&self, mut context: MethodContext) -> Result<WrappedObject, AmlError> {
@@ -630,7 +722,12 @@ where
                         let timeout = context.next_u16()?;
 
                         // TODO: should we do something with the sync level??
-                        self.handler.acquire(mutex, timeout)?;
+                        if mutex == self.global_lock_mutex {
+                            self.acquire_global_lock(timeout)?;
+                        } else {
+                            self.handler.acquire(mutex, timeout)?;
+                        }
+
                         context.retire_op(op);
                     }
                     Opcode::Release => {
@@ -638,8 +735,14 @@ where
                         let Object::Mutex { mutex, sync_level } = **mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Release, typ: mutex.typ() })?
                         };
+
                         // TODO: should we do something with the sync level??
-                        self.handler.release(mutex);
+                        if mutex == self.global_lock_mutex {
+                            self.release_global_lock()?;
+                        } else {
+                            self.handler.release(mutex);
+                        }
+
                         context.retire_op(op);
                     }
                     Opcode::InternalMethodCall => {
