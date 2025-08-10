@@ -46,6 +46,7 @@ pub mod address;
 pub mod aml;
 #[cfg(feature = "alloc")]
 pub mod platform;
+pub mod registers;
 pub mod rsdp;
 pub mod sdt;
 

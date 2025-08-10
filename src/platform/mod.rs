@@ -10,25 +10,30 @@ use crate::{
     Handler,
     PowerProfile,
     address::GenericAddress,
+    registers::{FixedRegisters, Pm1Event},
     sdt::{
         Signature,
         fadt::Fadt,
         madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
     },
 };
-use alloc::{alloc::Global, vec::Vec};
+use alloc::{alloc::Global, sync::Arc, vec::Vec};
 use core::{alloc::Allocator, mem, ptr};
 
 /// `AcpiPlatform` is a higher-level view of the ACPI tables that makes it easier to perform common
 /// tasks with ACPI. It requires allocator support.
 pub struct AcpiPlatform<H: Handler, A: Allocator = Global> {
+    pub handler: H,
     pub tables: AcpiTables<H>,
     pub power_profile: PowerProfile,
     pub interrupt_model: InterruptModel<A>,
+    /// The interrupt vector that the System Control Interrupt (SCI) is wired to.
+    pub sci_interrupt: u16,
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo<A>>,
     pub pm_timer: Option<PmTimer>,
+    pub registers: Arc<FixedRegisters<H>>,
 }
 
 unsafe impl<H, A> Send for AcpiPlatform<H, A>
@@ -57,8 +62,19 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
 
         let (interrupt_model, processor_info) = InterruptModel::new_in(&tables, allocator)?;
         let pm_timer = PmTimer::new(&fadt)?;
+        let registers = Arc::new(FixedRegisters::new(&fadt, handler.clone())?);
 
-        Ok(AcpiPlatform { tables, power_profile, interrupt_model, processor_info, pm_timer})
+        Ok(AcpiPlatform {
+            handler: handler.clone(),
+            tables,
+            power_profile,
+            interrupt_model,
+            sci_interrupt: fadt.sci_interrupt,
+            processor_info,
+            pm_timer,
+            registers,
+        })
+
     }
 
     /// Wake up all Application Processors (APs) using the Multiprocessor Wakeup Mailbox Mechanism.
@@ -71,17 +87,11 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
     /// # Safety
     /// An appropriate environment must exist for the AP to boot into at the given address, or the
     /// AP could fault or cause unexpected behaviour.
-    pub unsafe fn wake_aps(
-        &self,
-        apic_id: u32,
-        wakeup_vector: u64,
-        timeout_loops: u64,
-        handler: H,
-    ) -> Result<(), AcpiError> {
+    pub unsafe fn wake_aps(&self, apic_id: u32, wakeup_vector: u64, timeout_loops: u64) -> Result<(), AcpiError> {
         let Some(madt) = self.tables.find_table::<Madt>() else { Err(AcpiError::TableNotFound(Signature::MADT))? };
         let mailbox_addr = madt.get().get_mpwk_mailbox_addr()?;
         let mut mpwk_mapping = unsafe {
-            handler.map_physical_region::<MultiprocessorWakeupMailbox>(
+            self.handler.map_physical_region::<MultiprocessorWakeupMailbox>(
                 mailbox_addr as usize,
                 mem::size_of::<MultiprocessorWakeupMailbox>(),
             )
