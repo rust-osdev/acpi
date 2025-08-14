@@ -62,7 +62,6 @@ DefinitionBlock ("", "DSDT", 2, "uTEST", "TESTTABL", 0xF0F0F0F0)
     Method (MAIN) {
         Local0 = GPKG()
         Debug = Local0
-        Local0 = 1
-        Return (Local0)
+        Return (0)
     }
 }

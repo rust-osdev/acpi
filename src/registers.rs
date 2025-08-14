@@ -41,9 +41,9 @@ where
 /// determine if an event has fired (and written to clear), and an `EN` enabling register to
 /// control whether an event should fire.
 pub struct Pm1EventRegisterBlock<H: Handler> {
-    pm1_event_length: usize,
-    pm1a: MappedGas<H>,
-    pm1b: Option<MappedGas<H>>,
+    pub pm1_event_length: usize,
+    pub pm1a: MappedGas<H>,
+    pub pm1b: Option<MappedGas<H>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -98,8 +98,8 @@ where
 }
 
 pub struct Pm1ControlRegisterBlock<H: Handler> {
-    pm1a: MappedGas<H>,
-    pm1b: Option<MappedGas<H>>,
+    pub pm1a: MappedGas<H>,
+    pub pm1b: Option<MappedGas<H>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

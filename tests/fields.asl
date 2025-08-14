@@ -53,5 +53,7 @@ DefinitionBlock("fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
         A = RESA
         B = RESB
         C = RESC
+
+        Return (0)
     }
 }

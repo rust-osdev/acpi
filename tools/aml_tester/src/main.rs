@@ -9,9 +9,14 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use acpi::aml::{namespace::AmlName, AmlError, Handle, Interpreter};
+use acpi::{
+    address::MappedGas,
+    aml::{namespace::AmlName, object::Object, AmlError, Interpreter},
+    Handle,
+    PhysicalMapping,
+};
 use clap::{Arg, ArgAction, ArgGroup};
-use log::info;
+use log::{error, info};
 use pci_types::PciAddress;
 use std::{
     collections::HashSet,
@@ -20,7 +25,9 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
+    ptr::NonNull,
     str::FromStr,
+    sync::Arc,
 };
 
 enum CompilationOutcome {
@@ -145,8 +152,7 @@ fn main() -> std::io::Result<()> {
         .collect::<Vec<_>>();
 
     let combined_test = matches.get_flag("combined");
-
-    let mut interpreter = Interpreter::new(Handler, 2);
+    let mut interpreter = new_interpreter();
 
     let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry);
@@ -160,7 +166,7 @@ fn main() -> std::io::Result<()> {
         file.read_to_end(&mut contents).unwrap();
 
         if !combined_test {
-            interpreter = Interpreter::new(Handler, 2);
+            interpreter = new_interpreter();
         }
 
         const AML_TABLE_HEADER_LENGTH: usize = 36;
@@ -214,9 +220,72 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
+fn new_interpreter() -> Interpreter<Handler> {
+    let fake_registers = Arc::new(acpi::registers::FixedRegisters {
+        pm1_event_registers: acpi::registers::Pm1EventRegisterBlock {
+            pm1_event_length: 8,
+            pm1a: unsafe {
+                MappedGas::map_gas(
+                    acpi::address::GenericAddress {
+                        address_space: acpi::address::AddressSpace::SystemIo,
+                        bit_width: 32,
+                        bit_offset: 0,
+                        access_size: 1,
+                        address: 0x400,
+                    },
+                    &Handler,
+                )
+                .unwrap()
+            },
+            pm1b: None,
+        },
+        pm1_control_registers: acpi::registers::Pm1ControlRegisterBlock {
+            pm1a: unsafe {
+                MappedGas::map_gas(
+                    acpi::address::GenericAddress {
+                        address_space: acpi::address::AddressSpace::SystemIo,
+                        bit_width: 32,
+                        bit_offset: 0,
+                        access_size: 1,
+                        address: 0x600,
+                    },
+                    &Handler,
+                )
+                .unwrap()
+            },
+            pm1b: None,
+        },
+    });
+    let fake_facs = PhysicalMapping {
+        physical_start: 0x0,
+        virtual_start: NonNull::new(0x8000_0000_0000_0000 as *mut acpi::sdt::facs::Facs).unwrap(),
+        region_length: 32,
+        mapped_length: 32,
+        handler: Handler,
+    };
+    Interpreter::new(Handler, 2, fake_registers, fake_facs)
+}
+
 fn run_test(stream: &[u8], interpreter: &mut Interpreter<Handler>) -> Result<(), AmlError> {
     interpreter.load_table(stream)?;
-    interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])
+
+    if let Some(result) = interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])? {
+        match *result {
+            Object::Integer(0) => Ok(()),
+            Object::Integer(other) => {
+                error!("Test _MAIN returned non-zero exit code: {}", other);
+                // TODO: wrong error - this should probs return a more complex err type
+                Err(AmlError::NoCurrentOp)
+            }
+            _ => {
+                error!("Test _MAIN returned unexpected object type: {}", *result);
+                // TODO: wrong error
+                Err(AmlError::NoCurrentOp)
+            }
+        }
+    } else {
+        Ok(())
+    }
 }
 
 fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
@@ -312,9 +381,16 @@ impl log::Log for Logger {
     }
 }
 
+#[derive(Clone)]
 struct Handler;
 
-impl acpi::aml::Handler for Handler {
+impl acpi::Handler for Handler {
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+        todo!()
+    }
+
+    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
+
     fn read_u8(&self, address: usize) -> u8 {
         println!("read_u8 {address:#x}");
         0
@@ -392,7 +468,7 @@ impl acpi::aml::Handler for Handler {
     }
 
     fn handle_debug(&self, object: &acpi::aml::object::Object) {
-        info!("Debug store: {:?}", object);
+        info!("Debug store: {}", object);
     }
 
     fn nanos_since_boot(&self) -> u64 {
