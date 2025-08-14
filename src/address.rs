@@ -129,6 +129,11 @@ impl<H> MappedGas<H>
 where
     H: Handler,
 {
+    /// Map the given `GenericAddress`, giving a `MappedGas` that can be read from and written to.
+    ///
+    /// ### Safety
+    /// The supplied `GenericAddress` must be a valid GAS and all subsequent reads and writes must
+    /// be valid.
     pub unsafe fn map_gas(gas: GenericAddress, handler: &H) -> Result<MappedGas<H>, AcpiError> {
         match gas.address_space {
             AddressSpace::SystemMemory => {
@@ -183,7 +188,7 @@ where
                 let mapping = self.mapping.as_ref().unwrap();
                 match access_size_bits {
                     8 => unsafe {
-                        core::ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u8, value as u8);
+                        core::ptr::write_volatile(mapping.virtual_start.as_ptr(), value as u8);
                     },
                     16 => unsafe {
                         core::ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u16, value as u16);

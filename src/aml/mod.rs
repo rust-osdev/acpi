@@ -737,7 +737,7 @@ where
                     }
                     Opcode::Acquire => {
                         let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
-                        let Object::Mutex { mutex, sync_level } = **mutex else {
+                        let Object::Mutex { mutex, sync_level: _ } = **mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Acquire, typ: mutex.typ() })?
                         };
                         let timeout = context.next_u16()?;
@@ -753,7 +753,7 @@ where
                     }
                     Opcode::Release => {
                         let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
-                        let Object::Mutex { mutex, sync_level } = **mutex else {
+                        let Object::Mutex { mutex, sync_level: _ } = **mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Release, typ: mutex.typ() })?
                         };
 
@@ -1348,7 +1348,7 @@ where
                     let behaviour = if context.current_block.kind == BlockKind::Package {
                         ResolveBehaviour::PackageElement
                     } else if context.current_block.kind == BlockKind::VarPackage {
-                        if context.last_op()?.arguments.len() == 0 {
+                        if context.last_op()?.arguments.is_empty() {
                             ResolveBehaviour::ResolveToObject
                         } else {
                             ResolveBehaviour::PackageElement
@@ -2146,7 +2146,7 @@ where
                     match kind {
                         ReferenceKind::RefOf => todo!(),
                         ReferenceKind::LocalOrArg => {
-                            if let Object::Reference { kind: inner_kind, inner: inner_inner } = &**inner {
+                            if let Object::Reference { kind: _inner_kind, inner: inner_inner } = &**inner {
                                 // TODO: this should store into the reference, potentially doing an
                                 // implicit cast
                                 unsafe {
@@ -2205,15 +2205,15 @@ where
 
         let read_region = match field.kind {
             FieldUnitKind::Normal { ref region } => region,
-            FieldUnitKind::Bank { ref region, ref bank, bank_value } => {
+            // FieldUnitKind::Bank { ref region, ref bank, bank_value } => {
+            FieldUnitKind::Bank { .. } => {
                 // TODO: put the bank_value in the bank
                 todo!();
-                region
             }
-            FieldUnitKind::Index { ref index, ref data } => {
+            // FieldUnitKind::Index { ref index, ref data } => {
+            FieldUnitKind::Index { .. } => {
                 // TODO: configure the correct index
                 todo!();
-                data
             }
         };
         let Object::OpRegion(ref read_region) = **read_region else { panic!() };
@@ -2265,15 +2265,15 @@ where
 
         let write_region = match field.kind {
             FieldUnitKind::Normal { ref region } => region,
-            FieldUnitKind::Bank { ref region, ref bank, bank_value } => {
+            // FieldUnitKind::Bank { ref region, ref bank, bank_value } => {
+            FieldUnitKind::Bank { .. } => {
                 // TODO: put the bank_value in the bank
                 todo!();
-                region
             }
-            FieldUnitKind::Index { ref index, ref data } => {
+            // FieldUnitKind::Index { ref index, ref data } => {
+            FieldUnitKind::Index { .. } => {
                 // TODO: configure the correct index
                 todo!();
-                data
             }
         };
         let Object::OpRegion(ref write_region) = **write_region else { panic!() };
@@ -2373,8 +2373,9 @@ where
             | RegionSpace::GenericSerialBus
             | RegionSpace::Pcc
             | RegionSpace::Oem(_) => {
-                if let Some(handler) = self.region_handlers.lock().get(&region.space) {
-                    todo!("Utilise handler");
+                if let Some(_handler) = self.region_handlers.lock().get(&region.space) {
+                    warn!("Custom region handlers aren't actually supported yet.");
+                    Err(AmlError::LibUnimplemented)
                 } else {
                     Err(AmlError::NoHandlerForRegionAccess(region.space))
                 }
@@ -2439,8 +2440,9 @@ where
             | RegionSpace::GenericSerialBus
             | RegionSpace::Pcc
             | RegionSpace::Oem(_) => {
-                if let Some(handler) = self.region_handlers.lock().get(&region.space) {
-                    todo!("Utilise handler");
+                if let Some(_handler) = self.region_handlers.lock().get(&region.space) {
+                    warn!("Custom region handlers aren't actually supported yet.");
+                    Err(AmlError::LibUnimplemented)
                 } else {
                     Err(AmlError::NoHandlerForRegionAccess(region.space))
                 }
@@ -3057,9 +3059,15 @@ pub enum AmlError {
 
     MethodArgCountIncorrect,
 
-    InvalidOperationOnObject { op: Operation, typ: ObjectType },
+    InvalidOperationOnObject {
+        op: Operation,
+        typ: ObjectType,
+    },
     IndexOutOfBounds,
-    ObjectNotOfExpectedType { expected: ObjectType, got: ObjectType },
+    ObjectNotOfExpectedType {
+        expected: ObjectType,
+        got: ObjectType,
+    },
 
     InvalidResourceDescriptor,
     UnexpectedResourceType,
@@ -3072,4 +3080,8 @@ pub enum AmlError {
     PrtInvalidGsi,
     PrtInvalidSource,
     PrtNoEntry,
+
+    /// This is emitted to signal that the library does not support the requested behaviour. This
+    /// should eventually never be emitted.
+    LibUnimplemented,
 }

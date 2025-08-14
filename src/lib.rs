@@ -32,7 +32,7 @@
 //! interfaces, such as [`PlatformInfo`], [`PciConfigRegions`], or [`HpetInfo`].
 
 #![no_std]
-#![feature(allocator_api, let_chains)]
+#![feature(allocator_api)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]

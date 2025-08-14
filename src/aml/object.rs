@@ -44,17 +44,18 @@ impl fmt::Display for Object {
         match self {
             Object::Uninitialized => write!(f, "[Uninitialized]"),
             Object::Buffer(bytes) => write!(f, "Buffer({bytes:x?})"),
-            // TODO: include fields here
-            Object::BufferField { buffer, offset, length } => write!(f, "BufferField {{ .. }}"),
+            Object::BufferField { offset, length, .. } => {
+                write!(f, "BufferField {{ offset: {offset}, length: {length} }}")
+            }
             Object::Device => write!(f, "Device"),
             Object::Event => write!(f, "Event"),
             // TODO: include fields
             Object::FieldUnit(_) => write!(f, "FieldUnit"),
             Object::Integer(value) => write!(f, "Integer({value})"),
             // TODO: decode flags here
-            Object::Method { code, flags } => write!(f, "Method"),
+            Object::Method { .. } => write!(f, "Method"),
             Object::NativeMethod { .. } => write!(f, "NativeMethod"),
-            Object::Mutex { mutex, sync_level } => write!(f, "Mutex"),
+            Object::Mutex { .. } => write!(f, "Mutex"),
             Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, **inner),
             Object::OpRegion(region) => write!(f, "{region:?}"),
             Object::Package(elements) => {
@@ -70,9 +71,9 @@ impl fmt::Display for Object {
                 Ok(())
             }
             // TODO: include fields
-            Object::PowerResource { system_level, resource_order } => write!(f, "PowerResource"),
+            Object::PowerResource { .. } => write!(f, "PowerResource"),
             // TODO: include fields
-            Object::Processor { proc_id, pblk_address, pblk_length } => write!(f, "Processor"),
+            Object::Processor { .. } => write!(f, "Processor"),
             Object::RawDataBuffer => write!(f, "RawDataBuffer"),
             Object::String(value) => write!(f, "String({value:?})"),
             Object::ThermalZone => write!(f, "ThermalZone"),
