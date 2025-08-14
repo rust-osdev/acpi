@@ -20,7 +20,15 @@ DefinitionBlock("package.aml", "DSDT", 1, "RSACPI", "PACKGE", 1) {
         Package { 0x0d, 0x0e, 0x0f },
     })
 
-    Name(LEN, 10)
+    Name(LEN, 5)
+    Name(BAL, Package(LEN) {
+        1,
+        2,
+        3,
+        4,
+    })
+
+    LEN = 10
     Name(BAZ, Package (LEN) {
         4,
         11,

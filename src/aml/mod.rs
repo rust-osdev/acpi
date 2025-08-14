@@ -558,7 +558,7 @@ where
                         context.contribute_arg(Argument::Object(Object::Buffer(buffer).wrap()));
                         context.retire_op(op);
                     }
-                    Opcode::Package | Opcode::VarPackage => {
+                    Opcode::Package => {
                         let mut elements = Vec::with_capacity(op.expected_arguments);
                         for arg in &op.arguments {
                             let Argument::Object(object) = arg else { panic!() };
@@ -577,6 +577,27 @@ where
                          * we've finished it as a sanity check.
                          */
                         assert_eq!(context.current_block.kind, BlockKind::Package);
+                        assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
+                        context.current_block = context.block_stack.pop().unwrap();
+                        context.contribute_arg(Argument::Object(Object::Package(elements).wrap()));
+                        context.retire_op(op);
+                    }
+                    Opcode::VarPackage => {
+                        let Argument::Object(total_elements) = &op.arguments[0] else { panic!() };
+                        let total_elements =
+                            total_elements.clone().unwrap_transparent_reference().as_integer()? as usize;
+
+                        let mut elements = Vec::with_capacity(total_elements);
+                        for arg in &op.arguments[1..] {
+                            let Argument::Object(object) = arg else { panic!() };
+                            elements.push(object.clone());
+                        }
+
+                        /*
+                         * As above, we always remove the block here after the in-flight op has
+                         * been retired.
+                         */
+                        assert_eq!(context.current_block.kind, BlockKind::VarPackage);
                         assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
                         context.current_block = context.block_stack.pop().unwrap();
                         context.contribute_arg(Argument::Object(Object::Package(elements).wrap()));
@@ -918,28 +939,9 @@ where
                             assert!(!context.block_stack.is_empty());
 
                             if let Some(package_op) = context.in_flight.last_mut()
-                                && (package_op.op == Opcode::Package || package_op.op == Opcode::VarPackage)
+                                && package_op.op == Opcode::Package
                             {
-                                let num_elements_left = match package_op.op {
-                                    Opcode::Package => package_op.expected_arguments - package_op.arguments.len(),
-                                    Opcode::VarPackage => {
-                                        let Argument::Object(total_elements) = &package_op.arguments[0] else {
-                                            panic!()
-                                        };
-                                        let total_elements =
-                                            total_elements.clone().unwrap_transparent_reference().as_integer()?
-                                                as usize;
-
-                                        // Update the expected number of arguments to terminate the in-flight op
-                                        package_op.expected_arguments = total_elements;
-
-                                        total_elements - package_op.arguments.len()
-                                    }
-                                    _ => panic!(
-                                        "Current in-flight op is not a `Package` or `VarPackage` when finished parsing package block"
-                                    ),
-                                };
-
+                                let num_elements_left = package_op.expected_arguments - package_op.arguments.len();
                                 for _ in 0..num_elements_left {
                                     package_op.arguments.push(Argument::Object(Object::Uninitialized.wrap()));
                                 }
@@ -947,6 +949,33 @@ where
 
                             // XXX: don't remove the package's block. Refer to completion of
                             // package ops for rationale here.
+                            continue;
+                        }
+                        BlockKind::VarPackage => {
+                            assert!(!context.block_stack.is_empty());
+
+                            if let Some(package_op) = context.in_flight.last_mut()
+                                && package_op.op == Opcode::VarPackage
+                            {
+                                let num_elements_left = {
+                                    let Argument::Object(total_elements) = &package_op.arguments[0] else {
+                                        panic!()
+                                    };
+                                    let total_elements =
+                                        total_elements.clone().unwrap_transparent_reference().as_integer()?
+                                            as usize;
+
+                                    // Update the expected number of arguments to terminate the in-flight op
+                                    package_op.expected_arguments = package_op.arguments.len();
+                                    total_elements - (package_op.arguments.len() - 1)
+                                };
+
+                                for _ in 0..num_elements_left {
+                                    package_op.arguments.push(Argument::Object(Object::Uninitialized.wrap()));
+                                }
+                            }
+
+                            // As above, leave the package's block.
                             continue;
                         }
                         BlockKind::IfThenBranch => {
@@ -1087,7 +1116,7 @@ where
                      * be in the package later.
                      */
                     context.start_in_flight_op(OpInFlight::new(Opcode::VarPackage, usize::MAX));
-                    context.start_new_block(BlockKind::Package, remaining_length);
+                    context.start_new_block(BlockKind::VarPackage, remaining_length);
                 }
                 Opcode::Method => {
                     let start_pc = context.current_block.pc;
@@ -1307,48 +1336,75 @@ where
                      *      to by a string. This is not well defined by the specification, but matches
                      *      expected behaviour of other interpreters, and is most useful for downstream
                      *      users.
+                     *    - In variable-length package definitions, the first 'element' is the
+                     *      length of the package, and should be resolved to an object. The
+                     *      remaining elements should be treated the same as in a package definition.
                      */
-                    if context.current_block.kind == BlockKind::Package {
-                        context
-                            .last_op()?
-                            .arguments
-                            .push(Argument::Object(Object::String(name.to_string()).wrap()));
-                    } else if context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false) {
-                        let object = self.namespace.lock().search(&name, &context.current_scope);
-                        match object {
-                            Ok((_, object)) => {
-                                let reference =
-                                    Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() };
-                                context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
-                            }
-                            Err(AmlError::ObjectDoesNotExist(_)) => {
-                                let reference = Object::Reference {
-                                    kind: ReferenceKind::Unresolved,
-                                    inner: Object::String(name.to_string()).wrap(),
-                                };
-                                context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
-                            }
-                            Err(other) => Err(other)?,
+                    enum ResolveBehaviour {
+                        ResolveToObject,
+                        ResolveIfExists,
+                        PackageElement,
+                    }
+                    let behaviour = if context.current_block.kind == BlockKind::Package {
+                        ResolveBehaviour::PackageElement
+                    } else if context.current_block.kind == BlockKind::VarPackage {
+                        if context.last_op()?.arguments.len() == 0 {
+                            ResolveBehaviour::ResolveToObject
+                        } else {
+                            ResolveBehaviour::PackageElement
                         }
+                    } else if context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false) {
+                        ResolveBehaviour::ResolveIfExists
                     } else {
-                        let object = self.namespace.lock().search(&name, &context.current_scope);
-                        match object {
-                            Ok((resolved_name, object)) => {
-                                if let Object::Method { flags, .. } | Object::NativeMethod { flags, .. } = *object
-                                {
-                                    context.start_in_flight_op(OpInFlight::new_with(
-                                        Opcode::InternalMethodCall,
-                                        vec![Argument::Object(object), Argument::Namestring(resolved_name)],
-                                        flags.arg_count(),
-                                    ))
-                                } else if let Object::FieldUnit(ref field) = *object {
-                                    let value = self.do_field_read(field)?;
-                                    context.last_op()?.arguments.push(Argument::Object(value));
-                                } else {
-                                    context.last_op()?.arguments.push(Argument::Object(object));
+                        ResolveBehaviour::ResolveToObject
+                    };
+
+                    match behaviour {
+                        ResolveBehaviour::ResolveToObject => {
+                            let object = self.namespace.lock().search(&name, &context.current_scope);
+                            match object {
+                                Ok((resolved_name, object)) => {
+                                    if let Object::Method { flags, .. } | Object::NativeMethod { flags, .. } =
+                                        *object
+                                    {
+                                        context.start_in_flight_op(OpInFlight::new_with(
+                                            Opcode::InternalMethodCall,
+                                            vec![Argument::Object(object), Argument::Namestring(resolved_name)],
+                                            flags.arg_count(),
+                                        ))
+                                    } else if let Object::FieldUnit(ref field) = *object {
+                                        let value = self.do_field_read(field)?;
+                                        context.last_op()?.arguments.push(Argument::Object(value));
+                                    } else {
+                                        context.last_op()?.arguments.push(Argument::Object(object));
+                                    }
                                 }
+                                Err(err) => Err(err)?,
                             }
-                            Err(err) => Err(err)?,
+                        }
+                        ResolveBehaviour::ResolveIfExists => {
+                            let object = self.namespace.lock().search(&name, &context.current_scope);
+                            match object {
+                                Ok((_, object)) => {
+                                    let reference =
+                                        Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() };
+                                    context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
+                                }
+                                Err(AmlError::ObjectDoesNotExist(_)) => {
+                                    let reference = Object::Reference {
+                                        kind: ReferenceKind::Unresolved,
+                                        inner: Object::String(name.to_string()).wrap(),
+                                    };
+                                    context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
+                                }
+                                Err(other) => Err(other)?,
+                            }
+                        }
+                        ResolveBehaviour::PackageElement => {
+                            context
+                                .last_op()?
+                                .arguments
+                                .push(Argument::Object(Object::String(name.to_string()).wrap()));
                         }
                     }
                 }
@@ -2476,6 +2532,7 @@ pub enum BlockKind {
         old_scope: AmlName,
     },
     Package,
+    VarPackage,
     /// Used for executing the then-branch of an `DefIfElse`. After finishing, it will check for
     /// and skip over an else-branch, if present.
     IfThenBranch,
