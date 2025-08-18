@@ -1,33 +1,26 @@
 # Acpi
 ![Build Status](https://github.com/rust-osdev/acpi/actions/workflows/build.yml/badge.svg)
-[![Version](https://img.shields.io/crates/v/rsdp.svg?style=rounded-square)](https://crates.io/crates/rsdp/)
 [![Version](https://img.shields.io/crates/v/acpi.svg?style=rounded-square)](https://crates.io/crates/acpi/)
-[![Version](https://img.shields.io/crates/v/aml.svg?style=rounded-square)](https://crates.io/crates/aml/)
 
-### [Documentation (`rsdp`)](https://docs.rs/rsdp)
-### [Documentation (`acpi`)](https://docs.rs/acpi)
-### [Documentation (`aml`)](https://docs.rs/aml)
+### [Documentation](https://docs.rs/acpi)
 
-A library to parse ACPI tables and AML, written in pure Rust. Designed to be easy to use from Rust bootloaders and kernels. The library is split into three crates:
-- `rsdp` parses the RSDP and can locate it on BIOS platforms. It does not depend on `alloc`, so is suitable to use from bootloaders without heap alloctors. All of its
-  functionality is reexported by `acpi`.
-- `acpi` parses the static tables (useful but not feature-complete). It can be used from environments that have allocators, and ones that don't (but with reduced functionality).
-- `aml` parses the AML tables (can be useful, far from feature-complete).
+`acpi` is a Rust library for interacting with the Advanced Configuration and Power Interface, a
+complex framework for power management and device discovery and configuration. ACPI is used on
+modern x64, as well as some ARM and RISC-V platforms. An operating system needs to interact with
+ACPI to correctly set up a platform's interrupt controllers, perform power management, and fully
+support many other platform capabilities.
 
-There is also the `acpi-dumper` utility to easily dump a platform's ACPI tables (this currently only works on Linux).
+This crate provides a limited API that can be used without an allocator, for example for use
+from a bootloader. This API will allow you to search for the RSDP, enumerate over the available
+tables, and interact with the tables using their raw structures. All other functionality is
+behind an `alloc` feature (enabled by default) and requires an allocator.
 
-## Contributing
-Contributions are more than welcome! You can:
-- Write code - the ACPI spec is huge and there are bound to be things we don't support yet!
-- Improve our documentation!
-- Use the crates within your kernel and file bug reports and feature requests!
+With an allocator, this crate provides a richer higher-level interfaces to the static tables, as
+well as a dynamic interpreter for AML - the bytecode format encoded in the DSDT and SSDT tables.
 
-Useful resources for contributing are:
-- [The ACPI specification](https://uefi.org/specifications)
-- [OSDev Wiki](https://wiki.osdev.org/ACPI)
-
-You can run the AML test suite with `cargo run --bin aml_tester -- -p tests`.
-You can run fuzz the AML parser with `cd aml && cargo fuzz run fuzz_target_1` (you may need to `cargo install cargo-fuzz`).
+See the library documentation for example usage. You will almost certainly need to read portions
+of the [ACPI Specification](https://uefi.org/specifications) too (however, be aware that firmware often
+ships with ACPI tables that are not spec-compliant).
 
 ## Licence
 This project is dual-licenced under:

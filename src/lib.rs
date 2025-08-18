@@ -1,7 +1,7 @@
 //! `acpi` is a Rust library for interacting with the Advanced Configuration and Power Interface, a
 //! complex framework for power management and device discovery and configuration. ACPI is used on
-//! modern x64, ARM, RISC-V, and other platforms. An operating system needs to interact with ACPI
-//! to correctly set up a platform's interrupt controllers, perform power management, and fully
+//! modern x64, as well as some ARM and RISC-V platforms. An operating system needs to interact with
+//! ACPI to correctly set up a platform's interrupt controllers, perform power management, and fully
 //! support many other platform capabilities.
 //!
 //! This crate provides a limited API that can be used without an allocator, for example for use
