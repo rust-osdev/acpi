@@ -4,12 +4,11 @@ resolver = "2"
 
 [package]
 name = "acpi"
-version = "5.1.0"
+version = "6.0.0-pre.0"
 authors = ["Isaac Woods"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "A pure-Rust library for interacting with ACPI"
 categories = ["hardware-support", "no-std"]
-readme = "../README.md"
 license = "MIT/Apache-2.0"
 edition = "2024"
 
