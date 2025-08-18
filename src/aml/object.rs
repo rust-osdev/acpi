@@ -1,7 +1,7 @@
 use crate::aml::{AmlError, Handle, Operation, op_region::OpRegion};
 use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
 use bit_field::BitField;
-use core::{cell::UnsafeCell, fmt, ops};
+use core::{cell::UnsafeCell, fmt, ops, sync::atomic::AtomicU64};
 
 type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError>;
 
@@ -11,7 +11,7 @@ pub enum Object {
     Buffer(Vec<u8>),
     BufferField { buffer: WrappedObject, offset: usize, length: usize },
     Device,
-    Event,
+    Event(Arc<AtomicU64>),
     FieldUnit(FieldUnit),
     Integer(u64),
     Method { code: Vec<u8>, flags: MethodFlags },
@@ -48,7 +48,7 @@ impl fmt::Display for Object {
                 write!(f, "BufferField {{ offset: {offset}, length: {length} }}")
             }
             Object::Device => write!(f, "Device"),
-            Object::Event => write!(f, "Event"),
+            Object::Event(counter) => write!(f, "Event({counter:?})"),
             // TODO: include fields
             Object::FieldUnit(_) => write!(f, "FieldUnit"),
             Object::Integer(value) => write!(f, "Integer({value})"),
@@ -263,7 +263,7 @@ impl Object {
             Object::Buffer(_) => ObjectType::Buffer,
             Object::BufferField { .. } => ObjectType::BufferField,
             Object::Device => ObjectType::Device,
-            Object::Event => ObjectType::Event,
+            Object::Event(_) => ObjectType::Event,
             Object::FieldUnit(_) => ObjectType::FieldUnit,
             Object::Integer(_) => ObjectType::Integer,
             Object::Method { .. } => ObjectType::Method,

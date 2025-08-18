@@ -37,7 +37,12 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{mem, slice, str::FromStr, sync::atomic::Ordering};
+use core::{
+    mem,
+    slice,
+    str::FromStr,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use log::{info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
@@ -463,6 +468,91 @@ where
                         self.do_store(target, result.clone())?;
                         context.contribute_arg(Argument::Object(result));
                         context.retire_op(op);
+                    }
+                    Opcode::Reset => {
+                        let [Argument::Object(sync_object)] = &op.arguments[..] else {
+                            panic!();
+                        };
+                        let sync_object = sync_object.clone().unwrap_reference();
+
+                        if let Object::Event(ref counter) = *sync_object {
+                            counter.store(0, Ordering::Release);
+                        } else {
+                            return Err(AmlError::InvalidOperationOnObject {
+                                op: Operation::ResetEvent,
+                                typ: sync_object.typ(),
+                            });
+                        }
+                    }
+                    Opcode::Signal => {
+                        let [Argument::Object(sync_object)] = &op.arguments[..] else {
+                            panic!();
+                        };
+                        let sync_object = sync_object.clone().unwrap_reference();
+
+                        if let Object::Event(ref counter) = *sync_object {
+                            counter.fetch_add(1, Ordering::AcqRel);
+                        } else {
+                            return Err(AmlError::InvalidOperationOnObject {
+                                op: Operation::SignalEvent,
+                                typ: sync_object.typ(),
+                            });
+                        }
+                    }
+                    Opcode::Wait => {
+                        let [Argument::Object(sync_object), Argument::Object(timeout)] = &op.arguments[..] else {
+                            panic!();
+                        };
+                        let sync_object = sync_object.clone().unwrap_reference();
+                        let timeout = u64::min(timeout.as_integer()?, 0xffff);
+
+                        if let Object::Event(ref counter) = *sync_object {
+                            /*
+                             * `Wait` returns a non-zero value if a timeout occurs and the event
+                             * was not signaled, and zero if it was. Timeout is specified in
+                             * milliseconds, should relinquish processor control (we use
+                             * `Handler::sleep` to do so) and a value of `0xffff` specifies that
+                             * the operation should wait indefinitely.
+                             */
+                            let mut remaining_sleep = timeout;
+                            let mut timed_out = true;
+
+                            'signaled: while remaining_sleep > 0 {
+                                loop {
+                                    /*
+                                     * Try to decrement the counter. If it's zero after a load, we
+                                     * haven't been signalled and should wait for a bit. If it's
+                                     * non-zero, we were signalled and should stop waiting.
+                                     */
+                                    let value = counter.load(Ordering::Acquire);
+                                    if value == 0 {
+                                        break;
+                                    }
+                                    if counter
+                                        .compare_exchange(value, value - 1, Ordering::AcqRel, Ordering::Acquire)
+                                        .is_ok()
+                                    {
+                                        timed_out = false;
+                                        break 'signaled;
+                                    }
+                                }
+
+                                let to_sleep = u64::min(timeout, 10);
+                                if timeout < 0xffff {
+                                    remaining_sleep -= to_sleep
+                                }
+                                self.handler.sleep(to_sleep);
+                            }
+
+                            context.contribute_arg(Argument::Object(
+                                Object::Integer(if timed_out { u64::MAX } else { 0 }).wrap(),
+                            ));
+                        } else {
+                            return Err(AmlError::InvalidOperationOnObject {
+                                op: Operation::WaitEvent,
+                                typ: sync_object.typ(),
+                            });
+                        }
                     }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
@@ -1150,7 +1240,7 @@ where
                     let name = context.namestring()?;
 
                     let name = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().insert(name, Object::Event.wrap())?;
+                    self.namespace.lock().insert(name, Object::Event(Arc::new(AtomicU64::new(0))).wrap())?;
                 }
                 Opcode::LoadTable => todo!(),
                 Opcode::Load => todo!(),
@@ -1158,9 +1248,9 @@ where
                 Opcode::Sleep => context.start_in_flight_op(OpInFlight::new(Opcode::Sleep, 1)),
                 Opcode::Acquire => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Release => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
-                Opcode::Signal => todo!(),
-                Opcode::Wait => todo!(),
-                Opcode::Reset => todo!(),
+                Opcode::Signal => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
+                Opcode::Wait => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
+                Opcode::Reset => context.start_in_flight_op(OpInFlight::new(opcode, 1)),
                 Opcode::Notify => todo!(),
                 Opcode::FromBCD | Opcode::ToBCD => context.start_in_flight_op(OpInFlight::new(opcode, 2)),
                 Opcode::Revision => {
@@ -1944,7 +2034,7 @@ where
                 Object::Buffer(bytes) => String::from_utf8_lossy(bytes).into_owned(),
                 Object::BufferField { .. } => "[Buffer Field]".to_string(),
                 Object::Device => "[Device]".to_string(),
-                Object::Event => "[Event]".to_string(),
+                Object::Event(_) => "[Event]".to_string(),
                 Object::FieldUnit(_) => "[Field]".to_string(),
                 Object::Integer(value) => value.to_string(),
                 Object::Method { .. } | Object::NativeMethod { .. } => "[Control Method]".to_string(),
@@ -3033,6 +3123,10 @@ pub enum Operation {
     LogicalOp,
     DecodePrt,
     ParseResource,
+
+    ResetEvent,
+    SignalEvent,
+    WaitEvent,
 }
 
 #[derive(Clone, PartialEq, Debug)]
