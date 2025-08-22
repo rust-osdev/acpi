@@ -1,15 +1,19 @@
 /*
  * TODO:
  *  - Field reads supporting custom handlers
+ *  - Locked fields
+ *  - Bank and index fields
  *  - Run `_REG` on supported op region handlers
  *  - Count operations performed and time
- *  - Do stores properly :(
+ *  - Correct DefStore / DefCopyObject behaviour
  *  - Load and LoadTable
- *  - Entire Event subsystem and opcodes for them
+ *  - DefDataRegion
+ *  - Notify
+ *  - DefMatch
  *
  *  - Method recursion depth?
  *  - Loop timeouts
- *  - Fuzz the shit out of it I guess?
+ *  - Fuzzing and guarantee panic-free interpretation
  */
 
 pub mod namespace;
