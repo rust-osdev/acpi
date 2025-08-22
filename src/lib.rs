@@ -265,6 +265,8 @@ pub enum AcpiError {
     InvalidMadt(MadtError),
     InvalidGenericAddress,
 
+    Timeout,
+
     #[cfg(feature = "alloc")]
     Aml(aml::AmlError),
 

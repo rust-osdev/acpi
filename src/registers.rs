@@ -104,7 +104,7 @@ pub struct Pm1ControlRegisterBlock<H: Handler> {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Pm1ControlBit {
-    /// Selects whether the power management event produces an SCI or SMI interrupt. This is
+    /// Determines whether the power management event produces an SCI or SMI interrupt. This is
     /// controlled by the firmware - OSPM should always preserve this bit.
     SciEnable = 0,
     /// When this bit is set, bus master requests can cause any processor in the C3 state to
@@ -124,6 +124,20 @@ impl<H> Pm1ControlRegisterBlock<H>
 where
     H: Handler,
 {
+    pub fn read_bit(&self, bit: Pm1ControlBit) -> Result<bool, AcpiError> {
+        let control_bit = match bit {
+            Pm1ControlBit::SciEnable => 0,
+            Pm1ControlBit::BusMasterWake => 1,
+            Pm1ControlBit::GlobalLockRelease => 2,
+            Pm1ControlBit::SleepEnable => 13,
+        };
+
+        let pm1a = self.pm1a.read()?;
+        let pm1b = if let Some(ref pm1b) = self.pm1b { pm1b.read()? } else { 0 };
+        let pm1 = pm1a | pm1b;
+        Ok(pm1.get_bit(control_bit))
+    }
+
     pub fn set_bit(&self, bit: Pm1ControlBit, set: bool) -> Result<(), AcpiError> {
         let control_bit = match bit {
             Pm1ControlBit::SciEnable => 0,

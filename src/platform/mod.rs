@@ -10,7 +10,7 @@ use crate::{
     Handler,
     PowerProfile,
     address::GenericAddress,
-    registers::{FixedRegisters, Pm1Event},
+    registers::{FixedRegisters, Pm1ControlBit, Pm1Event},
     sdt::{
         Signature,
         fadt::Fadt,
@@ -27,7 +27,9 @@ pub struct AcpiPlatform<H: Handler, A: Allocator = Global> {
     pub tables: AcpiTables<H>,
     pub power_profile: PowerProfile,
     pub interrupt_model: InterruptModel<A>,
-    /// The interrupt vector that the System Control Interrupt (SCI) is wired to.
+    /// The interrupt vector that the System Control Interrupt (SCI) is wired to. On x86 systems with
+    /// an 8259, this is the interrupt vector. On other systems, this is the GSI of the SCI
+    /// interrupt. The interrupt should be treated as a shareable, level, active-low interrupt.
     pub sci_interrupt: u16,
     /// On `x86_64` platforms that support the APIC, the processor topology must also be inferred from the
     /// interrupt model. That information is stored here, if present.
@@ -74,7 +76,68 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
             pm_timer,
             registers,
         })
+    }
 
+    /// Initializes the event registers, masking all events to start.
+    pub fn initialize_events(&self) -> Result<(), AcpiError> {
+        /*
+         * Disable all fixed events to start.
+         */
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::Timer, false)?;
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::GlobalLock, false)?;
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::PowerButton, false)?;
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::SleepButton, false)?;
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::Rtc, false)?;
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::PciEWake, false)?;
+        self.registers.pm1_event_registers.set_event_enabled(Pm1Event::Wake, false)?;
+
+        // TODO: deal with GPEs
+
+        Ok(())
+    }
+
+    pub fn read_mode(&self) -> Result<AcpiMode, AcpiError> {
+        if self.registers.pm1_control_registers.read_bit(Pm1ControlBit::SciEnable)? {
+            Ok(AcpiMode::Acpi)
+        } else {
+            Ok(AcpiMode::Legacy)
+        }
+    }
+
+    /// Move the platform into ACPI mode, if it is not already in it. This means platform power
+    /// management events will be routed to the kernel via the SCI interrupt, instead of to the
+    /// firmware's SMI handler.
+    ///
+    /// ### Warning
+    /// This can be a bad idea on real hardware if you are not able to handle platform events
+    /// properly. Entering ACPI mode means you are responsible for dealing with events like the
+    /// power button and thermal events instead of the firmware - if you do not handle these, it
+    /// may be difficult to recover the platform. Hardware damage is unlikely as firmware usually
+    /// has safeguards for critical events, but like with all things concerning firmware, you may
+    /// not wish to rely on these.
+    pub fn enter_acpi_mode(&self) -> Result<(), AcpiError> {
+        if self.read_mode()? == AcpiMode::Acpi {
+            return Ok(());
+        }
+
+        let Some(fadt) = self.tables.find_table::<Fadt>() else { Err(AcpiError::TableNotFound(Signature::FADT))? };
+        self.handler.write_io_u8(fadt.smi_cmd_port as u16, fadt.acpi_enable);
+
+        /*
+         * We now have to spin and wait for the firmware to yield control. We'll wait up to 3
+         * seconds.
+         */
+        let mut spinning = 3 * 1000 * 1000; // Microseconds
+        while spinning > 0 {
+            if self.read_mode()? == AcpiMode::Acpi {
+                return Ok(());
+            }
+
+            spinning -= 100;
+            self.handler.stall(100);
+        }
+
+        Err(AcpiError::Timeout)
     }
 
     /// Wake up all Application Processors (APs) using the Multiprocessor Wakeup Mailbox Mechanism.
@@ -191,4 +254,10 @@ impl PmTimer {
             None => Ok(None),
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum AcpiMode {
+    Legacy,
+    Acpi,
 }
