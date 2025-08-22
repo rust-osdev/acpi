@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "acpi"
-version = "6.0.0-pre.0"
+version = "6.0.0"
 authors = ["Isaac Woods"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "A pure-Rust library for interacting with ACPI"
