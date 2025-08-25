@@ -13,6 +13,8 @@ use alloc::{alloc::Global, vec::Vec};
 use bit_field::BitField;
 use core::{alloc::Allocator, pin::Pin};
 
+pub use crate::sdt::madt::{Polarity, TriggerMode};
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum InterruptModel<A: Allocator = Global> {
@@ -278,31 +280,6 @@ pub enum LocalInterruptLine {
 pub enum NmiProcessor {
     All,
     ProcessorUid(u32),
-}
-
-/// Polarity indicates what signal mode the interrupt line needs to be in to be considered 'active'.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Polarity {
-    SameAsBus,
-    ActiveHigh,
-    ActiveLow,
-}
-
-/// Trigger mode of an interrupt, describing how the interrupt is triggered.
-///
-/// When an interrupt is `Edge` triggered, it is triggered exactly once, when the interrupt
-/// signal goes from its opposite polarity to its active polarity.
-///
-/// For `Level` triggered interrupts, a continuous signal is emitted so long as the interrupt
-/// is in its active polarity.
-///
-/// `SameAsBus`-triggered interrupts will utilize the same interrupt triggering as the system bus
-/// they communicate across.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TriggerMode {
-    SameAsBus,
-    Edge,
-    Level,
 }
 
 /// Describes a difference in the mapping of an ISA interrupt to how it's mapped in other interrupt
