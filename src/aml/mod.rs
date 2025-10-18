@@ -82,7 +82,7 @@ where
 
     global_lock_mutex: Handle,
     registers: Arc<FixedRegisters<H>>,
-    facs: PhysicalMapping<H, Facs>,
+    facs: Option<PhysicalMapping<H, Facs>>,
 }
 
 unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
@@ -101,7 +101,7 @@ where
         handler: H,
         dsdt_revision: u8,
         registers: Arc<FixedRegisters<H>>,
-        facs: PhysicalMapping<H, Facs>,
+        facs: Option<PhysicalMapping<H, Facs>>,
     ) -> Interpreter<H> {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
 
@@ -139,8 +139,11 @@ where
 
         let registers = platform.registers.clone();
         let facs = {
-            let fadt = platform.tables.find_table::<Fadt>().unwrap();
-            unsafe { platform.handler.map_physical_region(fadt.facs_address()?, mem::size_of::<Facs>()) }
+            platform.tables.find_table::<Fadt>().and_then(|fadt| fadt.facs_address().ok()).map(
+                |facs_address| unsafe {
+                    platform.handler.map_physical_region(facs_address, mem::size_of::<Facs>())
+                },
+            )
         };
 
         let dsdt = platform.tables.dsdt()?;
@@ -313,8 +316,9 @@ where
     /// attempt to take ownership of the lock again. Returns `true` if we now have ownership of the
     /// lock, and `false` if we need to wait for firmware to release it.
     fn try_do_acquire_firmware_lock(&self) -> bool {
+        let Some(facs) = &self.facs else { return true };
         loop {
-            let global_lock = self.facs.global_lock.load(Ordering::Relaxed);
+            let global_lock = facs.global_lock.load(Ordering::Relaxed);
             let is_owned = global_lock.get_bit(1);
 
             /*
@@ -327,8 +331,7 @@ where
             new_value.set_bit(0, is_owned);
             new_value.set_bit(1, true);
 
-            if self
-                .facs
+            if facs
                 .global_lock
                 .compare_exchange(global_lock, new_value, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
@@ -350,15 +353,15 @@ where
     /// pending bit was set (this means the firmware is waiting to acquire the lock, and should be
     /// informed we're finished with it).
     fn do_release_firmware_lock(&self) -> bool {
+        let Some(facs) = &self.facs else { return false };
         loop {
-            let global_lock = self.facs.global_lock.load(Ordering::Relaxed);
+            let global_lock = facs.global_lock.load(Ordering::Relaxed);
             let is_pending = global_lock.get_bit(0);
             let mut new_value = global_lock;
             new_value.set_bit(0, false);
             new_value.set_bit(1, false);
 
-            if self
-                .facs
+            if facs
                 .global_lock
                 .compare_exchange(global_lock, new_value, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()

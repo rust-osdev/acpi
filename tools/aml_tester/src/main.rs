@@ -263,7 +263,7 @@ fn new_interpreter() -> Interpreter<Handler> {
         mapped_length: 32,
         handler: Handler,
     };
-    Interpreter::new(Handler, 2, fake_registers, fake_facs)
+    Interpreter::new(Handler, 2, fake_registers, Some(fake_facs))
 }
 
 fn run_test(stream: &[u8], interpreter: &mut Interpreter<Handler>) -> Result<(), AmlError> {
