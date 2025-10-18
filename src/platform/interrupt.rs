@@ -58,17 +58,13 @@ impl<A: Allocator + Clone> InterruptModel<A> {
                     return Self::from_apic_model_in(madt.get(), allocator);
                 }
 
-                MadtEntry::IoSapic(_) | MadtEntry::LocalSapic(_) | MadtEntry::PlatformInterruptSource(_) => {
-                    unimplemented!();
-                }
+                MadtEntry::IoSapic(_) | MadtEntry::LocalSapic(_) | MadtEntry::PlatformInterruptSource(_) => {}
 
                 MadtEntry::Gicc(_)
                 | MadtEntry::Gicd(_)
                 | MadtEntry::GicMsiFrame(_)
                 | MadtEntry::GicRedistributor(_)
-                | MadtEntry::GicInterruptTranslationService(_) => {
-                    unimplemented!();
-                }
+                | MadtEntry::GicInterruptTranslationService(_) => {}
 
                 MadtEntry::NmiSource(_) => (),
                 MadtEntry::MultiprocessorWakeup(_) => (),
