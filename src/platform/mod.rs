@@ -20,7 +20,10 @@ use crate::{
 use alloc::sync::Arc;
 use core::{mem, ptr};
 
-use allocator_api2::{alloc::{Allocator, Global}, vec::Vec};
+use allocator_api2::{
+    alloc::{Allocator, Global},
+    vec::Vec,
+};
 
 /// `AcpiPlatform` is a higher-level view of the ACPI tables that makes it easier to perform common
 /// tasks with ACPI. It requires allocator support.

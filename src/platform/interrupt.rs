@@ -9,7 +9,10 @@ use crate::{
         madt::{Madt, MadtEntry, parse_mps_inti_flags},
     },
 };
-use allocator_api2::{alloc::{Allocator, Global}, vec::Vec};
+use allocator_api2::{
+    alloc::{Allocator, Global},
+    vec::Vec,
+};
 use bit_field::BitField;
 use core::pin::Pin;
 

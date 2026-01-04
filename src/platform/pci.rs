@@ -7,7 +7,10 @@ use crate::{
         mcfg::{Mcfg, McfgEntry},
     },
 };
-use allocator_api2::{alloc::{Allocator, Global}, vec::Vec};
+use allocator_api2::{
+    alloc::{Allocator, Global},
+    vec::Vec,
+};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
 /// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
