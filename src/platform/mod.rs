@@ -17,8 +17,10 @@ use crate::{
         madt::{Madt, MadtError, MpProtectedModeWakeupCommand, MultiprocessorWakeupMailbox},
     },
 };
-use alloc::{alloc::Global, sync::Arc, vec::Vec};
-use core::{alloc::Allocator, mem, ptr};
+use alloc::sync::Arc;
+use core::{mem, ptr};
+
+use allocator_api2::{alloc::{Allocator, Global}, vec::Vec};
 
 /// `AcpiPlatform` is a higher-level view of the ACPI tables that makes it easier to perform common
 /// tasks with ACPI. It requires allocator support.
@@ -53,7 +55,7 @@ where
 
 impl<H: Handler> AcpiPlatform<H, Global> {
     pub fn new(tables: AcpiTables<H>, handler: H) -> Result<Self, AcpiError> {
-        Self::new_in(tables, handler, alloc::alloc::Global)
+        Self::new_in(tables, handler, Global)
     }
 }
 

@@ -7,10 +7,7 @@ use crate::{
         mcfg::{Mcfg, McfgEntry},
     },
 };
-use alloc::{
-    alloc::{Allocator, Global},
-    vec::Vec,
-};
+use allocator_api2::{alloc::{Allocator, Global}, vec::Vec};
 
 /// Describes a set of regions of physical memory used to access the PCIe configuration space. A
 /// region is created for each entry in the MCFG. Given the segment group, bus, device number, and
@@ -36,7 +33,8 @@ impl<A: Allocator> PciConfigRegions<A> {
         H: Handler,
     {
         let Some(mcfg) = tables.find_table::<Mcfg>() else { Err(AcpiError::TableNotFound(Signature::MCFG))? };
-        let regions = mcfg.entries().to_vec_in(allocator);
+        let mut regions = Vec::new_in(allocator);
+        regions.extend_from_slice(mcfg.entries());
 
         Ok(Self { regions })
     }

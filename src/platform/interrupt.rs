@@ -9,9 +9,9 @@ use crate::{
         madt::{Madt, MadtEntry, parse_mps_inti_flags},
     },
 };
-use alloc::{alloc::Global, vec::Vec};
+use allocator_api2::{alloc::{Allocator, Global}, vec::Vec};
 use bit_field::BitField;
-use core::{alloc::Allocator, pin::Pin};
+use core::pin::Pin;
 
 pub use crate::sdt::madt::{Polarity, TriggerMode};
 
