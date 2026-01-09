@@ -122,10 +122,17 @@ pub struct LocalApicAffinity {
     pub header: EntryHeader,
     pub proximity_domain_low: u8,
     pub apic_id: u8,
-    pub flags: u32,
+    pub flags: LocalApicAffinityFlags,
     pub local_sapic_eid: u8,
     pub proximity_domain_high: [u8; 3],
     pub clock_domain: u32,
+}
+
+bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct LocalApicAffinityFlags: u32 {
+        const ENABLED = 1;
+    }
 }
 
 impl LocalApicAffinity {
@@ -150,8 +157,17 @@ pub struct MemoryAffinity {
     pub length_low: u32,
     pub length_high: u32,
     _reserved1: u32,
-    pub flags: u32,
+    pub flags: MemoryAffinityFlags,
     _reserved2: u64,
+}
+
+bitflags::bitflags! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct MemoryAffinityFlags: u32 {
+        const ENABLED = 1;
+        const HOT_PLUGGABLE = 1 << 1;
+        const NON_VOLATILE = 1 << 2;
+    }
 }
 
 impl MemoryAffinity {
@@ -175,7 +191,7 @@ pub struct LocalApicX2Affinity {
     _reserved0: u16,
     pub proximity_domain: u32,
     pub x2apic_id: u32,
-    pub flags: u32,
+    pub flags: LocalApicAffinityFlags,
     pub clock_domain: u32,
     _reserved1: u32,
 }

@@ -26,7 +26,11 @@ unsafe impl AcpiTable for Slit {
 }
 
 impl Slit {
-    pub fn matrix(self: Pin<&Self>) -> &[u8] {
+    pub fn matrix(self: Pin<&Self>) -> DistanceMatrix<'_> {
+        DistanceMatrix { num_proximity_domains: self.num_proximity_domains, matrix: self.matrix_raw() }
+    }
+
+    pub fn matrix_raw(self: Pin<&Self>) -> &[u8] {
         let mut num_entries = self.num_proximity_domains * self.num_proximity_domains;
         if (mem::size_of::<Slit>() + num_entries as usize * num_entries as usize * mem::size_of::<u8>())
             > self.header.length as usize
@@ -40,11 +44,17 @@ impl Slit {
             slice::from_raw_parts(ptr.byte_add(mem::size_of::<Slit>()), num_entries as usize)
         }
     }
+}
 
-    pub fn entry(self: Pin<&Self>, i: u32, j: u32) -> Option<u8> {
+pub struct DistanceMatrix<'a> {
+    pub num_proximity_domains: u64,
+    pub matrix: &'a [u8],
+}
+
+impl DistanceMatrix<'_> {
+    pub fn distance(&self, i: u32, j: u32) -> Option<u8> {
         if i as u64 <= self.num_proximity_domains && j as u64 <= self.num_proximity_domains {
-            let matrix = self.matrix();
-            Some(matrix[i as usize + j as usize * self.num_proximity_domains as usize])
+            Some(self.matrix[i as usize + j as usize * self.num_proximity_domains as usize])
         } else {
             None
         }

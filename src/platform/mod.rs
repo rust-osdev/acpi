@@ -1,4 +1,5 @@
 pub mod interrupt;
+pub mod numa;
 pub mod pci;
 
 pub use interrupt::InterruptModel;
