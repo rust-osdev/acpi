@@ -4,7 +4,9 @@ pub mod fadt;
 pub mod hpet;
 pub mod madt;
 pub mod mcfg;
+pub mod slit;
 pub mod spcr;
+pub mod srat;
 
 use crate::AcpiError;
 use core::{fmt, mem::MaybeUninit, str};

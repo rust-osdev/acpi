@@ -9,6 +9,7 @@ use core::{
     mem,
     pin::Pin,
 };
+use log::warn;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MadtError {
@@ -114,8 +115,16 @@ impl<'a> Iterator for MadtEntryIter<'a> {
             let entry_pointer = self.pointer;
             let header = unsafe { *(self.pointer as *const EntryHeader) };
 
-            self.pointer = unsafe { self.pointer.offset(header.length as isize) };
-            self.remaining_length -= header.length as u32;
+            if header.length as u32 > self.remaining_length {
+                warn!(
+                    "Invalid entry of type {} in MADT - extending past length of table. Ignoring",
+                    header.entry_type
+                );
+                return None;
+            }
+
+            self.pointer = unsafe { self.pointer.byte_offset(header.length as isize) };
+            self.remaining_length = self.remaining_length.saturating_sub(header.length as u32);
 
             macro_rules! construct_entry {
                 ($entry_type:expr,
