@@ -16,6 +16,7 @@ use acpi::{
     PhysicalMapping,
 };
 use clap::{Arg, ArgAction, ArgGroup};
+use colored::Colorize;
 use log::{error, info};
 use pci_types::PciAddress;
 use std::{
@@ -96,14 +97,10 @@ fn main() -> std::io::Result<()> {
         });
         if passed + failed > 0 {
             println!(
-                "Compiled {} ASL files: {}{} passed{}, {}{} failed{}",
+                "Compiled {} ASL files: {}, {}",
                 passed + failed,
-                termion::color::Fg(termion::color::Green),
-                passed,
-                termion::style::Reset,
-                termion::color::Fg(termion::color::Red),
-                failed,
-                termion::style::Reset
+                format!("{} passed", passed).green(),
+                format!("{} failed", failed).red(),
             );
             println!();
         }
@@ -174,14 +171,14 @@ fn main() -> std::io::Result<()> {
 
         match run_test(stream, &mut interpreter) {
             Ok(()) => {
-                println!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset);
+                println!("{}", "OK".green());
                 println!("Namespace: {}", interpreter.namespace.lock());
                 summaries.insert((file_entry, TestResult::Pass));
                 (passed + 1, failed)
             }
 
             Err(err) => {
-                println!("{}Failed ({:?}){}", termion::color::Fg(termion::color::Red), err, termion::style::Reset);
+                println!("{}", format!("Failed ({:?})", err).red());
                 println!("Namespace: {}", interpreter.namespace.lock());
                 summaries.insert((file_entry, TestResult::ParseFail));
                 (passed, failed + 1)
@@ -194,29 +191,21 @@ fn main() -> std::io::Result<()> {
     for (file, status) in summaries.iter() {
         let status = match status {
             TestResult::Pass => {
-                format!("{}OK{}", termion::color::Fg(termion::color::Green), termion::style::Reset)
+                format!("{}", "OK".green())
             }
             TestResult::CompileFail => {
-                format!("{}COMPILE FAIL{}", termion::color::Fg(termion::color::Red), termion::style::Reset)
+                format!("{}", "COMPILE FAIL".red())
             }
             TestResult::ParseFail => {
-                format!("{}PARSE FAIL{}", termion::color::Fg(termion::color::Red), termion::style::Reset)
+                format!("{}", "PARSE FAIL".red())
             }
             TestResult::NotCompiled => {
-                format!("{}NOT COMPILED{}", termion::color::Fg(termion::color::Red), termion::style::Reset)
+                format!("{}", "NOT COMPILED".red())
             }
         };
         println!("\t{:<50}: {}", file.to_str().unwrap(), status);
     }
-    println!(
-        "\nTest results: {}{} passed{}, {}{} failed{}",
-        termion::color::Fg(termion::color::Green),
-        passed,
-        termion::style::Reset,
-        termion::color::Fg(termion::color::Red),
-        failed,
-        termion::style::Reset
-    );
+    println!("\nTest results: {}, {}", format!("{} passed", passed).green(), format!("{} failed", failed).red());
     Ok(())
 }
 
