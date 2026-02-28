@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 acpi = { path = "../.." }
 clap = "4"
-termion = "1"
+colored = "3.1.1"
 log = "0.4"
 pci_types = "0.10"
