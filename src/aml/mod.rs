@@ -1436,8 +1436,17 @@ where
                      *    - In variable-length package definitions, the first 'element' is the
                      *      length of the package, and should be resolved to an object. The
                      *      remaining elements should be treated the same as in a package definition.
+                     *
+                     * TODO: we are not handling resolution of `SuperName`s correctly in all
+                     * places. The below behaviour adds correct handling of `DefStore` operands as
+                     * a test, but we likely need a better declarative solution to resolve
+                     * behaviours for operations (e.g. each `OpInFlight` has an array of
+                     * `ResolveBehaviour`s for each expected operand. After checking for package
+                     * definitions etc., we should expect the current op to provide resolution
+                     * behaviours in this case.)
                      */
                     enum ResolveBehaviour {
+                        ResolveSuperName,
                         ResolveToObject,
                         ResolveIfExists,
                         PackageElement,
@@ -1452,11 +1461,26 @@ where
                         }
                     } else if context.in_flight.last().map(|op| op.op == Opcode::CondRefOf).unwrap_or(false) {
                         ResolveBehaviour::ResolveIfExists
+                    } else if context.in_flight.last().map(|op| op.op == Opcode::Store).unwrap_or(false) {
+                        if context.in_flight.last().unwrap().arguments.len() == 0 {
+                            ResolveBehaviour::ResolveToObject // Source
+                        } else {
+                            ResolveBehaviour::ResolveSuperName // Destination
+                        }
                     } else {
                         ResolveBehaviour::ResolveToObject
                     };
 
                     match behaviour {
+                        ResolveBehaviour::ResolveSuperName => {
+                            let object = self.namespace.lock().search(&name, &context.current_scope);
+                            match object {
+                                Ok((_resolved_name, object)) => {
+                                    context.last_op()?.arguments.push(Argument::Object(object));
+                                }
+                                Err(err) => Err(err)?,
+                            }
+                        }
                         ResolveBehaviour::ResolveToObject => {
                             let object = self.namespace.lock().search(&name, &context.current_scope);
                             match object {

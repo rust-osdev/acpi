@@ -166,6 +166,12 @@ impl ops::Deref for WrappedObject {
     }
 }
 
+impl fmt::Display for WrappedObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Wrapped({})", unsafe { &*self.0.get() })
+    }
+}
+
 impl Object {
     pub fn wrap(self) -> WrappedObject {
         WrappedObject::new(self)
