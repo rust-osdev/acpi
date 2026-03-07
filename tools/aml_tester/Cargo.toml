@@ -10,3 +10,11 @@ clap = "4"
 colored = "3.1.1"
 log = "0.4"
 pci_types = "0.10"
+
+[[bin]]
+name = "aml_tester"
+path = "src/main.rs"
+
+[lib]
+name = "aml_test_tools"
+path = "src/lib.rs"
