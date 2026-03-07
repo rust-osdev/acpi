@@ -282,17 +282,17 @@ fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
     let files: Vec<PathBuf> = if matches.contains_id("path") {
         let dir_path = Path::new(matches.get_one::<String>("path").unwrap());
 
-        if std::fs::metadata(&dir_path).unwrap().is_dir() {
+        if fs::metadata(dir_path)?.is_dir() {
             println!("Running tests in directory: {:?}", dir_path);
             fs::read_dir(dir_path)?
-                .filter_map(|entry| if entry.is_ok() { Some(entry.unwrap().path().to_path_buf()) } else { None })
+                .filter_map(|entry| if let Ok(entry) = entry { Some(entry.path().to_path_buf()) } else { None })
                 .collect()
         } else {
             println!("Running single test: {:?}", dir_path);
             vec![dir_path.to_path_buf()]
         }
     } else {
-        matches.get_many::<PathBuf>("files").unwrap_or_default().cloned().collect()
+        matches.get_many::<String>("files").unwrap_or_default().map(PathBuf::from).collect()
     };
 
     // Make sure all files exist, propagate error if it occurs
@@ -374,7 +374,7 @@ impl log::Log for Logger {
 struct Handler;
 
 impl acpi::Handler for Handler {
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
         todo!()
     }
 
@@ -456,7 +456,7 @@ impl acpi::Handler for Handler {
         println!("write_pci_u32 ({address})<-{value}");
     }
 
-    fn handle_debug(&self, object: &acpi::aml::object::Object) {
+    fn handle_debug(&self, object: &Object) {
         info!("Debug store: {}", object);
     }
 
