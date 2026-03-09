@@ -5,27 +5,24 @@
 
 pub mod handlers;
 
-use acpi::aml::{AmlError, Interpreter};
 use acpi::{
-    address::MappedGas,
-    aml::{namespace::AmlName, object::Object},
     Handler,
     PhysicalMapping,
+    address::MappedGas,
+    aml::{AmlError, Interpreter, namespace::AmlName, object::Object},
 };
 use log::{error, trace};
 use std::{
     ffi::OsStr,
     fs::File,
-    io::Read,
+    io::{Read, Write},
     path::PathBuf,
     process::Command,
     ptr::NonNull,
     str::FromStr,
     sync::Arc,
 };
-use std::io::Write;
-use tempfile::{tempdir, NamedTempFile, TempDir};
-use crate::handlers::logging_handler::LoggingHandler;
+use tempfile::{NamedTempFile, TempDir, tempdir};
 
 /// Possible results of [`resolve_and_compile`].
 pub enum CompilationOutcome {
@@ -182,6 +179,19 @@ where
     Interpreter::new(handler, 2, fake_registers, Some(fake_facs))
 }
 
+/// Test an ASL script given as a string, using [`run_test`].
+///
+/// Arguments:
+/// * `asl`: A string slice containing an ASL script. This will be compiled to AML using `iasl` and
+///   then tested using [`run_test`]
+/// * `interpreter`: The interpreter to use for testing.
+pub fn run_test_for_string(asl: &'static str, interpreter: &mut Interpreter<impl Handler + Clone>) -> TestResult {
+    let script = create_script_file(asl);
+    resolve_and_compile(&script.asl_file.path().to_path_buf(), true).unwrap();
+
+    run_test_for_file(&script.aml_file, interpreter)
+}
+
 /// Test an AML file using [`run_test`]
 ///
 /// Arguments:
@@ -206,22 +216,6 @@ pub fn run_test_for_file(file: &PathBuf, interpreter: &mut Interpreter<impl Hand
             TestResult::ParseFail
         }
     }
-}
-
-/// Test an ASL script given as a string, using [`run_test`].
-///
-/// Arguments:
-/// * `asl`: A string slice containing an ASL script. This will be compiled to AML using `iasl` and
-///   then tested using [`run_test`]
-/// * `handler`: The handler to use for the test
-pub fn run_test_for_string(asl: &'static str, handler: impl Handler) {
-    let script = create_script_file(asl);
-    resolve_and_compile(&script.asl_file.path().to_path_buf(), true).unwrap();
-
-    let logged_handler = LoggingHandler::new(handler);
-    let mut interpreter = new_interpreter(logged_handler);
-
-    assert_eq!(run_test_for_file(&script.aml_file, &mut interpreter), TestResult::Pass);
 }
 
 /// Internal function to create a temporary script file from an ASL string, plus to calculate the

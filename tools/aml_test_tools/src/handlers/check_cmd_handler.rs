@@ -65,7 +65,7 @@ where
     }
 
     fn check_command(&self, command: AcpiCommands) {
-        let next_command_idx = self.next_command_idx.load(Relaxed);
+        let next_command_idx = self.next_command_idx.fetch_add(1, Relaxed);
         let next_command = self.commands.get(next_command_idx);
 
         if next_command.is_none() {
@@ -73,8 +73,6 @@ where
         };
 
         assert_eq!(*next_command.unwrap(), command);
-
-        self.next_command_idx.fetch_add(1, Relaxed);
     }
 }
 

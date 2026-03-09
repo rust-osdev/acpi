@@ -1,6 +1,6 @@
-use acpi::{aml::AmlError, Handle, Handler, PhysicalMapping};
+use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::{Arc, atomic::AtomicUsize};
 
 /// Commands that may be received by a [handler](Handler) which return a value from the handler.
 ///
@@ -41,14 +41,12 @@ impl ListedResponseHandler {
     }
 
     fn get_next_command(&self) -> AcpiCommands {
-        let next_command_idx = self.next_command_idx.load(std::sync::atomic::Ordering::Relaxed);
+        let next_command_idx = self.next_command_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let next_command = self.commands.get(next_command_idx);
 
         if next_command.is_none() {
             panic!("More commands attempted than expected");
         };
-
-        self.next_command_idx.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         *next_command.unwrap()
     }
