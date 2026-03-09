@@ -1,5 +1,5 @@
 [workspace]
-members = ["tools/aml_tester", "tools/acpi_dumper"]
+members = ["tools/aml_tester", "tools/acpi_dumper", "tools/aml_test_tools"]
 resolver = "2"
 
 [package]
@@ -21,8 +21,7 @@ pci_types = { version = "0.10.0", public = true }
 byteorder = { version = "1.5.0", default-features = false }
 
 [dev-dependencies]
-tempfile = "3.26.0"
-aml_tester = { path = "tools/aml_tester" }
+aml_test_tools = { path = "tools/aml_test_tools" }
 pretty_env_logger = "0.5.0"
 
 [features]

@@ -2,6 +2,11 @@ use acpi::{aml::AmlError, Handle, Handler, PhysicalMapping};
 use pci_types::PciAddress;
 use std::sync::{atomic::AtomicUsize, Arc};
 
+/// Commands that may be received by a [handler](Handler) which return a value from the handler.
+///
+/// Commands that do not return a value are represented by [`Skip`](AcpiCommands::Skip).
+///
+/// A [`Vec`] of these is used by [`ListedResponseHandler`]
 // Some variants are unused for the time being, until more tests are written.
 #[allow(unused)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,14 +30,12 @@ pub enum AcpiCommands {
 ///
 /// If the command is unexpected, this handler will panic.
 #[derive(Clone, Debug)]
-pub struct ListedResponseHandler
-{
+pub struct ListedResponseHandler {
     commands: Vec<AcpiCommands>,
     next_command_idx: Arc<AtomicUsize>,
 }
 
-impl ListedResponseHandler
-{
+impl ListedResponseHandler {
     pub fn new(commands: Vec<AcpiCommands>) -> Self {
         Self { commands, next_command_idx: Arc::new(AtomicUsize::new(0)) }
     }
@@ -68,8 +71,7 @@ macro_rules! check_is_skipped {
         }
     };
 }
-impl Drop for ListedResponseHandler
-{
+impl Drop for ListedResponseHandler {
     fn drop(&mut self) {
         // Don't do this if the test has already failed, to avoid a double-panic.
         if !std::thread::panicking() {
@@ -82,8 +84,7 @@ impl Drop for ListedResponseHandler
     }
 }
 
-impl Handler for ListedResponseHandler
-{
+impl Handler for ListedResponseHandler {
     unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
         // This isn't implemented in `aml_tester` either
         todo!()
@@ -198,51 +199,56 @@ impl Handler for ListedResponseHandler
     }
 }
 
-#[test]
-fn handler_basic_functions() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::Skip()];
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    let handler = ListedResponseHandler::new(test_commands);
-    handler.read_io_u8(2);
-    handler.write_io_u16(3, 4);
-}
+    #[test]
+    fn handler_basic_functions() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::Skip()];
 
-#[test]
-#[should_panic]
-fn handler_fails_for_wrong_command() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::ReadIoU8(3)];
+        let handler = ListedResponseHandler::new(test_commands);
+        handler.read_io_u8(2);
+        handler.write_io_u16(3, 4);
+    }
 
-    let handler = ListedResponseHandler::new(test_commands);
-    handler.read_io_u8(3);
-    // We shouldn't actually make it to this command, but it makes sure the handler doesn't panic for having too few
-    // commands sent to it.
-    handler.write_io_u16(3, 4);
-}
+    #[test]
+    #[should_panic]
+    fn handler_fails_for_wrong_command() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::ReadIoU8(3)];
 
-#[test]
-#[should_panic]
-fn handler_fails_for_too_many_commands() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::Skip()];
+        let handler = ListedResponseHandler::new(test_commands);
+        handler.read_io_u8(3);
+        // We shouldn't actually make it to this command, but it makes sure the handler doesn't panic for having too few
+        // commands sent to it.
+        handler.write_io_u16(3, 4);
+    }
 
-    let handler = ListedResponseHandler::new(test_commands);
-    handler.read_io_u8(2);
-    handler.write_io_u16(3, 4);
-    handler.read_io_u8(5);
-}
+    #[test]
+    #[should_panic]
+    fn handler_fails_for_too_many_commands() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::Skip()];
 
-#[test]
-#[should_panic]
-fn handler_fails_for_too_few_commands() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::Skip()];
+        let handler = ListedResponseHandler::new(test_commands);
+        handler.read_io_u8(2);
+        handler.write_io_u16(3, 4);
+        handler.read_io_u8(5);
+    }
 
-    let handler = ListedResponseHandler::new(test_commands);
-    handler.read_io_u8(2);
-}
+    #[test]
+    #[should_panic]
+    fn handler_fails_for_too_few_commands() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::Skip()];
 
-#[test]
-#[should_panic]
-fn check_handler_fails_gracefully_for_no_commands() {
-    let test_commands: Vec<AcpiCommands> = vec![];
-    let handler = ListedResponseHandler::new(test_commands);
-    handler.read_io_u8(2);
+        let handler = ListedResponseHandler::new(test_commands);
+        handler.read_io_u8(2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn check_handler_fails_gracefully_for_no_commands() {
+        let test_commands: Vec<AcpiCommands> = vec![];
+        let handler = ListedResponseHandler::new(test_commands);
+        handler.read_io_u8(2);
+    }
 }

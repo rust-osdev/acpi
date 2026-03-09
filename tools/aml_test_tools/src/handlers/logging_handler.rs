@@ -1,9 +1,11 @@
-use acpi::{Handle, Handler, PhysicalMapping};
+use acpi::{aml::object::Object, Handle, Handler, PhysicalMapping};
 use core::mem::ManuallyDrop;
 use log::info;
 use pci_types::PciAddress;
 
 /// A [`Handler`] wrapper that logs every call to `info!` and then forwards it to an inner handler.
+///
+/// Use this Handler to have a logging style consistent with the [`acpi`] crate's tests.
 #[derive(Clone)]
 pub struct LoggingHandler<H> {
     next_handler: H,
@@ -191,5 +193,10 @@ where
     fn release(&self, mutex: Handle) {
         info!("release(mutex={:?})", mutex);
         self.next_handler.release(mutex);
+    }
+
+    fn handle_debug(&self, object: &Object) {
+        info!("Debug store: {}", object);
+        self.next_handler.handle_debug(object);
     }
 }

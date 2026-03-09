@@ -1,4 +1,3 @@
-use crate::test_infra::null_handler::NullHandler;
 use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 use std::{
@@ -9,6 +8,10 @@ use std::{
     },
 };
 
+/// The commands that may be received by an ACPI [`handler`](Handler).
+///
+/// They are written as an enum to allow a list of commands to be stored in a [`Vec`] or similar.
+/// A `Vec` of these is used by [`CheckCommandHandler`]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AcpiCommands {
     MapPhysicalRegion(usize, usize),
@@ -266,51 +269,57 @@ where
     }
 }
 
-#[test]
-fn handler_basic_functions() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
+#[cfg(test)]
+mod test {
+    use crate::handlers::null_handler::NullHandler;
+    use super::*;
 
-    let handler = CheckCommandHandler::new(test_commands, NullHandler {});
-    handler.read_io_u8(2);
-    handler.write_io_u16(3, 4);
-}
+    #[test]
+    fn handler_basic_functions() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
 
-#[test]
-#[should_panic]
-fn handler_fails_for_wrong_command() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
+        let handler = CheckCommandHandler::new(test_commands, NullHandler {});
+        handler.read_io_u8(2);
+        handler.write_io_u16(3, 4);
+    }
 
-    let handler = CheckCommandHandler::new(test_commands, NullHandler {});
-    handler.read_io_u8(3);
-    // We shouldn't actually make it to this command, but it makes sure the handler doesn't panic for having too few
-    // commands sent to it.
-    handler.write_io_u16(3, 4);
-}
+    #[test]
+    #[should_panic]
+    fn handler_fails_for_wrong_command() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
 
-#[test]
-#[should_panic]
-fn handler_fails_for_too_many_commands() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
+        let handler = CheckCommandHandler::new(test_commands, NullHandler {});
+        handler.read_io_u8(3);
+        // We shouldn't actually make it to this command, but it makes sure the handler doesn't panic for having too few
+        // commands sent to it.
+        handler.write_io_u16(3, 4);
+    }
 
-    let handler = CheckCommandHandler::new(test_commands, NullHandler {});
-    handler.read_io_u8(2);
-    handler.write_io_u16(3, 4);
-    handler.read_io_u8(5);
-}
+    #[test]
+    #[should_panic]
+    fn handler_fails_for_too_many_commands() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
 
-#[test]
-#[should_panic]
-fn handler_fails_for_too_few_commands() {
-    let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
+        let handler = CheckCommandHandler::new(test_commands, NullHandler {});
+        handler.read_io_u8(2);
+        handler.write_io_u16(3, 4);
+        handler.read_io_u8(5);
+    }
 
-    let handler = CheckCommandHandler::new(test_commands, NullHandler {});
-    handler.read_io_u8(2);
-}
+    #[test]
+    #[should_panic]
+    fn handler_fails_for_too_few_commands() {
+        let test_commands = vec![AcpiCommands::ReadIoU8(2), AcpiCommands::WriteIoU16(3, 4)];
 
-#[test]
-#[should_panic]
-fn check_handler_fails_gracefully_for_no_commands() {
-    let test_commands: Vec<AcpiCommands> = vec![];
-    let handler = CheckCommandHandler::new(test_commands, NullHandler {});
-    handler.read_io_u8(2);
+        let handler = CheckCommandHandler::new(test_commands, NullHandler {});
+        handler.read_io_u8(2);
+    }
+
+    #[test]
+    #[should_panic]
+    fn check_handler_fails_gracefully_for_no_commands() {
+        let test_commands: Vec<AcpiCommands> = vec![];
+        let handler = CheckCommandHandler::new(test_commands, NullHandler {});
+        handler.read_io_u8(2);
+    }
 }

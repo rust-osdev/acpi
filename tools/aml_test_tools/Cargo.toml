@@ -1,0 +1,12 @@
+[package]
+name = "aml_test_tools"
+version = "0.1.0"
+authors = ["Isaac Woods", "Martin Hughes"]
+edition = "2024"
+publish = false
+
+[dependencies]
+acpi = { path = "../.." }
+log = "0.4"
+pci_types = "0.10.0"
+tempfile = "3.26.0"

@@ -9,34 +9,34 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use acpi::{
-    address::MappedGas,
-    aml::{namespace::AmlName, object::Object, AmlError, Interpreter},
-    Handle,
-    PhysicalMapping,
+use acpi::Handler;
+use aml_test_tools::{
+    handlers::{logging_handler::LoggingHandler, null_handler::NullHandler},
+    new_interpreter,
+    resolve_and_compile,
+    CompilationOutcome,
+    TestResult,
 };
-use aml_test_tools::{new_interpreter, resolve_and_compile, CompilationOutcome, TestResult};
 use clap::{Arg, ArgAction, ArgGroup};
 use colored::Colorize;
-use log::{error, info};
-use pci_types::PciAddress;
 use std::{
     collections::HashSet,
-    ffi::OsStr,
-    fs::{self, File},
-    io::{Read, Write},
+    fs::{self},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
-    ptr::NonNull,
-    str::FromStr,
-    sync::Arc,
 };
 
 fn main() -> std::io::Result<()> {
+    pretty_env_logger::init();
+
     let mut cmd = clap::Command::new("aml_tester")
         .version("v0.1.0")
         .author("Isaac Woods")
-        .about("Compiles and tests ASL files")
+        .about(
+            "Compiles ASL files and checks that they can be parsed by the ACPI crate.
+If the ASL contains a MAIN method, it will be executed.",
+        )
         .arg(Arg::new("no_compile").long("no-compile").action(ArgAction::SetTrue).help("Don't compile ASL to AML"))
         .arg(
             Arg::new("combined")
@@ -51,7 +51,6 @@ fn main() -> std::io::Result<()> {
         cmd.print_help()?;
         return Ok(());
     }
-    log::set_logger(&Logger).unwrap();
     log::set_max_level(log::LevelFilter::Info);
 
     let matches = cmd.get_matches();
@@ -129,22 +128,22 @@ fn main() -> std::io::Result<()> {
         .collect::<Vec<_>>();
 
     let combined_test = matches.get_flag("combined");
-    let mut interpreter = new_interpreter(Handler {});
+    let mut interpreter = new_interpreter(new_handler());
 
     let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry);
         std::io::stdout().flush().unwrap();
 
         if !combined_test {
-            interpreter = new_interpreter(Handler {});
+            interpreter = new_interpreter(new_handler());
         }
 
-        let result =aml_test_tools::run_test_for_file(&file_entry, &mut interpreter);
+        let result = aml_test_tools::run_test_for_file(&file_entry, &mut interpreter);
         let updates = match result {
             TestResult::Pass => {
                 println!("{}", "OK".green());
                 (passed + 1, failed)
-            },
+            }
             TestResult::CompileFail | TestResult::ParseFail | TestResult::NotCompiled => {
                 println!("{}", format!("Failed ({:?})", result).red());
                 (passed, failed + 1)
@@ -210,128 +209,6 @@ fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-struct Logger;
-
-impl log::Log for Logger {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &log::Record) {
-        println!("[{}] {}", record.level(), record.args());
-    }
-
-    fn flush(&self) {
-        std::io::stdout().flush().unwrap();
-    }
-}
-
-#[derive(Clone)]
-struct Handler;
-
-impl acpi::Handler for Handler {
-    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
-        todo!()
-    }
-
-    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
-
-    fn read_u8(&self, address: usize) -> u8 {
-        println!("read_u8 {address:#x}");
-        0
-    }
-    fn read_u16(&self, address: usize) -> u16 {
-        println!("read_u16 {address:#x}");
-        0
-    }
-    fn read_u32(&self, address: usize) -> u32 {
-        println!("read_u32 {address:#x}");
-        0
-    }
-    fn read_u64(&self, address: usize) -> u64 {
-        println!("read_u64 {address:#x}");
-        0
-    }
-
-    fn write_u8(&self, address: usize, value: u8) {
-        println!("write_u8 {address:#x}<-{value:#x}");
-    }
-    fn write_u16(&self, address: usize, value: u16) {
-        println!("write_u16 {address:#x}<-{value:#x}");
-    }
-    fn write_u32(&self, address: usize, value: u32) {
-        println!("write_u32 {address:#x}<-{value:#x}");
-    }
-    fn write_u64(&self, address: usize, value: u64) {
-        println!("write_u64 {address:#x}<-{value:#x}");
-    }
-
-    fn read_io_u8(&self, port: u16) -> u8 {
-        println!("read_io_u8 {port:#x}");
-        0
-    }
-    fn read_io_u16(&self, port: u16) -> u16 {
-        println!("read_io_u16 {port:#x}");
-        0
-    }
-    fn read_io_u32(&self, port: u16) -> u32 {
-        println!("read_io_u32 {port:#x}");
-        0
-    }
-
-    fn write_io_u8(&self, port: u16, value: u8) {
-        println!("write_io_u8 {port:#x}<-{value:#x}");
-    }
-    fn write_io_u16(&self, port: u16, value: u16) {
-        println!("write_io_u16 {port:#x}<-{value:#x}");
-    }
-    fn write_io_u32(&self, port: u16, value: u32) {
-        println!("write_io_u32 {port:#x}<-{value:#x}");
-    }
-
-    fn read_pci_u8(&self, address: PciAddress, _offset: u16) -> u8 {
-        println!("read_pci_u8 ({address})");
-        0
-    }
-    fn read_pci_u16(&self, address: PciAddress, _offset: u16) -> u16 {
-        println!("read_pci_u16 ({address})");
-        0
-    }
-    fn read_pci_u32(&self, address: PciAddress, _offset: u16) -> u32 {
-        println!("read_pci_u32 ({address})");
-        0
-    }
-
-    fn write_pci_u8(&self, address: PciAddress, _offset: u16, value: u8) {
-        println!("write_pci_u8 ({address})<-{value}");
-    }
-    fn write_pci_u16(&self, address: PciAddress, _offset: u16, value: u16) {
-        println!("write_pci_u16 ({address})<-{value}");
-    }
-    fn write_pci_u32(&self, address: PciAddress, _offset: u16, value: u32) {
-        println!("write_pci_u32 ({address})<-{value}");
-    }
-
-    fn handle_debug(&self, object: &Object) {
-        info!("Debug store: {}", object);
-    }
-
-    fn nanos_since_boot(&self) -> u64 {
-        0
-    }
-
-    fn stall(&self, microseconds: u64) {
-        println!("Stalling for {}us", microseconds);
-    }
-    fn sleep(&self, milliseconds: u64) {
-        println!("Sleeping for {}ms", milliseconds);
-    }
-
-    fn create_mutex(&self) -> Handle {
-        Handle(0)
-    }
-    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> {
-        Ok(())
-    }
-    fn release(&self, _mutex: Handle) {}
+fn new_handler() -> impl Handler {
+    LoggingHandler::new(NullHandler {})
 }

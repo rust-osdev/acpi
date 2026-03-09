@@ -4,6 +4,10 @@ use pci_types::PciAddress;
 #[derive(Clone)]
 pub struct NullHandler;
 
+/// A [`Handler`] that does nothing. If required, it will generally return zero.
+///
+/// This is useful as a placeholder if you really don't care what values the core [`acpi`] parser
+/// receives.
 impl Handler for NullHandler {
     unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
         // This isn't implemented in `aml_tester` either

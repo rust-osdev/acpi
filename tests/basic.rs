@@ -1,6 +1,6 @@
-use crate::test_infra::{
+use aml_test_tools::handlers::{
     check_cmd_handler::{AcpiCommands as CheckCommands, CheckCommandHandler},
-    listed_response_handler::{AcpiCommands as Results, ListedResponseHandler},
+    listed_response_handler::AcpiCommands as Results,
     null_handler::NullHandler,
     std_test_handler::{Command, construct_std_handler},
 };
