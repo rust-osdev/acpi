@@ -1,3 +1,5 @@
+//! A basic [`Handler`] that returns an expected result from a provided sequence of commands.
+
 use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 use std::sync::{Arc, atomic::AtomicUsize};
@@ -26,7 +28,7 @@ pub enum AcpiCommands {
     NanosSinceBoot(u64),
 }
 
-/// A basic Handler that returns an expected result from a provided sequence of commands.
+/// A basic [`Handler`] that returns an expected result from a provided sequence of commands.
 ///
 /// If the command is unexpected, this handler will panic.
 #[derive(Clone, Debug)]

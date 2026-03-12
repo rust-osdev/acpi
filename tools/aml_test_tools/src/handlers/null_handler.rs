@@ -1,3 +1,5 @@
+//! A [`Handler`] that does nothing useful.
+
 use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 

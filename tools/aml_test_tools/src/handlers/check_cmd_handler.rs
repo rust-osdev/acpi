@@ -1,3 +1,5 @@
+//! A wrapper around another [`Handler`] that checks for the correct sequence of commands in a test.
+
 use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 use std::{
@@ -44,7 +46,7 @@ pub enum AcpiCommands {
     Release(Handle),
 }
 
-/// A wrapper around another Handler that checks the correct sequence of commands are being
+/// A wrapper around another [`Handler`] that checks the correct sequence of commands are being
 /// generated, and that they have the expected parameters.
 #[derive(Clone, Debug)]
 pub struct CheckCommandHandler<H>

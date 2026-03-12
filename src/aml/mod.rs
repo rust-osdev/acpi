@@ -95,8 +95,9 @@ impl<H> Interpreter<H>
 where
     H: Handler,
 {
-    /// Construct a new `Interpreter`. This does not load any tables - if you have an `AcpiTables`
-    /// already, use [`Interpreter::new_from_tables`] instead.
+    /// Construct a new [`Interpreter`]. This does not load any tables - if you have an
+    /// [`crate::AcpiTables`] already, construct an [`AcpiPlatform`] first and then use
+    /// [`Interpreter::new_from_platform`]
     pub fn new(
         handler: H,
         dsdt_revision: u8,
@@ -120,8 +121,7 @@ where
         }
     }
 
-    /// Construct a new `Interpreter` with the given set of ACPI tables. This will automatically
-    /// load the DSDT and any SSDTs in the supplied [`AcpiTables`].
+    /// Construct a new [`Interpreter`] with the given [`AcpiPlatform`].
     pub fn new_from_platform(platform: &AcpiPlatform<H>) -> Result<Interpreter<H>, AcpiError> {
         fn load_table(interpreter: &Interpreter<impl Handler>, table: AmlTable) -> Result<(), AcpiError> {
             let mapping = unsafe {
@@ -158,7 +158,7 @@ where
     }
 
     /// Load the supplied byte stream as an AML table. This should be only the encoded AML stream -
-    /// not the header at the start of a table. If you've used [`Interpreter::new_from_tables`],
+    /// not the header at the start of a table. If you've used [`Interpreter::new_from_platform`],
     /// you'll likely not need to load any tables manually.
     pub fn load_table(&self, stream: &[u8]) -> Result<(), AmlError> {
         let context = unsafe { MethodContext::new_from_table(stream) };

@@ -1,4 +1,6 @@
-use acpi::{aml::object::Object, Handle, Handler, PhysicalMapping};
+//! A [`Handler`] that logs all calls, then forwards them to an inner handler.
+
+use acpi::{Handle, Handler, PhysicalMapping, aml::object::Object};
 use core::mem::ManuallyDrop;
 use log::info;
 use pci_types::PciAddress;
