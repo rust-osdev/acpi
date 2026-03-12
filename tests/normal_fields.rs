@@ -1,9 +1,15 @@
 // Test operations on "normal" fields - those that are not Index or Bank fields.
 
-use aml_test_tools::handlers::{
-    check_cmd_handler::AcpiCommands as CheckCommands,
-    listed_response_handler::AcpiCommands as Results,
-    std_test_handler::{Command, construct_std_handler},
+use aml_test_tools::handlers::std_test_handler::{
+    Command,
+    construct_std_handler,
+    create_mutex,
+    read_io_u8,
+    read_io_u16,
+    read_u16,
+    write_io_u8,
+    write_io_u16,
+    write_u16,
 };
 
 mod test_infra;
@@ -26,14 +32,12 @@ fn test_basic_store_and_load() {
 "#;
 
     const EXPECTED_COMMANDS: &[Command] = &[
-        (CheckCommands::CreateMutex, Results::Skip()),
-
+        create_mutex(),
         // A = 0xA5A5
-        (CheckCommands::WriteU16(0x40000, 0xA5A5), Results::Skip()),
-
+        write_u16(0x40000, 0xA5A5),
         // B = A
-        (CheckCommands::ReadU16(0x40000), Results::ReadU16(0xA5A5)),
-        (CheckCommands::WriteU16(0x40002, 0xA5A5), Results::Skip()),
+        read_u16(0x40000, 0xA5A5),
+        write_u16(0x40002, 0xA5A5),
     ];
 
     let handler = construct_std_handler(EXPECTED_COMMANDS.to_vec());
@@ -58,17 +62,15 @@ fn test_narrow_access_store_and_load() {
 "#;
 
     const EXPECTED_COMMANDS: &[Command] = &[
-        (CheckCommands::CreateMutex, Results::Skip()),
-
+        create_mutex(),
         // A = 0xA55A
-        (CheckCommands::WriteIoU8(0x40, 0x5A), Results::Skip()),
-        (CheckCommands::WriteIoU8(0x41, 0xA5), Results::Skip()),
-
+        write_io_u8(0x40, 0x5A),
+        write_io_u8(0x41, 0xA5),
         // B = A
-        (CheckCommands::ReadIoU8(0x40), Results::ReadIoU8(0x5A)),
-        (CheckCommands::ReadIoU8(0x41), Results::ReadIoU8(0xA5)),
-        (CheckCommands::WriteIoU8(0x42, 0x5A), Results::Skip()),
-        (CheckCommands::WriteIoU8(0x43, 0xA5), Results::Skip()),
+        read_io_u8(0x40, 0x5A),
+        read_io_u8(0x41, 0xA5),
+        write_io_u8(0x42, 0x5A),
+        write_io_u8(0x43, 0xA5),
     ];
 
     let handler = construct_std_handler(EXPECTED_COMMANDS.to_vec());
@@ -94,12 +96,12 @@ fn test_unaligned_field_store() {
 "#;
 
     const EXPECTED_COMMANDS: &[Command] = &[
-        (CheckCommands::CreateMutex, Results::Skip()),
-        (CheckCommands::ReadIoU16(0x40), Results::ReadIoU16(0)),
-        (CheckCommands::WriteIoU16(0x40, 0x04), Results::Skip()),
-        (CheckCommands::ReadIoU16(0x40), Results::ReadIoU16(4)),
-        (CheckCommands::ReadIoU16(0x40), Results::ReadIoU16(4)),
-        (CheckCommands::WriteIoU16(0x40, 0x204), Results::Skip()),
+        create_mutex(),
+        read_io_u16(0x40, 0),
+        write_io_u16(0x40, 0x04),
+        read_io_u16(0x40, 4),
+        read_io_u16(0x40, 4),
+        write_io_u16(0x40, 0x204),
     ];
 
     let handler = construct_std_handler(EXPECTED_COMMANDS.to_vec());
