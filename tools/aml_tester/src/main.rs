@@ -151,7 +151,7 @@ If the ASL contains a MAIN method, it will be executed.",
         };
 
         println!("Namespace: {}", interpreter.namespace.lock());
-        summaries.insert((file_entry, TestResult::Pass));
+        summaries.insert((file_entry, result));
 
         updates
     });
