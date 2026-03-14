@@ -2,6 +2,7 @@
 //! in a wide range of address spaces.
 
 use crate::{AcpiError, Handler, PhysicalMapping};
+use core::ptr;
 use log::warn;
 
 /// This is the raw form of a Generic Address Structure, and follows the layout found in the ACPI tables.
@@ -143,7 +144,7 @@ where
             }
             AddressSpace::SystemIo => Ok(MappedGas { gas, handler: handler.clone(), mapping: None }),
             other => {
-                warn!("Tried to map GAS of unsupported type {:?}", other);
+                warn!("Mapping a GAS in address space {:?} is not supported!", other);
                 Err(AcpiError::LibUnimplemented)
             }
         }
@@ -158,25 +159,24 @@ where
         match self.gas.address_space {
             AddressSpace::SystemMemory => {
                 let mapping = self.mapping.as_ref().unwrap();
-                let value = match access_size_bits {
-                    8 => unsafe { core::ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u8) as u64 },
-                    16 => unsafe { core::ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u16) as u64 },
-                    32 => unsafe { core::ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u32) as u64 },
-                    64 => unsafe { core::ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u64) },
-                    _ => panic!(),
-                };
-                Ok(value)
+                match access_size_bits {
+                    8 => Ok(unsafe { ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u8) as u64 }),
+                    16 => Ok(unsafe { ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u16) as u64 }),
+                    32 => Ok(unsafe { ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u32) as u64 }),
+                    64 => Ok(unsafe { ptr::read_volatile(mapping.virtual_start.as_ptr() as *const u64) }),
+                    _ => Err(AcpiError::InvalidGenericAddress),
+                }
             }
-            AddressSpace::SystemIo => {
-                let value = match access_size_bits {
-                    8 => self.handler.read_io_u8(self.gas.address as u16) as u64,
-                    16 => self.handler.read_io_u16(self.gas.address as u16) as u64,
-                    32 => self.handler.read_io_u32(self.gas.address as u16) as u64,
-                    _ => panic!(),
-                };
-                Ok(value)
+            AddressSpace::SystemIo => match access_size_bits {
+                8 => Ok(self.handler.read_io_u8(self.gas.address as u16) as u64),
+                16 => Ok(self.handler.read_io_u16(self.gas.address as u16) as u64),
+                32 => Ok(self.handler.read_io_u32(self.gas.address as u16) as u64),
+                _ => Err(AcpiError::InvalidGenericAddress),
+            },
+            _ => {
+                warn!("Read from GAS with address space {:?} is not supported. Ignored.", self.gas.address_space);
+                Err(AcpiError::LibUnimplemented)
             }
-            _ => unimplemented!(),
         }
     }
 
@@ -188,16 +188,16 @@ where
                 let mapping = self.mapping.as_ref().unwrap();
                 match access_size_bits {
                     8 => unsafe {
-                        core::ptr::write_volatile(mapping.virtual_start.as_ptr(), value as u8);
+                        ptr::write_volatile(mapping.virtual_start.as_ptr(), value as u8);
                     },
                     16 => unsafe {
-                        core::ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u16, value as u16);
+                        ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u16, value as u16);
                     },
                     32 => unsafe {
-                        core::ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u32, value as u32);
+                        ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u32, value as u32);
                     },
-                    64 => unsafe { core::ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u64, value) },
-                    _ => panic!(),
+                    64 => unsafe { ptr::write_volatile(mapping.virtual_start.as_ptr() as *mut u64, value) },
+                    _ => return Err(AcpiError::InvalidGenericAddress),
                 }
                 Ok(())
             }
@@ -206,11 +206,14 @@ where
                     8 => self.handler.write_io_u8(self.gas.address as u16, value as u8),
                     16 => self.handler.write_io_u16(self.gas.address as u16, value as u16),
                     32 => self.handler.write_io_u32(self.gas.address as u16, value as u32),
-                    _ => panic!(),
+                    _ => return Err(AcpiError::InvalidGenericAddress),
                 }
                 Ok(())
             }
-            _ => unimplemented!(),
+            _ => {
+                warn!("Write to GAS with address space {:?} is not supported. Ignored.", self.gas.address_space);
+                Err(AcpiError::LibUnimplemented)
+            }
         }
     }
 }
@@ -228,7 +231,7 @@ fn gas_decode_access_bit_width(gas: GenericAddress) -> Result<u8, AcpiError> {
      *
      * We use a third method, based on the alignment of the address, for registers that have
      * non-zero bit offsets. These are not typically encountered in normal registers - they very
-     * often mean the GAS has come from APEI (ACPI Platform Error Interface), and so needs speical
+     * often mean the GAS has come from APEI (ACPI Platform Error Interface), and so needs special
      * handling.
      */
     if gas.bit_offset == 0 && [8, 16, 32, 64].contains(&gas.bit_width) {
@@ -242,7 +245,19 @@ fn gas_decode_access_bit_width(gas: GenericAddress) -> Result<u8, AcpiError> {
             _ => Err(AcpiError::InvalidGenericAddress),
         }
     } else {
-        // TODO: work out access size based on alignment of the address
-        todo!()
+        /*
+         * Work out the access size based on the alignment of the address. We round up the total
+         * width (`bit_offset + bit_width`) to the next power-of-two, up to 64.
+         */
+        let total_width = gas.bit_offset + gas.bit_width;
+        Ok(if total_width <= 8 {
+            8
+        } else if total_width <= 16 {
+            16
+        } else if total_width <= 32 {
+            32
+        } else {
+            64
+        })
     }
 }
