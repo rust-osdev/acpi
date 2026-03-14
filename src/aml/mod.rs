@@ -561,6 +561,17 @@ where
                             });
                         }
                     }
+                    Opcode::Notify => {
+                        // TODO: may need special handling on the node to get path?
+                        let [Argument::Namestring(name), Argument::Object(value)] = &op.arguments[..] else {
+                            panic!();
+                        };
+                        let value = value.as_integer()?;
+
+                        info!("Notify {:?} with value {}", name, value);
+                        // TODO: support
+                        return Err(AmlError::LibUnimplemented);
+                    }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
                     Opcode::Name => {
@@ -581,6 +592,7 @@ where
                         let arg = arg.as_integer()?;
                         self.handler.handle_fatal_error(*typ, *code, arg);
                         context.retire_op(op);
+                        return Err(AmlError::FatalErrorEncountered);
                     }
                     Opcode::OpRegion => {
                         let [
@@ -822,6 +834,35 @@ where
                         context.contribute_arg(Argument::Object(result));
                         context.retire_op(op);
                     }
+                    Opcode::Load => {
+                        let [Argument::Namestring(object), Argument::Object(result)] = &op.arguments[..] else {
+                            panic!();
+                        };
+                        // TODO: read the AML from the object and load it
+                        warn!("Ignoring unsupported DefLoad operation (object={}, result = {})", object, result);
+                        context.retire_op(op);
+                        return Err(AmlError::LibUnimplemented);
+                    }
+                    Opcode::LoadTable => {
+                        let [
+                            Argument::Object(signature),
+                            Argument::Object(oem_id),
+                            Argument::Object(oem_table_id),
+                            Argument::Object(root_path),
+                            Argument::Object(parameter_path),
+                            Argument::Object(parameter_data),
+                        ] = &op.arguments[..]
+                        else {
+                            panic!();
+                        };
+                        // TODO: search for the table in the RSDT/XSDT and load the contained AML
+                        warn!(
+                            "Ignoring unsupported DefLoadTable operation (signature = {}, oem_id = {}, oem_table_id = {}, root_path = {}, parameter_path = {}, parameter_data = {})",
+                            signature, oem_id, oem_table_id, root_path, parameter_path, parameter_data
+                        );
+                        context.retire_op(op);
+                        return Err(AmlError::LibUnimplemented);
+                    }
                     Opcode::Sleep => {
                         let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
                         self.handler.sleep(msec.as_integer()?);
@@ -936,7 +977,7 @@ where
                             // XXX: 15 is reserved
                             ObjectType::Debug => 16,
                             ObjectType::Reference => panic!(),
-                            ObjectType::RawDataBuffer => todo!(),
+                            ObjectType::RawDataBuffer => 17,
                         };
 
                         context.contribute_arg(Argument::Object(Object::Integer(typ).wrap()));
@@ -1266,8 +1307,17 @@ where
                     let name = name.resolve(&context.current_scope)?;
                     self.namespace.lock().insert(name, Object::Event(Arc::new(AtomicU64::new(0))).wrap())?;
                 }
-                Opcode::LoadTable => todo!(),
-                Opcode::Load => todo!(),
+                Opcode::LoadTable => {
+                    context.start(OpInFlight::new(Opcode::LoadTable, &[ResolveBehaviour::TermArg; 6]));
+                }
+                Opcode::Load => {
+                    let name = context.namestring()?;
+                    context.start(OpInFlight::new_with(
+                        Opcode::Load,
+                        vec![Argument::Namestring(name)],
+                        &[ResolveBehaviour::Target],
+                    ));
+                }
                 Opcode::Stall => context.start(OpInFlight::new(Opcode::Stall, &[ResolveBehaviour::TermArg])),
                 Opcode::Sleep => context.start(OpInFlight::new(Opcode::Sleep, &[ResolveBehaviour::TermArg])),
                 Opcode::Acquire => context.start(OpInFlight::new(opcode, &[ResolveBehaviour::SuperName])),
@@ -1737,7 +1787,7 @@ where
         kind: FieldUnitKind,
         start_pc: usize,
         pkg_length: usize,
-        flags: u8,
+        mut flags: u8,
     ) -> Result<(), AmlError> {
         const RESERVED_FIELD: u8 = 0x00;
         const ACCESS_FIELD: u8 = 0x01;
@@ -1758,17 +1808,21 @@ where
                      * elements. They change the access type and attributes for remaining fields in
                      * the list.
                      */
-                    let _access_type = context.next()?;
+                    let access_type = context.next()?;
                     let _access_attrib = context.next()?;
-                    todo!()
+                    flags.set_bits(0..4, access_type);
+                }
+                EXTENDED_ACCESS_FIELD => {
+                    let access_type = context.next()?;
+                    let _extended_access_attrib = context.next()?;
+                    let _access_length = context.next()?;
+                    flags.set_bits(0..4, access_type);
+                    warn!("Ignoring extended attributes and length in ExtendedAccessField");
                 }
                 CONNECT_FIELD => {
                     // TODO: either consume a namestring or `BufferData` (it's not
                     // clear what a buffer data acc is lmao)
                     todo!("Connect field :(");
-                }
-                EXTENDED_ACCESS_FIELD => {
-                    todo!("Extended access field :(");
                 }
                 _ => {
                     context.current_block.pc -= 1;
@@ -2152,8 +2206,7 @@ where
                 Object::Package(_) => "[Package]".to_string(),
                 Object::PowerResource { .. } => "[Power Resource]".to_string(),
                 Object::Processor { .. } => "[Processor]".to_string(),
-                // TODO: what even is one of these??
-                Object::RawDataBuffer => todo!(),
+                Object::RawDataBuffer => "[Raw Data Buffer]".to_string(),
                 Object::String(value) => value.clone(),
                 Object::ThermalZone => "[Thermal Zone]".to_string(),
                 Object::Debug => "[Debug Object]".to_string(),
@@ -2368,10 +2421,21 @@ where
                 _ => panic!("Stores to objects like {:?} are not yet supported", target),
             },
 
-            Argument::Namestring(_) => todo!(),
-            Argument::ByteData(_) | Argument::DWordData(_) | Argument::TrackedPc(_) | Argument::PkgLength(_) => {
-                panic!()
+            Argument::Namestring(name) => {
+                let existing = self.namespace.lock().get(name.clone());
+                match existing {
+                    Ok(existing) => {
+                        unsafe {
+                            // TODO: this should likely be doing an implicit cast depending on object type?
+                            *existing.gain_mut(&token) = (*object).clone();
+                        }
+                    }
+                    Err(_) => {
+                        self.namespace.lock().insert(name.clone(), object)?;
+                    }
+                }
             }
+            _ => panic!("Invalid argument type as DefStore target"),
         }
 
         Ok(to_return)
@@ -3407,6 +3471,10 @@ pub enum AmlError {
     PrtInvalidGsi,
     PrtInvalidSource,
     PrtNoEntry,
+
+    /// An OEM-defined fatal error has occured. The specification states a host should log this
+    /// fatal error and then shutdown in a timely fashion.
+    FatalErrorEncountered,
 
     /// This is emitted to signal that the library does not support the requested behaviour. This
     /// should eventually never be emitted.
