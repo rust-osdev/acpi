@@ -20,7 +20,7 @@
 //!
 //! Next, you'll need to get the physical address of either the RSDP, or the RSDT/XSDT. The method
 //! for doing this depends on the platform you're running on and how you were booted. If you know
-//! the system was booted via the BIOS, you can use [`rsdp::Rsdp::search_for_on_bios`]. UEFI provides a
+//! the system was booted via the BIOS, you can use [`Rsdp::search_for_on_bios`]. UEFI provides a
 //! separate mechanism for getting the address of the RSDP.
 //!
 //! You then need to construct an instance of [`AcpiTables`], which can be done in a few ways
@@ -29,7 +29,18 @@
 //! * Use [`AcpiTables::from_rsdt`] if you have the physical address of the RSDT/XSDT
 //!
 //! Once you have an [`AcpiTables`], you can search for relevant tables, or use the higher-level
-//! interfaces, such as [`PlatformInfo`], [`PciConfigRegions`], or [`HpetInfo`].
+//! interfaces, such as [`PowerProfile`], or [`HpetInfo`].
+//!
+//! If you have the `aml` feature enabled then you can construct an
+//! [AML interpreter](`crate::aml::Interpreter`) by first constructing an
+//! [`AcpiPlatform`](platform::AcpiPlatform) and then the interpreter:
+//!
+//! ```ignore,rust
+//! let mut acpi_handler = YourHandler::new(/*args*/);
+//! let acpi_tables = unsafe { AcpiTables::from_rsdp(acpi_handler.clone(), rsdp_addr) }.unwrap();
+//! let platform = AcpiPlatform::new(acpi_tables, acpi_handler).unwrap();
+//! let interpreter = Interpreter::new_from_platform(&platform).unwrap();
+//! ```
 
 #![no_std]
 #![feature(allocator_api)]
@@ -398,9 +409,9 @@ pub trait Handler: Clone {
     /// - `size` must be at least `size_of::<T>()`.
     unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
 
-    /// Unmap the given physical mapping. This is called when a `PhysicalMapping` is dropped, you should **not** manually call this.
+    /// Unmap the given physical mapping. This is called when a [`PhysicalMapping`] is dropped, you should **not** manually call this.
     ///
-    /// Note: A reference to the `Handler` used to construct `region` can be acquired by calling [`PhysicalMapping::mapper`].
+    /// Note: A reference to the [`Handler`] used to construct `region` can be acquired from [`PhysicalMapping::handler`].
     fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
 
     // TODO: maybe we should map stuff ourselves in the AML interpreter and do this internally?

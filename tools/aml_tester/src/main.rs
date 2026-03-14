@@ -9,42 +9,34 @@
  *      - For failing tests, print out a nice summary of the errors for each file
  */
 
-use acpi::{
-    address::MappedGas,
-    aml::{namespace::AmlName, object::Object, AmlError, Interpreter},
-    Handle,
-    PhysicalMapping,
+use acpi::Handler;
+use aml_test_tools::{
+    handlers::{logging_handler::LoggingHandler, null_handler::NullHandler},
+    new_interpreter,
+    resolve_and_compile,
+    CompilationOutcome,
+    TestResult,
 };
 use clap::{Arg, ArgAction, ArgGroup};
 use colored::Colorize;
-use log::{error, info};
-use pci_types::PciAddress;
 use std::{
     collections::HashSet,
-    ffi::OsStr,
-    fs::{self, File},
-    io::{Read, Write},
+    fs::{self},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
-    ptr::NonNull,
-    str::FromStr,
-    sync::Arc,
 };
 
-enum CompilationOutcome {
-    Ignored,
-    IsAml(PathBuf),
-    Newer(PathBuf),
-    NotCompiled(PathBuf),
-    Failed(PathBuf),
-    Succeeded(PathBuf),
-}
-
 fn main() -> std::io::Result<()> {
+    pretty_env_logger::init();
+
     let mut cmd = clap::Command::new("aml_tester")
         .version("v0.1.0")
         .author("Isaac Woods")
-        .about("Compiles and tests ASL files")
+        .about(
+            "Compiles ASL files and checks that they can be parsed by the ACPI crate.
+If the ASL contains a MAIN method, it will be executed.",
+        )
         .arg(Arg::new("no_compile").long("no-compile").action(ArgAction::SetTrue).help("Don't compile ASL to AML"))
         .arg(
             Arg::new("combined")
@@ -59,8 +51,7 @@ fn main() -> std::io::Result<()> {
         cmd.print_help()?;
         return Ok(());
     }
-    log::set_logger(&Logger).unwrap();
-    log::set_max_level(log::LevelFilter::Trace);
+    log::set_max_level(log::LevelFilter::Info);
 
     let matches = cmd.get_matches();
 
@@ -106,18 +97,6 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-    enum TestResult {
-        /// The test passed.
-        Pass,
-        /// The test ASL failed compilation by `iasl`.
-        CompileFail,
-        /// Our interpreter failed to parse the resulting AML.
-        ParseFail,
-        // TODO: should we do this??
-        NotCompiled,
-    }
-
     // Make a list of the files we have processed, and skip them if we see them again
     let mut dedup_list: HashSet<PathBuf> = HashSet::new();
     let mut summaries: HashSet<(PathBuf, TestResult)> = HashSet::new();
@@ -149,41 +128,32 @@ fn main() -> std::io::Result<()> {
         .collect::<Vec<_>>();
 
     let combined_test = matches.get_flag("combined");
-    let mut interpreter = new_interpreter();
+    let mut interpreter = new_interpreter(new_handler());
 
     let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
         print!("Testing AML file: {:?}... ", file_entry);
         std::io::stdout().flush().unwrap();
 
-        let Ok(mut file) = File::open(&file_entry) else {
-            summaries.insert((file_entry, TestResult::CompileFail));
-            return (passed, failed + 1);
-        };
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents).unwrap();
-
         if !combined_test {
-            interpreter = new_interpreter();
+            interpreter = new_interpreter(new_handler());
         }
 
-        const AML_TABLE_HEADER_LENGTH: usize = 36;
-        let stream = &contents[AML_TABLE_HEADER_LENGTH..];
-
-        match run_test(stream, &mut interpreter) {
-            Ok(()) => {
+        let result = aml_test_tools::run_test_for_file(&file_entry, &mut interpreter);
+        let updates = match result {
+            TestResult::Pass => {
                 println!("{}", "OK".green());
-                println!("Namespace: {}", interpreter.namespace.lock());
-                summaries.insert((file_entry, TestResult::Pass));
                 (passed + 1, failed)
             }
-
-            Err(err) => {
-                println!("{}", format!("Failed ({:?})", err).red());
-                println!("Namespace: {}", interpreter.namespace.lock());
-                summaries.insert((file_entry, TestResult::ParseFail));
+            TestResult::CompileFail | TestResult::ParseFail | TestResult::NotCompiled => {
+                println!("{}", format!("Failed ({:?})", result).red());
                 (passed, failed + 1)
             }
-        }
+        };
+
+        println!("Namespace: {}", interpreter.namespace.lock());
+        summaries.insert((file_entry, result));
+
+        updates
     });
 
     // Print summaries
@@ -207,74 +177,6 @@ fn main() -> std::io::Result<()> {
     }
     println!("\nTest results: {}, {}", format!("{} passed", passed).green(), format!("{} failed", failed).red());
     Ok(())
-}
-
-fn new_interpreter() -> Interpreter<Handler> {
-    let fake_registers = Arc::new(acpi::registers::FixedRegisters {
-        pm1_event_registers: acpi::registers::Pm1EventRegisterBlock {
-            pm1_event_length: 8,
-            pm1a: unsafe {
-                MappedGas::map_gas(
-                    acpi::address::GenericAddress {
-                        address_space: acpi::address::AddressSpace::SystemIo,
-                        bit_width: 32,
-                        bit_offset: 0,
-                        access_size: 1,
-                        address: 0x400,
-                    },
-                    &Handler,
-                )
-                .unwrap()
-            },
-            pm1b: None,
-        },
-        pm1_control_registers: acpi::registers::Pm1ControlRegisterBlock {
-            pm1a: unsafe {
-                MappedGas::map_gas(
-                    acpi::address::GenericAddress {
-                        address_space: acpi::address::AddressSpace::SystemIo,
-                        bit_width: 32,
-                        bit_offset: 0,
-                        access_size: 1,
-                        address: 0x600,
-                    },
-                    &Handler,
-                )
-                .unwrap()
-            },
-            pm1b: None,
-        },
-    });
-    let fake_facs = PhysicalMapping {
-        physical_start: 0x0,
-        virtual_start: NonNull::new(0x8000_0000_0000_0000 as *mut acpi::sdt::facs::Facs).unwrap(),
-        region_length: 32,
-        mapped_length: 32,
-        handler: Handler,
-    };
-    Interpreter::new(Handler, 2, fake_registers, Some(fake_facs))
-}
-
-fn run_test(stream: &[u8], interpreter: &mut Interpreter<Handler>) -> Result<(), AmlError> {
-    interpreter.load_table(stream)?;
-
-    if let Some(result) = interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])? {
-        match *result {
-            Object::Integer(0) => Ok(()),
-            Object::Integer(other) => {
-                error!("Test _MAIN returned non-zero exit code: {}", other);
-                // TODO: wrong error - this should probs return a more complex err type
-                Err(AmlError::NoCurrentOp)
-            }
-            _ => {
-                error!("Test _MAIN returned unexpected object type: {}", *result);
-                // TODO: wrong error
-                Err(AmlError::NoCurrentOp)
-            }
-        }
-    } else {
-        Ok(())
-    }
 }
 
 fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
@@ -307,175 +209,6 @@ fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-/// Determine what to do with this file - ignore, compile and parse, or just parse.
-/// If ".aml" does not exist, or if ".asl" is newer, compiles the file.
-/// If the ".aml" file is newer, indicate it is ready to parse.
-fn resolve_and_compile(path: &PathBuf, can_compile: bool) -> std::io::Result<CompilationOutcome> {
-    // If this file is aml and it exists, it's ready for parsing
-    // metadata() will error if the file does not exist
-    if path.extension() == Some(OsStr::new("aml")) && path.metadata()?.is_file() {
-        return Ok(CompilationOutcome::IsAml(path.clone()));
-    }
-
-    // If this file is not asl, it's not interesting. Error if the file does not exist.
-    if path.extension() != Some(OsStr::new("asl")) || !path.metadata()?.is_file() {
-        return Ok(CompilationOutcome::Ignored);
-    }
-
-    let aml_path = path.with_extension("aml");
-
-    if aml_path.is_file() {
-        let asl_last_modified = path.metadata()?.modified()?;
-        let aml_last_modified = aml_path.metadata()?.modified()?;
-        // If the aml is more recent than the asl, use the existing aml
-        // Otherwise continue to compilation
-        if asl_last_modified <= aml_last_modified {
-            return Ok(CompilationOutcome::Newer(aml_path));
-        }
-    }
-
-    if !can_compile {
-        return Ok(CompilationOutcome::NotCompiled(path.clone()));
-    }
-
-    // Compile the ASL file using `iasl`
-    println!("Compiling file: {}", path.display());
-    let output = Command::new("iasl").arg(path).output()?;
-
-    if !output.status.success() {
-        println!(
-            "Failed to compile ASL file: {}. Output from iasl:\n {}",
-            path.display(),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        Ok(CompilationOutcome::Failed(path.clone()))
-    } else {
-        Ok(CompilationOutcome::Succeeded(aml_path))
-    }
-}
-
-struct Logger;
-
-impl log::Log for Logger {
-    fn enabled(&self, _: &log::Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &log::Record) {
-        println!("[{}] {}", record.level(), record.args());
-    }
-
-    fn flush(&self) {
-        std::io::stdout().flush().unwrap();
-    }
-}
-
-#[derive(Clone)]
-struct Handler;
-
-impl acpi::Handler for Handler {
-    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
-        todo!()
-    }
-
-    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
-
-    fn read_u8(&self, address: usize) -> u8 {
-        println!("read_u8 {address:#x}");
-        0
-    }
-    fn read_u16(&self, address: usize) -> u16 {
-        println!("read_u16 {address:#x}");
-        0
-    }
-    fn read_u32(&self, address: usize) -> u32 {
-        println!("read_u32 {address:#x}");
-        0
-    }
-    fn read_u64(&self, address: usize) -> u64 {
-        println!("read_u64 {address:#x}");
-        0
-    }
-
-    fn write_u8(&self, address: usize, value: u8) {
-        println!("write_u8 {address:#x}<-{value:#x}");
-    }
-    fn write_u16(&self, address: usize, value: u16) {
-        println!("write_u16 {address:#x}<-{value:#x}");
-    }
-    fn write_u32(&self, address: usize, value: u32) {
-        println!("write_u32 {address:#x}<-{value:#x}");
-    }
-    fn write_u64(&self, address: usize, value: u64) {
-        println!("write_u64 {address:#x}<-{value:#x}");
-    }
-
-    fn read_io_u8(&self, port: u16) -> u8 {
-        println!("read_io_u8 {port:#x}");
-        0
-    }
-    fn read_io_u16(&self, port: u16) -> u16 {
-        println!("read_io_u16 {port:#x}");
-        0
-    }
-    fn read_io_u32(&self, port: u16) -> u32 {
-        println!("read_io_u32 {port:#x}");
-        0
-    }
-
-    fn write_io_u8(&self, port: u16, value: u8) {
-        println!("write_io_u8 {port:#x}<-{value:#x}");
-    }
-    fn write_io_u16(&self, port: u16, value: u16) {
-        println!("write_io_u16 {port:#x}<-{value:#x}");
-    }
-    fn write_io_u32(&self, port: u16, value: u32) {
-        println!("write_io_u32 {port:#x}<-{value:#x}");
-    }
-
-    fn read_pci_u8(&self, address: PciAddress, _offset: u16) -> u8 {
-        println!("read_pci_u8 ({address})");
-        0
-    }
-    fn read_pci_u16(&self, address: PciAddress, _offset: u16) -> u16 {
-        println!("read_pci_u16 ({address})");
-        0
-    }
-    fn read_pci_u32(&self, address: PciAddress, _offset: u16) -> u32 {
-        println!("read_pci_u32 ({address})");
-        0
-    }
-
-    fn write_pci_u8(&self, address: PciAddress, _offset: u16, value: u8) {
-        println!("write_pci_u8 ({address})<-{value}");
-    }
-    fn write_pci_u16(&self, address: PciAddress, _offset: u16, value: u16) {
-        println!("write_pci_u16 ({address})<-{value}");
-    }
-    fn write_pci_u32(&self, address: PciAddress, _offset: u16, value: u32) {
-        println!("write_pci_u32 ({address})<-{value}");
-    }
-
-    fn handle_debug(&self, object: &Object) {
-        info!("Debug store: {}", object);
-    }
-
-    fn nanos_since_boot(&self) -> u64 {
-        0
-    }
-
-    fn stall(&self, microseconds: u64) {
-        println!("Stalling for {}us", microseconds);
-    }
-    fn sleep(&self, milliseconds: u64) {
-        println!("Sleeping for {}ms", milliseconds);
-    }
-
-    fn create_mutex(&self) -> Handle {
-        Handle(0)
-    }
-    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> {
-        Ok(())
-    }
-    fn release(&self, _mutex: Handle) {}
+fn new_handler() -> impl Handler {
+    LoggingHandler::new(NullHandler {})
 }
