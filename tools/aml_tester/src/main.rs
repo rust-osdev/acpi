@@ -15,6 +15,8 @@ use aml_test_tools::{
     new_interpreter,
     resolve_and_compile,
     CompilationOutcome,
+    RunTestResult,
+    TestFailureReason,
     TestResult,
 };
 use clap::{Arg, ArgAction, ArgGroup};
@@ -26,8 +28,34 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+use std::process::ExitCode;
 
-fn main() -> std::io::Result<()> {
+/// The result of a test, with all other information (error codes etc.) stripped away. This value
+/// can then be stored in a Set - the test results with more info cannot.
+#[derive(Eq, Hash, PartialEq)]
+enum FinalTestResult {
+    Passed,
+    Failed,
+    NotCompiled,
+    CompileFailed,
+}
+
+impl From<TestResult> for FinalTestResult {
+    fn from(outcome: TestResult) -> Self {
+        match outcome {
+            TestResult::Pass => FinalTestResult::Passed,
+            TestResult::Failed(e) => match e {
+                TestFailureReason::CompileFail | TestFailureReason::FilesystemErr => {
+                    FinalTestResult::CompileFailed
+                }
+                _ => FinalTestResult::Failed,
+            },
+            TestResult::Panicked => FinalTestResult::Failed,
+        }
+    }
+}
+
+fn main() -> ExitCode {
     pretty_env_logger::init();
 
     let mut cmd = clap::Command::new("aml_tester")
@@ -48,8 +76,8 @@ If the ASL contains a MAIN method, it will be executed.",
         .arg(Arg::new("files").action(ArgAction::Append).value_name("FILE.{asl,aml}"))
         .group(ArgGroup::new("files_list").args(["path", "files"]).required(true));
     if std::env::args().count() <= 1 {
-        cmd.print_help()?;
-        return Ok(());
+        cmd.print_help().unwrap();
+        return ExitCode::SUCCESS;
     }
     log::set_max_level(log::LevelFilter::Info);
 
@@ -67,9 +95,9 @@ If the ASL contains a MAIN method, it will be executed.",
             Err(_) => false,
     };
 
-    let tests = find_tests(&matches)?;
+    let tests = find_tests(&matches).unwrap();
     let compiled_files: Vec<CompilationOutcome> =
-        tests.iter().map(|name| resolve_and_compile(name, can_compile).unwrap()).collect();
+        tests.iter().map(|name| resolve_and_compile(name, can_compile)).collect();
 
     // Check if compilation should have happened but did not
     if user_wants_compile
@@ -97,22 +125,24 @@ If the ASL contains a MAIN method, it will be executed.",
         }
     }
 
+    let mut passed = 0u32;
+    let mut failed = 0u32;
+
     // Make a list of the files we have processed, and skip them if we see them again
     let mut dedup_list: HashSet<PathBuf> = HashSet::new();
-    let mut summaries: HashSet<(PathBuf, TestResult)> = HashSet::new();
+    let mut summaries: HashSet<(PathBuf, FinalTestResult)> = HashSet::new();
     // Filter down to the final list of AML files
     let aml_files = compiled_files
         .iter()
         .filter_map(|outcome| match outcome {
-            CompilationOutcome::IsAml(path) => Some(path.clone()),
-            CompilationOutcome::Newer(path) => Some(path.clone()),
-            CompilationOutcome::Succeeded(path) => Some(path.clone()),
-            CompilationOutcome::Failed(path) => {
-                summaries.insert((path.clone(), TestResult::CompileFail));
-                None
-            }
-            CompilationOutcome::NotCompiled(path) => {
-                summaries.insert((path.clone(), TestResult::NotCompiled));
+            CompilationOutcome::IsAml(path)
+            | CompilationOutcome::Newer(path)
+            | CompilationOutcome::Succeeded(path) => Some(path.clone()),
+            CompilationOutcome::Failed(path)
+            | CompilationOutcome::NotCompiled(path)
+            | CompilationOutcome::FilesystemErr(path) => {
+                summaries.insert((path.clone(), FinalTestResult::NotCompiled));
+                failed += 1;
                 None
             }
             CompilationOutcome::Ignored => None,
@@ -130,53 +160,72 @@ If the ASL contains a MAIN method, it will be executed.",
     let combined_test = matches.get_flag("combined");
     let mut interpreter = new_interpreter(new_handler());
 
-    let (passed, failed) = aml_files.into_iter().fold((0, 0), |(passed, failed), file_entry| {
+    for file_entry in aml_files {
         print!("Testing AML file: {:?}... ", file_entry);
         std::io::stdout().flush().unwrap();
 
-        if !combined_test {
-            interpreter = new_interpreter(new_handler());
-        }
+        let result = aml_test_tools::run_test_for_file(&file_entry, interpreter);
+        let simple_result: FinalTestResult = TestResult::from(&result).into();
 
-        let result = aml_test_tools::run_test_for_file(&file_entry, &mut interpreter);
-        let updates = match result {
-            TestResult::Pass => {
+        let interpreter_returned = match result {
+            RunTestResult::Pass(i) => {
                 println!("{}", "OK".green());
-                (passed + 1, failed)
+                passed += 1;
+                Some(i)
             }
-            TestResult::CompileFail | TestResult::ParseFail | TestResult::NotCompiled => {
-                println!("{}", format!("Failed ({:?})", result).red());
-                (passed, failed + 1)
+            RunTestResult::Failed(i, e) => {
+                println!("{}", format!("Failed ({:?})", e).red());
+                failed += 1;
+                Some(i)
+            }
+            RunTestResult::Panicked => {
+                println!("{}", "Panicked".red());
+                failed += 1;
+                if combined_test {
+                    // We can't continue to use the old Interpreter, and the user specifically wants
+                    // to. Creating a new one most likely invalidates the test they were trying to
+                    // perform.
+                    panic!("Interpreter panicked during combined test, unable to continue.");
+                }
+                None
             }
         };
 
-        println!("Namespace: {}", interpreter.namespace.lock());
-        summaries.insert((file_entry, result));
+        interpreter = match interpreter_returned {
+            _ if !combined_test => new_interpreter(new_handler()),
+            None => new_interpreter(new_handler()),
+            Some(i) => i,
+        };
 
-        updates
-    });
+        println!("Namespace: {}", interpreter.namespace.lock());
+        summaries.insert((file_entry, simple_result));
+    }
 
     // Print summaries
     println!("Summary:");
     for (file, status) in summaries.iter() {
         let status = match status {
-            TestResult::Pass => {
+            FinalTestResult::Passed => {
                 format!("{}", "OK".green())
             }
-            TestResult::CompileFail => {
+            FinalTestResult::CompileFailed => {
                 format!("{}", "COMPILE FAIL".red())
             }
-            TestResult::ParseFail => {
+            FinalTestResult::Failed => {
                 format!("{}", "PARSE FAIL".red())
             }
-            TestResult::NotCompiled => {
+            FinalTestResult::NotCompiled => {
                 format!("{}", "NOT COMPILED".red())
             }
         };
         println!("\t{:<50}: {}", file.to_str().unwrap(), status);
     }
     println!("\nTest results: {}, {}", format!("{} passed", passed).green(), format!("{} failed", failed).red());
-    Ok(())
+    if failed == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
 }
 
 fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {

@@ -16,7 +16,7 @@ mod test_infra;
 
 #[test]
 fn test_basic_store_and_load() {
-    const AML: &str = r#"DefinitionBlock("%FN%", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
+    const AML: &str = r#"DefinitionBlock("", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
     OperationRegion(MEM, SystemMemory, 0x40000, 0x1000)
     Field(MEM, WordAcc, NoLock, Preserve) {
         A, 16,
@@ -46,7 +46,7 @@ fn test_basic_store_and_load() {
 
 #[test]
 fn test_narrow_access_store_and_load() {
-    const AML: &str = r#"DefinitionBlock("%FN%", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
+    const AML: &str = r#"DefinitionBlock("", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
     OperationRegion(MEM, SystemIO, 0x40, 0x10)
     Field(MEM, ByteAcc, NoLock, Preserve) {
         A, 16,
@@ -79,7 +79,7 @@ fn test_narrow_access_store_and_load() {
 
 #[test]
 fn test_unaligned_field_store() {
-    const AML: &str = r#"DefinitionBlock("%FN%", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
+    const AML: &str = r#"DefinitionBlock("", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
     OperationRegion(MEM, SystemIO, 0x40, 0x10)
     Field(MEM, WordAcc, NoLock, Preserve) {
         A, 7,
