@@ -105,6 +105,7 @@ impl<T: Copy, const MIN_REVISION: u8> ExtendedField<T, MIN_REVISION> {
 #[repr(C, packed)]
 pub struct SdtHeader {
     pub signature: Signature,
+    // TODO: Make sure this and other fields are interpreted as little-endian on big-endian machine.
     pub length: u32,
     pub revision: u8,
     pub checksum: u8,

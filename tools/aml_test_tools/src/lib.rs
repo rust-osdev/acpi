@@ -4,12 +4,15 @@
 //! As always, feel free to offer PRs for improvements.
 
 pub mod handlers;
+pub mod tables;
 
+use crate::tables::{TestAcpiTable, bytes_to_tables};
 use acpi::{
     Handler,
     PhysicalMapping,
     address::MappedGas,
     aml::{AmlError, Interpreter, namespace::AmlName, object::Object},
+    sdt::Signature,
 };
 use log::{error, trace};
 use std::{
@@ -99,6 +102,8 @@ pub enum TestFailureReason {
     CompileFail,
     /// Some error occurred attempting to read or write the test file.
     FilesystemErr,
+    /// There was a problem interpreting the basic structure of the tables in the AML file.
+    TablesErr,
     /// Our interpreter failed to parse or execute the resulting AML.
     ParseFail(AmlError),
 }
@@ -278,10 +283,11 @@ where
     let mut contents = Vec::new();
     file.read_to_end(&mut contents).unwrap();
 
-    const AML_TABLE_HEADER_LENGTH: usize = 36;
-    let stream = &contents[AML_TABLE_HEADER_LENGTH..];
+    let Ok(tables) = bytes_to_tables(&contents) else {
+        return RunTestResult::Failed(interpreter, TestFailureReason::TablesErr);
+    };
 
-    run_test(stream, interpreter)
+    run_test(tables, interpreter)
 }
 
 /// Internal function to create a temporary script file from an ASL string, plus to calculate the
@@ -307,11 +313,12 @@ fn create_script_file(asl: &'static str) -> TempScriptFile {
 ///
 /// Arguments:
 ///
-/// * `stream`: A slice containing the AML bytecode to test.
+/// * `tables`: A Vec of tables to test. The DSDT will be loaded first, if found. Other tables will
+///   be loaded in the order they appear in the Vec.
 /// * `interpreter`: The interpreter to test with. The interpreter is consumed to maintain unwind
 ///   safety - if the interpreter panics, the caller should not be able to see the interpreter in
 ///   an inconsistent state.
-pub fn run_test<T>(stream: &[u8], interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test<T>(tables: Vec<TestAcpiTable>, interpreter: Interpreter<T>) -> RunTestResult<T>
 where
     T: Handler,
 {
@@ -319,7 +326,19 @@ where
     // unwind safe. To avoid the caller being able to see an inconsistent Interpreter, if a panic
     // occurs we drop the Interpreter, forcing the caller to create a new one.
     let result = catch_unwind(AssertUnwindSafe(|| -> Result<(), AmlError> {
-        interpreter.load_table(stream)?;
+        // Load the DSDT table first, if there is one.
+        if let Some(dsdt) = tables.iter().find(|t| t.header().signature == Signature::DSDT) {
+            trace!("Loading table: DSDT");
+            interpreter.load_table(dsdt.content())?;
+        }
+        let others = tables.iter().filter(|t| t.header().signature != Signature::DSDT);
+
+        for t in others {
+            trace!("Loading table: {:?}", t.header().signature);
+            interpreter.load_table(t.content())?;
+        }
+
+        trace!("All tables loaded");
 
         if let Some(result) = interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])? {
             match *result {
