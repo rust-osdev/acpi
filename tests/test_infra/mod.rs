@@ -1,6 +1,7 @@
 use acpi::Handler;
 use aml_test_tools::{
     RunTestResult,
+    TestResult,
     handlers::logging_handler::LoggingHandler,
     new_interpreter,
     run_test_for_string,
@@ -13,5 +14,6 @@ pub fn run_aml_test(asl: &'static str, handler: impl Handler) {
     let logged_handler = LoggingHandler::new(handler);
     let interpreter = new_interpreter(logged_handler);
 
-    assert!(matches!(run_test_for_string(asl, interpreter), RunTestResult::Pass(_)));
+    let result = run_test_for_string(asl, interpreter);
+    assert!(matches!(result, RunTestResult::Pass(_)), "Test failed with: {:?}", TestResult::from(&result));
 }
