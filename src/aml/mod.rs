@@ -2031,7 +2031,7 @@ where
             Object::String(ref value) => Object::String(value.clone()),
             Object::Integer(value) => match op.op {
                 Opcode::ToDecimalString => Object::String(value.to_string()),
-                Opcode::ToHexString => Object::String(alloc::format!("{value:#x}")),
+                Opcode::ToHexString => Object::String(alloc::format!("{value:#X}")),
                 _ => panic!(),
             },
             Object::Buffer(ref bytes) => {

@@ -158,7 +158,7 @@ pub fn resolve_and_compile(path: &PathBuf, can_compile: bool) -> CompilationOutc
 
     // Compile the ASL file using `iasl`
     println!("Compiling file: {}", path.display());
-    let output = Command::new("iasl").arg(path).output();
+    let output = Command::new("iasl").arg("-oa").arg(path).output();
 
     match output {
         Ok(output) => {
