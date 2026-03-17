@@ -1972,17 +1972,19 @@ where
                  * that won't fit in a `u64` etc. We probably need to write a more robust parser
                  * 'real' parser to handle those cases.
                  */
-                if let Some(value) = value.strip_prefix("0x") {
-                    let parsed = u64::from_str_radix(value, 16).map_err(|_| {
+                let value = value.trim();
+                let value = value.to_ascii_lowercase();
+                let (value, radix): (&str, u32) = match value.strip_prefix("0x") {
+                    Some(value) => {
+                        (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16)
+                    }
+                    None => (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10),
+                };
+                match value.len() {
+                    0 => Object::Integer(0),
+                    _ => Object::Integer(u64::from_str_radix(value, radix).map_err(|_| {
                         AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
-                    })?;
-                    Object::Integer(parsed)
-                } else {
-                    let parsed = str::parse::<u64>(value).map_err(|_| AmlError::InvalidOperationOnObject {
-                        op: Operation::ToInteger,
-                        typ: ObjectType::String,
-                    })?;
-                    Object::Integer(parsed)
+                    })?),
                 }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToBuffer, typ: operand.typ() })?,

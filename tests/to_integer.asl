@@ -20,39 +20,29 @@ DefinitionBlock ("", "SSDT", 2, "uTEST", "TESTTABL", 0xF0F0F0F0)
         Local1 = 123
         CHEK(Local0, Local1, __LINE__)
 
-        /* TODO: Restore commented out tests
         Local0 = ToInteger("       \t\t\t\v       123")
         Local1 = 123
         CHEK(Local0, Local1, __LINE__)
-        */
 
-        /*
         Local0 = ToInteger("123abcd")
         Local1 = 123
         CHEK(Local0, Local1, __LINE__)
-        */
 
         Local0 = ToInteger("0x123abcd")
         Local1 = 0x123abcd
         CHEK(Local0, Local1, __LINE__)
 
-        /*
         Local0 = ToInteger("")
         Local1 = 0
         CHEK(Local0, Local1, __LINE__)
-        */
 
-        /*
         Local0 = ToInteger("0X")
         Local1 = 0
         CHEK(Local0, Local1, __LINE__)
-        */
 
-        /*
         Local0 = ToInteger("0x")
         Local1 = 0
         CHEK(Local0, Local1, __LINE__)
-        */
 
         Local0 = ToInteger("0")
         Local1 = 0
@@ -62,11 +52,9 @@ DefinitionBlock ("", "SSDT", 2, "uTEST", "TESTTABL", 0xF0F0F0F0)
         Local1 = 0xDEADBEEF
         CHEK(Local0, Local1, __LINE__)
 
-        /*
         Local0 = ToInteger("0XDeAdBeeFCafeBabeHelloWorld")
         Local1 = 0xDEADBEEFCAFEBABE
         CHEK(Local0, Local1, __LINE__)
-        */
 
         Local0 = ToInteger(Buffer { 0xDE, 0xAD, 0xBE, 0xEF })
         Local1 = 0xEFBEADDE
