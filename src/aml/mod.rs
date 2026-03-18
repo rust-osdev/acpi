@@ -2527,10 +2527,11 @@ where
             }),
             RegionSpace::PciConfig => {
                 let address = self.pci_address_for_device(&region.parent_device_path)?;
+                let offset = region.base as u16 + offset as u16;
                 match length {
-                    1 => Ok(self.handler.read_pci_u8(address, offset as u16) as u64),
-                    2 => Ok(self.handler.read_pci_u16(address, offset as u16) as u64),
-                    4 => Ok(self.handler.read_pci_u32(address, offset as u16) as u64),
+                    1 => Ok(self.handler.read_pci_u8(address, offset) as u64),
+                    2 => Ok(self.handler.read_pci_u16(address, offset) as u64),
+                    4 => Ok(self.handler.read_pci_u32(address, offset) as u64),
                     _ => panic!(),
                 }
             }
@@ -2593,10 +2594,11 @@ where
             }
             RegionSpace::PciConfig => {
                 let address = self.pci_address_for_device(&region.parent_device_path)?;
+                let offset = region.base as u16 + offset as u16;
                 match length {
-                    1 => self.handler.write_pci_u8(address, offset as u16, value as u8),
-                    2 => self.handler.write_pci_u16(address, offset as u16, value as u16),
-                    4 => self.handler.write_pci_u32(address, offset as u16, value as u32),
+                    1 => self.handler.write_pci_u8(address, offset, value as u8),
+                    2 => self.handler.write_pci_u16(address, offset, value as u16),
+                    4 => self.handler.write_pci_u32(address, offset, value as u32),
                     _ => panic!(),
                 }
                 Ok(())
