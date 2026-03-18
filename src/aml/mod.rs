@@ -2630,7 +2630,7 @@ where
             Some(value) => value.as_integer()?,
             None => 0,
         };
-        let bus = match self.evaluate_if_present(AmlName::from_str("_BBR").unwrap().resolve(path)?, vec![])? {
+        let bus = match self.evaluate_if_present(AmlName::from_str("_BBN").unwrap().resolve(path)?, vec![])? {
             Some(value) => value.as_integer()?,
             None => 0,
         };
