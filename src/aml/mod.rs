@@ -3337,4 +3337,12 @@ pub enum AmlError {
     /// This is emitted to signal that the library does not support the requested behaviour. This
     /// should eventually never be emitted.
     LibUnimplemented,
+
+    /// The library has given a response the host does not understand, or the host is otherwise
+    /// unable to continue operating the library correctly. The specific reason is given in the
+    /// contained String.
+    ///
+    /// This variant is set by the host, not by the library, and can be used when it is convenient
+    /// not to construct a more complex error type around [`AmlError`].
+    HostError(String),
 }
