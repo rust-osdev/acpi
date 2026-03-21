@@ -325,14 +325,14 @@ where
             match *result {
                 Object::Integer(0) => Ok(()),
                 Object::Integer(other) => {
-                    error!("Test _MAIN returned non-zero exit code: {}", other);
-                    // TODO: wrong error - this should probs return a more complex err type
-                    Err(AmlError::NoCurrentOp)
+                    let e = format!("Test _MAIN returned non-zero exit code: {}", other);
+                    error!("{}", e);
+                    Err(AmlError::HostError(e))
                 }
                 _ => {
-                    error!("Test _MAIN returned unexpected object type: {}", *result);
-                    // TODO: wrong error
-                    Err(AmlError::NoCurrentOp)
+                    let e = format!("Test _MAIN returned unexpected object type: {}", *result);
+                    error!("{}", e);
+                    Err(AmlError::HostError(e))
                 }
             }
         } else {
