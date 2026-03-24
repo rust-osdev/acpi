@@ -2293,7 +2293,7 @@ where
 
     fn do_size_of(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         extract_args!(op => [Argument::Object(object)]);
-        let object = object.clone().unwrap_transparent_reference();
+        let object = object.clone().unwrap_reference();
 
         let result = match *object {
             Object::Buffer(ref buffer) => buffer.len(),
