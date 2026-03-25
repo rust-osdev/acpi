@@ -4,15 +4,19 @@
 //! As always, feel free to offer PRs for improvements.
 
 pub mod handlers;
+pub mod result;
 pub mod tables;
 
-use crate::tables::{TestAcpiTable, bytes_to_tables};
+use crate::{
+    result::{ExpectedResult, result_matches},
+    tables::{TestAcpiTable, bytes_to_tables},
+};
 use acpi::{
     Handler,
     PhysicalMapping,
     address::MappedGas,
-    aml::{AmlError, Interpreter, namespace::AmlName, object::Object},
-    sdt::Signature,
+    aml::{AmlError, Interpreter, namespace::AmlName},
+    sdt::{Signature, facs::Facs},
 };
 use log::{error, trace};
 use std::{
@@ -25,7 +29,7 @@ use std::{
     process::Command,
     ptr::NonNull,
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, atomic::AtomicU32},
 };
 use tempfile::{NamedTempFile, TempDir, tempdir};
 
@@ -234,17 +238,39 @@ where
         },
     });
 
+    let fake_facs = Box::new(Facs {
+        signature: Signature::FACS,
+        length: size_of::<Facs>() as u32,
+        hardware_signature: 0,
+        firmware_waking_vector: 0,
+        global_lock: AtomicU32::new(0),
+        flags: 0,
+        x_firmware_waking_vector: 0,
+        version: 2,
+        _reserved0: [0; 3],
+        ospm_flags: 0,
+        reserved1: [0; 24],
+    });
+
+    // TODO: This *is* a memory leak - but a tolerable one for now. The FACS would be 'static in a
+    // real machine, and we effectively need that here since the crate will never try to release it.
+    //
+    // It'd be possible to tidy this up creating a newtype containing both the Interpeter and FACS
+    // which manually drops the FACS when appropriate, but since that makes the test interfaces
+    // less ergonomic, this is left until the leak is an actual problem.
+    let fake_facs_ptr = Box::leak(fake_facs) as *mut Facs;
+
     // This PhysicalMapping is dropped when the interpreter is dropped, and if you use logging in
     // the handler object you'll see a call to Handler::unmap_physical_region without any
     // corresponding call to Interpreter::map_physical_region.
-    let fake_facs = PhysicalMapping {
+    let fake_facs_mapping = PhysicalMapping {
         physical_start: 0x0,
-        virtual_start: NonNull::new(0x8000_0000_0000_0000 as *mut acpi::sdt::facs::Facs).unwrap(),
+        virtual_start: NonNull::new(fake_facs_ptr).unwrap(),
         region_length: 32,
         mapped_length: 32,
         handler: handler.clone(),
     };
-    Interpreter::new(handler, 2, fake_registers, Some(fake_facs))
+    Interpreter::new(handler, 2, fake_registers, Some(fake_facs_mapping))
 }
 
 /// Test an ASL script given as a string, using [`run_test`].
@@ -253,14 +279,18 @@ where
 /// * `asl`: A string slice containing an ASL script. This will be compiled to AML using `iasl` and
 ///   then tested using [`run_test`]
 /// * `interpreter`: The interpreter to use for testing.
-pub fn run_test_for_string<T>(asl: &'static str, interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test_for_string<T>(
+    asl: &'static str,
+    interpreter: Interpreter<T>,
+    expected_result: &Option<ExpectedResult>,
+) -> RunTestResult<T>
 where
     T: Handler,
 {
     let script = create_script_file(asl);
     match resolve_and_compile(&script.asl_file.path().to_path_buf(), true) {
         CompilationOutcome::Succeeded(aml_path) | CompilationOutcome::IsAml(aml_path) => {
-            run_test_for_file(&aml_path, interpreter)
+            run_test_for_file(&aml_path, interpreter, expected_result)
         }
         _ => RunTestResult::Failed(interpreter, TestFailureReason::CompileFail),
     }
@@ -273,7 +303,11 @@ where
 /// * `file`: The path to the AML file to test. This must be an AML file otherwise the test will
 ///   fail very quickly.
 /// * `interpreter`: The interpreter to use for testing.
-pub fn run_test_for_file<T>(file: &PathBuf, interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test_for_file<T>(
+    file: &PathBuf,
+    interpreter: Interpreter<T>,
+    expected_result: &Option<ExpectedResult>,
+) -> RunTestResult<T>
 where
     T: Handler,
 {
@@ -287,7 +321,7 @@ where
         return RunTestResult::Failed(interpreter, TestFailureReason::TablesErr);
     };
 
-    run_test(tables, interpreter)
+    run_test(tables, interpreter, expected_result)
 }
 
 /// Internal function to create a temporary script file from an ASL string, plus to calculate the
@@ -318,7 +352,11 @@ fn create_script_file(asl: &'static str) -> TempScriptFile {
 /// * `interpreter`: The interpreter to test with. The interpreter is consumed to maintain unwind
 ///   safety - if the interpreter panics, the caller should not be able to see the interpreter in
 ///   an inconsistent state.
-pub fn run_test<T>(tables: Vec<TestAcpiTable>, interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test<T>(
+    tables: Vec<TestAcpiTable>,
+    interpreter: Interpreter<T>,
+    expected_result: &Option<ExpectedResult>,
+) -> RunTestResult<T>
 where
     T: Handler,
 {
@@ -341,18 +379,13 @@ where
         trace!("All tables loaded");
 
         if let Some(result) = interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])? {
-            match *result {
-                Object::Integer(0) => Ok(()),
-                Object::Integer(other) => {
-                    let e = format!("Test _MAIN returned non-zero exit code: {}", other);
-                    error!("{}", e);
-                    Err(AmlError::HostError(e))
-                }
-                _ => {
-                    let e = format!("Test _MAIN returned unexpected object type: {}", *result);
-                    error!("{}", e);
-                    Err(AmlError::HostError(e))
-                }
+            let expected_result = expected_result.as_ref().unwrap_or(&ExpectedResult::Integer(0));
+            if result_matches(expected_result, &result) {
+                Ok(())
+            } else {
+                let e = format!("Unexpected MAIN result: {:?}", expected_result);
+                error!("{}", e);
+                Err(AmlError::HostError(e))
             }
         } else {
             Ok(())

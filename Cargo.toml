@@ -1,5 +1,5 @@
 [workspace]
-members = ["tools/aml_tester", "tools/acpi_dumper", "tools/aml_test_tools"]
+members = ["tools/aml_tester", "tools/acpi_dumper", "tools/aml_test_tools", "tools/uacpi_test_adapter"]
 resolver = "2"
 
 [package]

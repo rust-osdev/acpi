@@ -1,0 +1,11 @@
+[package]
+name = "uacpi_test_adapter"
+version = "0.0.0"
+publish = false
+authors = ["Martin Hughes"]
+repository = "https://github.com/rust-osdev/acpi"
+description = "uACPI to aml_tester adapter"
+categories = ["hardware-support"]
+readme = "../README.md"
+license = "MIT/Apache-2.0"
+edition = "2024"
