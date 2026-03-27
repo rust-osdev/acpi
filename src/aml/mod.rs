@@ -810,9 +810,9 @@ where
                         let result = if object.typ() == ObjectType::Reference {
                             object.clone().unwrap_reference()
                         } else if object.typ() == ObjectType::String {
-                            let path = AmlName::from_str(&object.as_string().unwrap())?
-                                .resolve(&context.current_scope)?;
-                            self.namespace.lock().get(path)?.clone()
+                            let path = AmlName::from_str(&object.as_string().unwrap())?;
+                            let (_, object) = self.namespace.lock().search(&path, &context.current_scope)?;
+                            object.clone()
                         } else {
                             return Err(AmlError::ObjectNotOfExpectedType {
                                 expected: ObjectType::Reference,
@@ -1334,7 +1334,7 @@ where
                     let region_name = context.namestring()?;
                     let field_flags = context.next()?;
 
-                    let region = self.namespace.lock().get(region_name.resolve(&context.current_scope)?)?.clone();
+                    let (_, region) = self.namespace.lock().search(&region_name, &context.current_scope)?.clone();
                     let kind = FieldUnitKind::Normal { region };
                     self.parse_field_list(&mut context, kind, start_pc, pkg_length, field_flags)?;
                 }
