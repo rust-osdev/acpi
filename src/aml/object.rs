@@ -179,6 +179,9 @@ impl Object {
         WrappedObject::new(self)
     }
 
+    /// Unwraps an integer object. Errors if not already an integer.
+    ///
+    /// For casting to integer, use [`Object::to_integer`] instead.
     pub fn as_integer(&self) -> Result<u64, AmlError> {
         if let Object::Integer(value) = self {
             Ok(*value)
@@ -203,18 +206,52 @@ impl Object {
         }
     }
 
+    /// Converts the object to an integer. Used for both implicit and explicit conversions.
+    ///
+    /// To avoid the cast, use [`Object::as_integer`] instead.
     pub fn to_integer(&self, allowed_bytes: usize) -> Result<u64, AmlError> {
         match self {
             Object::Integer(value) => Ok(*value),
-            Object::Buffer(value) => {
-                let length = usize::min(value.len(), allowed_bytes);
-                let mut bytes = [0u8; 8];
-                bytes[0..length].copy_from_slice(&value[0..length]);
-                Ok(u64::from_le_bytes(bytes))
+            Object::Buffer(bytes) => {
+                /*
+                 * The spec says this should respect the revision of the current definition block.
+                 * Apparently, the NT interpreter always uses the first 8 bytes of the buffer.
+                 */
+                let length = usize::min(bytes.len(), allowed_bytes);
+                let mut to_interpret = [0u8; 8];
+                to_interpret[0..length].copy_from_slice(bytes);
+                Ok(u64::from_le_bytes(to_interpret))
             }
-            // TODO: how should we handle invalid inputs? What does NT do here?
-            Object::String(value) => Ok(value.parse::<u64>().unwrap_or(0)),
-            _ => Ok(0),
+            Object::String(value) => {
+                /*
+                 * This is about the same level of effort as ACPICA puts in. The uACPI test suite
+                 * has tests that this fails - namely because of support for octal, signs, strings
+                 * that won't fit in a `u64` etc. We probably need to write a more robust parser
+                 * 'real' parser to handle those cases.
+                 */
+                let value = value.trim();
+                let value = value.to_ascii_lowercase();
+                let (value, radix): (&str, u32) = match value.strip_prefix("0x") {
+                    Some(value) => (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16),
+                    None => (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10),
+                };
+                match value.len() {
+                    0 => Ok(0),
+                    _ => Ok(u64::from_str_radix(value, radix).map_err(|_| {
+                        AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
+                    })?),
+                }
+            }
+            Object::BufferField { .. } => {
+                let mut buffer = [0u8; 8];
+                let o = self.read_buffer_field(allowed_bytes)?;
+                match o {
+                    Object::Integer(value) => Ok(value),
+                    Object::Buffer(bytes) => Ok(u64::from_le_bytes(bytes.try_into().unwrap())),
+                    _ => unreachable!(),
+                }
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: self.typ() })?,
         }
     }
 
