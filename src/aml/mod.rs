@@ -47,7 +47,7 @@ use core::{
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
 };
-use log::{info, trace, warn};
+use log::{error, info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
     DeviceStatus,
@@ -148,10 +148,15 @@ where
 
         let dsdt = platform.tables.dsdt()?;
         let interpreter = Interpreter::new(platform.handler.clone(), dsdt.revision, registers, facs);
-        load_table(&interpreter, dsdt)?;
 
-        for ssdt in platform.tables.ssdts() {
-            load_table(&interpreter, ssdt)?;
+        if let Err(err) = load_table(&interpreter, dsdt) {
+            error!("Error while loading DSDT: {:?}. Continuing; this may cause downstream errors.", err);
+        }
+
+        for (i, ssdt) in platform.tables.ssdts().enumerate() {
+            if let Err(err) = load_table(&interpreter, ssdt) {
+                error!("Error while loading SSDT{}: {:?}. Continuing.", i, err);
+            }
         }
 
         Ok(interpreter)
@@ -2048,6 +2053,7 @@ where
             }
             Object::String(ref value) => {
                 /*
+                 * TODO:
                  * This is about the same level of effort as ACPICA puts in. The uACPI test suite
                  * has tests that this fails - namely because of support for octal, signs, strings
                  * that won't fit in a `u64` etc. We probably need to write a more robust parser
@@ -2056,9 +2062,7 @@ where
                 let value = value.trim();
                 let value = value.to_ascii_lowercase();
                 let (value, radix): (&str, u32) = match value.strip_prefix("0x") {
-                    Some(value) => {
-                        (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16)
-                    }
+                    Some(value) => (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16),
                     None => (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10),
                 };
                 match value.len() {
