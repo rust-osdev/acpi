@@ -805,6 +805,11 @@ where
                         )?;
                         context.retire_op(op);
                     }
+                    Opcode::CopyObject => {
+                        extract_args!(op => [Argument::Object(object), Argument::Object(target)]);
+                        self.do_copy_object(target.clone(), object.clone())?;
+                        context.retire_op(op);
+                    }
                     Opcode::Store => {
                         extract_args!(op => [Argument::Object(object), Argument::Object(target)]);
                         self.do_store(target.clone(), object.clone())?;
@@ -1530,6 +1535,10 @@ where
                     Opcode::Store,
                     &[ResolveBehaviour::TermArg, ResolveBehaviour::SuperName],
                 )),
+                Opcode::CopyObject => context.start(OpInFlight::new(
+                    Opcode::CopyObject,
+                    &[ResolveBehaviour::TermArg, ResolveBehaviour::SimpleName],
+                )),
                 Opcode::RefOf => context.start(OpInFlight::new(Opcode::RefOf, &[ResolveBehaviour::SuperName])),
                 Opcode::CondRefOf => context.start(OpInFlight::new(
                     opcode,
@@ -1714,7 +1723,6 @@ where
                 )),
 
                 Opcode::ObjectType => context.start(OpInFlight::new(opcode, &[ResolveBehaviour::SuperName])),
-                Opcode::CopyObject => todo!(),
                 Opcode::Mid => context.start(OpInFlight::new(
                     Opcode::Mid,
                     &[
@@ -2429,6 +2437,40 @@ where
         }
 
         Ok(object)
+    }
+
+    /// Copy `object` into `target`, matching the expected behaviour of `DefCopyObject`, which
+    /// depends on the object referenced:
+    ///    - Locals are overwritten
+    ///    - Args are overwritten, unless they are references, in which case the referenced object is overwritten
+    ///    - Objects referenced by name are overwritten
+    ///    - Index references cause the object at the index to be overwritten
+    ///    - Other reference operations are not allowed
+    fn do_copy_object(&self, target: WrappedObject, object: WrappedObject) -> Result<(), AmlError> {
+        let Object::Reference { kind, ref inner } = *target else {
+            return Err(AmlError::InternalError("Target of CopyObject must be a reference".to_string()));
+        };
+        let object = object.clone().unwrap_transparent_reference();
+        let token = self.object_token.lock();
+
+        let dst = match kind {
+            ReferenceKind::Named | ReferenceKind::Local => inner.clone().unwrap_transparent_reference(),
+            ReferenceKind::Arg => {
+                if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
+                    inner_inner.clone()
+                } else {
+                    inner.clone().unwrap_transparent_reference()
+                }
+            }
+            ReferenceKind::Index => todo!(),
+            ReferenceKind::RefOf | ReferenceKind::Unresolved => return Err(AmlError::StoreToInvalidReferenceType),
+        };
+
+        unsafe {
+            *dst.gain_mut(&token) = (*object).clone();
+        }
+
+        Ok(())
     }
 
     /// Do a read from a field by performing one or more well-formed accesses to the underlying
