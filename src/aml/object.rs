@@ -1,5 +1,10 @@
 use crate::aml::{AmlError, Handle, Operation, op_region::OpRegion};
-use alloc::{borrow::Cow, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use bit_field::BitField;
 use core::{cell::UnsafeCell, fmt, ops, sync::atomic::AtomicU64};
 
@@ -138,11 +143,8 @@ impl WrappedObject {
     pub fn unwrap_transparent_reference(self) -> WrappedObject {
         let mut object = self;
         loop {
-            // TODO: what should this do with unresolved namestrings? It would need namespace
-            // access to resolve them (and then this would probs have to move to a method on
-            // `Interpreter`)?
             if let Object::Reference { kind, ref inner } = *object
-                && kind == ReferenceKind::LocalOrArg
+                && (kind == ReferenceKind::Local || kind == ReferenceKind::Arg || kind == ReferenceKind::Named)
             {
                 object = inner.clone();
             } else {
@@ -229,16 +231,22 @@ impl Object {
         }
     }
 
-    pub fn read_buffer_field(&self, dst: &mut [u8]) -> Result<(), AmlError> {
+    pub fn read_buffer_field(&self, integer_size: usize) -> Result<Object, AmlError> {
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match **buffer {
                 Object::Buffer(ref buffer) => buffer.as_slice(),
                 Object::String(ref string) => string.as_bytes(),
                 _ => panic!(),
             };
-            // TODO: bounds check the buffer first to avoid panicking
-            copy_bits(buffer, *offset, dst, 0, *length);
-            Ok(())
+            if *length <= integer_size {
+                let mut dst = [0u8; 8];
+                copy_bits(buffer, *offset, &mut dst, 0, *length);
+                Ok(Object::Integer(u64::from_le_bytes(dst)))
+            } else {
+                let mut dst = alloc::vec![0u8; length.div_ceil(8)];
+                copy_bits(buffer, *offset, &mut dst, 0, *length);
+                Ok(Object::Buffer(dst))
+            }
         } else {
             Err(AmlError::InvalidOperationOnObject { op: Operation::ReadBufferField, typ: self.typ() })
         }
@@ -261,6 +269,36 @@ impl Object {
         }
     }
 
+    /// Replace this object's contents with that of a `new` object, applying implicit casting rules
+    /// as needed. This follows the NT interpreter's creative interpretation of implicit casts, which is
+    /// effectively a byte-wise transmutation.
+    pub fn replace_with_implicit_casting(&mut self, new: Object) -> Result<(), AmlError> {
+        let new_bytes = match new {
+            Object::Integer(value) => &value.to_le_bytes(),
+            Object::String(ref value) => value.as_bytes(),
+            Object::Buffer(ref value) => &value.clone(),
+            _ => return Err(AmlError::InvalidImplicitCast { from: self.typ(), to: new.typ() }),
+        };
+
+        match self {
+            Object::Integer(value) => {
+                let bytes_to_copy = core::cmp::min(new_bytes.len(), 8);
+                let mut bytes = [0u8; 8];
+                bytes[0..bytes_to_copy].copy_from_slice(&new_bytes[0..bytes_to_copy]);
+                *value = u64::from_le_bytes(bytes);
+            }
+            Object::String(value) => {
+                *value = String::from_utf8_lossy(&new_bytes).to_string();
+            }
+            Object::Buffer(value) => {
+                *value = new_bytes.to_vec();
+            }
+            _ => return Err(AmlError::InvalidImplicitCast { from: self.typ(), to: new.typ() }),
+        }
+
+        Ok(())
+    }
+
     /// Returns the `ObjectType` of this object. Returns the type of the referenced object in the
     /// case of `Object::Reference`.
     pub fn typ(&self) -> ObjectType {
@@ -275,7 +313,10 @@ impl Object {
             Object::Method { .. } => ObjectType::Method,
             Object::NativeMethod { .. } => ObjectType::Method,
             Object::Mutex { .. } => ObjectType::Mutex,
-            Object::Reference { inner, .. } => inner.typ(),
+            // Object::Reference { inner, .. } => inner.typ(),
+            Object::Reference { .. } => ObjectType::Reference, // TODO: maybe this should
+            // differentiate internal/real
+            // references?
             Object::OpRegion(_) => ObjectType::OpRegion,
             Object::Package(_) => ObjectType::Package,
             Object::PowerResource { .. } => ObjectType::PowerResource,
@@ -383,8 +424,11 @@ impl MethodFlags {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ReferenceKind {
+    Named,
     RefOf,
-    LocalOrArg,
+    Local,
+    Arg,
+    Index,
     Unresolved,
 }
 
