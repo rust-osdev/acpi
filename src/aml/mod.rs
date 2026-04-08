@@ -405,6 +405,12 @@ where
         }
     }
 
+    /// Returns the size of an integer (in bytes) for the set of tables parsed so far. This depends
+    /// on the revision of the initial DSDT.
+    pub fn integer_size(&self) -> usize {
+        if self.dsdt_revision >= 2 { 8 } else { 4 }
+    }
+
     fn do_execute_method(&self, mut context: MethodContext) -> Result<WrappedObject, AmlError> {
         /*
          * This is the main loop that executes operations. Every op is handled at the top-level of
@@ -1896,10 +1902,10 @@ where
                      * This is a particularly important place to respect the integer width as set
                      * by the DSDT revision.
                      */
-                    if self.dsdt_revision >= 2 {
-                        (operand.leading_zeros() + 1) as u64
-                    } else {
-                        ((operand as u32).leading_zeros() + 1) as u64
+                    match self.integer_size() {
+                        4 => ((operand as u32).leading_zeros() + 1) as u64,
+                        8 => (operand.leading_zeros() + 1) as u64,
+                        _ => unreachable!(),
                     }
                 }
             }
@@ -2007,7 +2013,7 @@ where
         let result = match *operand {
             Object::Buffer(ref bytes) => Object::Buffer(bytes.clone()),
             Object::Integer(value) => {
-                if self.dsdt_revision >= 2 {
+                if self.integer_size() == 8 {
                     Object::Buffer(value.to_le_bytes().to_vec())
                 } else {
                     Object::Buffer((value as u32).to_le_bytes().to_vec())
@@ -2213,9 +2219,9 @@ where
         let result = match source1.typ() {
             ObjectType::Integer => {
                 let source1 = source1.as_integer()?;
-                let source2 = source2.to_integer(if self.dsdt_revision >= 2 { 8 } else { 4 })?;
+                let source2 = source2.to_integer(self.integer_size())?;
                 let mut buffer = Vec::new();
-                if self.dsdt_revision >= 2 {
+                if self.integer_size() == 8 {
                     buffer.extend_from_slice(&source1.to_le_bytes());
                     buffer.extend_from_slice(&source2.to_le_bytes());
                 } else {
@@ -2226,7 +2232,7 @@ where
             }
             ObjectType::Buffer => {
                 let mut buffer = source1.as_buffer()?.to_vec();
-                buffer.extend(source2.to_buffer(if self.dsdt_revision >= 2 { 8 } else { 4 })?);
+                buffer.extend(source2.to_buffer(self.integer_size())?);
                 Object::Buffer(buffer).wrap()
             }
             _ => {
@@ -2430,7 +2436,7 @@ where
     /// return either an `Integer` or `Buffer` as appropriate, guided by the size of the field
     /// and expected integer size (as per the DSDT revision).
     fn do_field_read(&self, field: &FieldUnit) -> Result<WrappedObject, AmlError> {
-        let needs_buffer = if self.dsdt_revision >= 2 { field.bit_length > 64 } else { field.bit_length > 32 };
+        let needs_buffer = field.bit_length > (self.integer_size() * 8);
         let access_width_bits = field.flags.access_type_bytes()? * 8;
 
         trace!("AML field read. Field = {:?}", field);
