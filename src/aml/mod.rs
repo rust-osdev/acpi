@@ -424,6 +424,7 @@ where
                     }
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
+                        let operand = operand.clone().unwrap_transparent_reference();
                         let token = self.object_token.lock();
                         let Object::Integer(operand) = (unsafe { operand.gain_mut(&token) }) else {
                             Err(AmlError::ObjectNotOfExpectedType {
@@ -461,7 +462,8 @@ where
                     Opcode::Mid => self.do_mid(&mut context, op)?,
                     Opcode::Concat => self.do_concat(&mut context, op)?,
                     Opcode::ConcatRes => {
-                        let [Argument::Object(source1), Argument::Object(source2), target] = &op.arguments[..]
+                        let [Argument::Object(source1), Argument::Object(source2), Argument::Object(target)] =
+                            &op.arguments[..]
                         else {
                             panic!()
                         };
@@ -477,7 +479,7 @@ where
                             Object::Buffer(buffer).wrap()
                         };
                         // TODO: use potentially-updated result for return value here
-                        self.do_store(target, result.clone())?;
+                        self.do_store(target.clone(), result.clone())?;
                         context.contribute_arg(Argument::Object(result));
                         context.retire_op(op);
                     }
@@ -798,8 +800,10 @@ where
                         context.retire_op(op);
                     }
                     Opcode::Store => {
-                        let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
-                        self.do_store(target, object.clone())?;
+                        let [Argument::Object(object), Argument::Object(target)] = &op.arguments[..] else {
+                            panic!()
+                        };
+                        self.do_store(target.clone(), object.clone())?;
                         context.retire_op(op);
                     }
                     Opcode::RefOf => {
@@ -810,13 +814,15 @@ where
                         context.retire_op(op);
                     }
                     Opcode::CondRefOf => {
-                        let [Argument::Object(object), target] = &op.arguments[..] else { panic!() };
+                        let [Argument::Object(object), Argument::Object(target)] = &op.arguments[..] else {
+                            panic!()
+                        };
                         let result = if let Object::Reference { kind: ReferenceKind::Unresolved, .. } = **object {
                             Object::Integer(0)
                         } else {
                             let reference =
                                 Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap();
-                            self.do_store(target, reference)?;
+                            self.do_store(target.clone(), reference)?;
                             Object::Integer(u64::MAX)
                         };
                         context.contribute_arg(Argument::Object(result.wrap()));
@@ -1022,6 +1028,7 @@ where
                          */
                         let [Argument::Object(predicate)] = &op.arguments[..] else { panic!() };
                         let predicate = predicate.as_integer()?;
+                        let predicate = predicate.clone().unwrap_transparent_reference().as_integer()?;
 
                         if predicate == 0 {
                             // Exit from the while loop by skipping out of the current block
@@ -1161,15 +1168,11 @@ where
             match opcode {
                 Opcode::Zero => {
                     /*
-                     * This represents a `Zero` operand that should create an `Integer` object in
+                     * This represents a `Zero` operand that should create an `Integer` operand in
                      * most places, but could also encode a `NullName` if we are expecting a
-                     * `Target`.
+                     * `Target`. We handle the latter in logic for stores to targets.
                      */
-                    if context.last_op()?.resolve_behaviour() == ResolveBehaviour::Target {
-                        context.last_op()?.arguments.push(Argument::Null);
-                    } else {
-                        context.last_op()?.arguments.push(Argument::Object(Object::Integer(0).wrap()));
-                    }
+                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(0).wrap()));
                 }
                 Opcode::One => {
                     context.last_op()?.arguments.push(Argument::Object(Object::Integer(1).wrap()));
@@ -1519,14 +1522,15 @@ where
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
                     context.last_op()?.arguments.push(Argument::Object(
-                        Object::Reference { kind: ReferenceKind::LocalOrArg, inner: local }.wrap(),
+                        Object::Reference { kind: ReferenceKind::Local, inner: local }.wrap(),
                     ));
                 }
                 Opcode::Arg(arg) => {
                     let arg = context.args[arg as usize].clone();
-                    context.last_op()?.arguments.push(Argument::Object(
-                        Object::Reference { kind: ReferenceKind::LocalOrArg, inner: arg }.wrap(),
-                    ));
+                    context
+                        .last_op()?
+                        .arguments
+                        .push(Argument::Object(Object::Reference { kind: ReferenceKind::Arg, inner: arg }.wrap()));
                 }
                 Opcode::Store => context.start(OpInFlight::new(
                     Opcode::Store,
@@ -1554,11 +1558,13 @@ where
                         .unwrap_or(ResolveBehaviour::TermArg);
                     match behaviour {
                         // XXX: `NullName` is handled separately given its ambiguity with `Zero`
-                        ResolveBehaviour::SuperName | ResolveBehaviour::Target => {
+                        ResolveBehaviour::SimpleName | ResolveBehaviour::SuperName | ResolveBehaviour::Target => {
                             let object = self.namespace.lock().search(&name, &context.current_scope);
                             match object {
                                 Ok((_resolved_name, object)) => {
-                                    context.last_op()?.arguments.push(Argument::Object(object));
+                                    context.last_op()?.arguments.push(Argument::Object(
+                                        Object::Reference { kind: ReferenceKind::Named, inner: object }.wrap(),
+                                    ));
                                 }
                                 Err(err) => Err(err)?,
                             }
@@ -1606,6 +1612,9 @@ where
                                     } else if let Object::FieldUnit(ref field) = *object {
                                         let value = self.do_field_read(field)?;
                                         context.last_op()?.arguments.push(Argument::Object(value));
+                                    } else if let Object::BufferField { .. } = *object {
+                                        let value = object.read_buffer_field(self.integer_size())?;
+                                        context.last_op()?.arguments.push(Argument::Object(value.wrap()));
                                     } else {
                                         context.last_op()?.arguments.push(Argument::Object(object));
                                     }
@@ -1852,7 +1861,10 @@ where
     }
 
     fn do_binary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(left), Argument::Object(right), target] = &op.arguments[0..3] else { panic!() };
+        let [Argument::Object(left), Argument::Object(right), Argument::Object(target)] = &op.arguments[0..3]
+        else {
+            panic!()
+        };
         let target2 = if op.op == Opcode::Divide { Some(&op.arguments[3]) } else { None };
 
         let left = left.clone().unwrap_transparent_reference().as_integer()?;
@@ -1863,8 +1875,8 @@ where
             Opcode::Subtract => left.wrapping_sub(right),
             Opcode::Multiply => left.wrapping_mul(right),
             Opcode::Divide => {
-                if let Some(remainder) = target2 {
-                    self.do_store(remainder, Object::Integer(left.wrapping_rem(right)).wrap())?;
+                if let Some(Argument::Object(remainder)) = target2 {
+                    self.do_store(remainder.clone(), Object::Integer(left.wrapping_rem(right)).wrap())?;
                 }
                 left.wrapping_div_euclid(right)
             }
@@ -1880,7 +1892,7 @@ where
         };
 
         let result = Object::Integer(result).wrap();
-        let result = self.do_store(target, result)?;
+        let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -2004,7 +2016,7 @@ where
     }
 
     fn do_to_buffer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+        let [Argument::Object(operand), Argument::Object(target)] = &op.arguments[..] else { panic!() };
         let operand = operand.clone().unwrap_transparent_reference();
 
         let result = match *operand {
@@ -2030,14 +2042,14 @@ where
         }
         .wrap();
 
-        let result = self.do_store(target, result)?;
+        let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
     }
 
     fn do_to_integer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+        let [Argument::Object(operand), Argument::Object(target)] = &op.arguments[..] else { panic!() };
         let operand = operand.clone().unwrap_transparent_reference();
 
         let result = match *operand {
@@ -2076,14 +2088,17 @@ where
         }
         .wrap();
 
-        let result = self.do_store(target, result)?;
+        let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
     }
 
     fn do_to_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(source), Argument::Object(length), target] = &op.arguments[..] else { panic!() };
+        let [Argument::Object(source), Argument::Object(length), Argument::Object(target)] = &op.arguments[..]
+        else {
+            panic!()
+        };
         let source = source.clone().unwrap_transparent_reference();
         let source = source.as_buffer()?;
         let length = length.clone().unwrap_transparent_reference().as_integer()? as usize;
@@ -2103,7 +2118,7 @@ where
         }
         .wrap();
 
-        let result = self.do_store(target, result)?;
+        let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -2111,7 +2126,7 @@ where
 
     /// Perform a `ToDecimalString` or `ToHexString` operation
     fn do_to_dec_hex_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand), target] = &op.arguments[..] else { panic!() };
+        let [Argument::Object(operand), Argument::Object(target)] = &op.arguments[..] else { panic!() };
         let operand = operand.clone().unwrap_transparent_reference();
 
         let result = match *operand {
@@ -2145,15 +2160,19 @@ where
         }
         .wrap();
 
-        let result = self.do_store(target, result)?;
+        let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
     }
 
     fn do_mid(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(source), Argument::Object(index), Argument::Object(length), target] =
-            &op.arguments[..]
+        let [
+            Argument::Object(source),
+            Argument::Object(index),
+            Argument::Object(length),
+            Argument::Object(target),
+        ] = &op.arguments[..]
         else {
             panic!()
         };
@@ -2183,14 +2202,18 @@ where
         }
         .wrap();
 
-        self.do_store(target, result.clone())?;
+        self.do_store(target.clone(), result.clone())?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
     }
 
     fn do_concat(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(source1), Argument::Object(source2), target] = &op.arguments[..] else { panic!() };
+        // TODO
+        let [Argument::Object(source1), Argument::Object(source2), Argument::Object(target)] = &op.arguments[..]
+        else {
+            panic!()
+        };
         let source1 = source1.clone().unwrap_transparent_reference();
         let source2 = source2.clone().unwrap_transparent_reference();
 
@@ -2243,7 +2266,7 @@ where
             }
         };
 
-        let result = self.do_store(target, result)?;
+        let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -2300,7 +2323,10 @@ where
     }
 
     fn do_index(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(object), Argument::Object(index_value), target] = &op.arguments[..] else {
+        // TODO
+        let [Argument::Object(object), Argument::Object(index_value), Argument::Object(target)] =
+            &op.arguments[..]
+        else {
             panic!()
         };
         let object = object.clone().unwrap_transparent_reference();
@@ -2345,104 +2371,93 @@ where
         }
         .wrap();
 
-        self.do_store(target, result.clone())?;
+        self.do_store(target.clone(), result.clone())?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
     }
 
-    fn do_store(&self, target: &Argument, object: WrappedObject) -> Result<WrappedObject, AmlError> {
+    /// Perform a store of `object` into `target`, matching the expected behaviour of `DefStore`,
+    /// which depends on the target:
+    ///    - Locals are overwritten, unless they contain a reference, in which case a store is
+    ///      performed to the referenced object with implicit casting
+    ///    - Args are overwritten, unless they contain a reference, in which case the referenced
+    ///      object is overwritten
+    ///    - Index references behave the same as locals
+    ///    - Named objects are stored into, with implicit casting
+    fn do_store(&self, target: WrappedObject, object: WrappedObject) -> Result<WrappedObject, AmlError> {
         let object = object.unwrap_transparent_reference();
         let token = self.object_token.lock();
 
-        /*
-         * TODO: stores should do more implicit conversion to the type of the destination in some
-         * cases, in line with section 19.3.5 of the spec. It's not clear what existing
-         * interpreters do - NT may just be memcpying objects over each other...
-         *
-         * TODO: stores to fields with `BufferAcc` can actually return a value of the store that
-         * differs from what was written into the field. This is used for complex field types with
-         * a write-then-read pattern. The return value is then used as the 'result' of the storing
-         * expression.
-         */
-        let to_return = object.clone();
+        match unsafe { target.gain_mut(&token) } {
+            Object::Reference { kind, inner } => {
+                let (target_object, overwrite) = match kind {
+                    ReferenceKind::Named => (inner.clone().unwrap_reference(), false),
+                    ReferenceKind::Local | ReferenceKind::Index => {
+                        if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
+                            (inner_inner.clone(), false)
+                        } else {
+                            (inner.clone().unwrap_transparent_reference(), true)
+                        }
+                    }
+                    ReferenceKind::Arg => {
+                        if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
+                            (inner_inner.clone(), true)
+                        } else {
+                            (inner.clone().unwrap_transparent_reference(), true)
+                        }
+                    }
+                    ReferenceKind::RefOf | ReferenceKind::Unresolved => {
+                        return Err(AmlError::StoreToInvalidReferenceType);
+                    }
+                };
 
-        match target {
-            Argument::Null => {}
-            Argument::Object(target) => match unsafe { target.gain_mut(&token) } {
-                Object::Integer(target) => match unsafe { object.gain_mut(&token) } {
-                    Object::Integer(value) => {
-                        *target = *value;
+                if overwrite {
+                    unsafe {
+                        *target_object.gain_mut(&token) = (*object).clone();
                     }
-                    Object::BufferField { .. } => {
-                        let mut buffer = [0u8; 8];
-                        unsafe { object.gain_mut(&token) }.read_buffer_field(&mut buffer)?;
-                        let value = u64::from_le_bytes(buffer);
-                        *target = value;
-                    }
-                    Object::FieldUnit(field) => {
-                        // TODO: not sure if we should convert buffers to integers if needed here?
-                        *target = self.do_field_read(field)?.as_integer()?;
-                    }
-                    _ => {
-                        let as_integer = object.to_integer(if self.dsdt_revision >= 2 { 8 } else { 4 })?;
-                        *target = as_integer;
-                    }
-                },
-                Object::BufferField { .. } => match unsafe { object.gain_mut(&token) } {
-                    Object::Integer(value) => {
-                        unsafe { target.gain_mut(&token) }.write_buffer_field(&value.to_le_bytes(), &token)?;
-                    }
-                    Object::Buffer(value) => {
-                        unsafe { target.gain_mut(&token) }.write_buffer_field(value.as_slice(), &token)?;
-                    }
-                    _ => panic!(),
-                },
-                Object::FieldUnit(field) => self.do_field_write(field, object)?,
-                Object::Reference { kind, inner } => {
-                    match kind {
-                        ReferenceKind::RefOf => todo!(),
-                        ReferenceKind::LocalOrArg => {
-                            if let Object::Reference { kind: _inner_kind, inner: inner_inner } = &**inner {
-                                // TODO: this should store into the reference, potentially doing an
-                                // implicit cast
-                                unsafe {
-                                    *inner_inner.gain_mut(&token) = object.gain_mut(&token).clone();
+                } else {
+                    match &*target_object {
+                        Object::Integer(_) | Object::String(_) | Object::Buffer(_) => {
+                            let target_object = unsafe { target_object.gain_mut(&token) };
+                            target_object.replace_with_implicit_casting((*object).clone())?;
+                        }
+                        Object::BufferField { .. } => {
+                            let target_object = unsafe { target_object.gain_mut(&token) };
+                            match unsafe { object.gain_mut(&token) } {
+                                Object::Integer(value) => {
+                                    target_object.write_buffer_field(&value.to_le_bytes(), &token)?
                                 }
-                            } else {
-                                // Overwrite the value
-                                unsafe {
-                                    *inner.gain_mut(&token) = object.gain_mut(&token).clone();
+                                Object::Buffer(value) => {
+                                    target_object.write_buffer_field(value.as_slice(), &token)?
                                 }
+                                _ => panic!(),
                             }
                         }
-                        ReferenceKind::Unresolved => todo!(),
-                    }
-                }
-                Object::Debug => {
-                    self.handler.handle_debug(&object);
-                }
-                _ => panic!("Stores to objects like {:?} are not yet supported", target),
-            },
 
-            Argument::Namestring(name) => {
-                let existing = self.namespace.lock().get(name.clone());
-                match existing {
-                    Ok(existing) => {
-                        unsafe {
-                            // TODO: this should likely be doing an implicit cast depending on object type?
-                            *existing.gain_mut(&token) = (*object).clone();
+                        /*
+                         * TODO: stores to fields with BufferAcc can return a different value to the
+                         * object stored. This is used for complex field types with a
+                         * write-then-read pattern. We should perform a read in those cases and
+                         * return that instead.
+                         */
+                        Object::FieldUnit(field_unit) => self.do_field_write(field_unit, object.clone())?,
+
+                        _ => {
+                            return Err(AmlError::InvalidOperationOnObject {
+                                op: Operation::Store,
+                                typ: target_object.typ(),
+                            });
                         }
-                    }
-                    Err(_) => {
-                        self.namespace.lock().insert(name.clone(), object)?;
                     }
                 }
             }
-            _ => panic!("Invalid argument type as DefStore target"),
+            Object::Debug => self.handler.handle_debug(&object),
+            Object::Integer(0) => {} // Store to NullName
+            _ => return Err(AmlError::InvalidOperationOnObject { op: Operation::Store, typ: target.typ() }),
         }
 
-        Ok(to_return)
+        Ok(object)
     }
 
     /// Do a read from a field by performing one or more well-formed accesses to the underlying
@@ -2851,9 +2866,12 @@ enum ResolveBehaviour {
     /// no forward definitions in AML, so this is the usual resolution behaviour for most operands.
     TermArg,
     /// Resolve a name to reference an object. This is used when an operation needs to operate on
-    /// the object itself, rather than evaluate it to a value. For example, accessing a `FieldUnit` would
-    /// read a value from the field with `TermArg`, but resolves to the `FieldUnit` with
-    /// this behaviour.
+    /// the object itself, rather than evaluate it to a value (for example, given a `FieldUnit`, `TermArg` would read a
+    /// value from the field, while this would resolve to the `FieldUnit` itself. Can be a name,
+    /// argument, or local.
+    SimpleName,
+    /// Like a `SimpleName`, but can also be the `Debug` object or an operation that produces a
+    /// reference.
     SuperName,
     /// Behaves the same as `SuperName` if the object exists, but resolves successfully to an
     /// unresolved reference if the object does not exist. Used by `DefCondRefOf`.
@@ -2880,7 +2898,6 @@ struct OpInFlight {
 
 #[derive(Debug)]
 enum Argument {
-    Null,
     Object(WrappedObject),
     Namestring(AmlName),
     ByteData(u8),
@@ -3425,6 +3442,8 @@ pub enum Operation {
     DecodePrt,
     ParseResource,
 
+    Store,
+
     ResetEvent,
     SignalEvent,
     WaitEvent,
@@ -3463,6 +3482,11 @@ pub enum AmlError {
         expected: ObjectType,
         got: ObjectType,
     },
+    InvalidImplicitCast {
+        from: ObjectType,
+        to: ObjectType,
+    },
+    StoreToInvalidReferenceType,
 
     InvalidResourceDescriptor,
     UnexpectedResourceType,
