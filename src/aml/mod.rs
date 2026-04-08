@@ -66,6 +66,35 @@ use op_region::{OpRegion, RegionHandler, RegionSpace};
 use pci_types::PciAddress;
 use spinning_top::Spinlock;
 
+/// Helper macro to extract an expected set of [`Argument`]s from the given [`OpInFlight`]. Use
+/// like:
+/// ``` ignore,rust
+/// extract_args!(op => [Argument::Object(source), Argument::Object(target)]);
+/// extract_args!(op[0..2] => [Argument::Object(source), Argument::Namespace(name)]);
+/// ```
+macro_rules! extract_args {
+    ($op:ident => $args:tt) => {
+        let $args = &$op.arguments[..] else {
+            return Err(AmlError::InternalError(alloc::format!(
+                "Operation has invalid argument types: {}, in {}:{}",
+                stringify!($args),
+                file!(),
+                line!(),
+            )));
+        };
+    };
+    ($op:ident[$x:expr] => $args:tt) => {
+        let $args = &$op.arguments[$x] else {
+            return Err(AmlError::InternalError(alloc::format!(
+                "Operation has invalid argument types: {}, in {}:{}",
+                stringify!($args),
+                file!(),
+                line!(),
+            )));
+        };
+    };
+}
+
 /// `Interpreter` implements a virtual machine for the dynamic AML bytecode. It can be used by a
 /// host operating system to load tables containing AML bytecode (generally the DSDT and SSDTs) and
 /// will then manage the AML namespace and all objects created during the life of the system.
@@ -416,9 +445,7 @@ where
                     | Opcode::And
                     | Opcode::Or
                     | Opcode::Nor
-                    | Opcode::Xor => {
-                        self.do_binary_maths(&mut context, op)?;
-                    }
+                    | Opcode::Xor => self.do_binary_maths(&mut context, op)?,
                     Opcode::Not | Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
                         self.do_unary_maths(&mut context, op)?;
                     }
@@ -426,6 +453,7 @@ where
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
                         let operand = operand.clone().unwrap_transparent_reference();
                         let token = self.object_token.lock();
+
                         let Object::Integer(operand) = (unsafe { operand.gain_mut(&token) }) else {
                             Err(AmlError::ObjectNotOfExpectedType {
                                 expected: ObjectType::Integer,
@@ -450,9 +478,7 @@ where
                     | Opcode::LGreaterEqual
                     | Opcode::LEqual
                     | Opcode::LGreater
-                    | Opcode::LLess => {
-                        self.do_logical_op(&mut context, op)?;
-                    }
+                    | Opcode::LLess => self.do_logical_op(&mut context, op)?,
                     Opcode::ToBuffer => self.do_to_buffer(&mut context, op)?,
                     Opcode::ToInteger => self.do_to_integer(&mut context, op)?,
                     Opcode::ToString => self.do_to_string(&mut context, op)?,
@@ -462,11 +488,11 @@ where
                     Opcode::Mid => self.do_mid(&mut context, op)?,
                     Opcode::Concat => self.do_concat(&mut context, op)?,
                     Opcode::ConcatRes => {
-                        let [Argument::Object(source1), Argument::Object(source2), Argument::Object(target)] =
-                            &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        extract_args!(op => [
+                            Argument::Object(source1),
+                            Argument::Object(source2),
+                            Argument::Object(target)
+                        ]);
                         let source1 = source1.as_buffer()?;
                         let source2 = source2.as_buffer()?;
                         let result = {
@@ -484,9 +510,7 @@ where
                         context.retire_op(op);
                     }
                     Opcode::Reset => {
-                        let [Argument::Object(sync_object)] = &op.arguments[..] else {
-                            panic!();
-                        };
+                        extract_args!(op => [Argument::Object(sync_object)]);
                         let sync_object = sync_object.clone().unwrap_reference();
 
                         if let Object::Event(ref counter) = *sync_object {
@@ -499,9 +523,7 @@ where
                         }
                     }
                     Opcode::Signal => {
-                        let [Argument::Object(sync_object)] = &op.arguments[..] else {
-                            panic!();
-                        };
+                        extract_args!(op => [Argument::Object(sync_object)]);
                         let sync_object = sync_object.clone().unwrap_reference();
 
                         if let Object::Event(ref counter) = *sync_object {
@@ -514,9 +536,7 @@ where
                         }
                     }
                     Opcode::Wait => {
-                        let [Argument::Object(sync_object), Argument::Object(timeout)] = &op.arguments[..] else {
-                            panic!();
-                        };
+                        extract_args!(op => [Argument::Object(sync_object), Argument::Object(timeout)]);
                         let sync_object = sync_object.clone().unwrap_reference();
                         let timeout = u64::min(timeout.as_integer()?, 0xffff);
 
@@ -570,9 +590,7 @@ where
                     }
                     Opcode::Notify => {
                         // TODO: may need special handling on the node to get path?
-                        let [Argument::Namestring(name), Argument::Object(value)] = &op.arguments[..] else {
-                            panic!();
-                        };
+                        extract_args!(op => [Argument::Namestring(name), Argument::Object(value)]);
                         let value = value.as_integer()?;
 
                         info!("Notify {:?} with value {}", name, value);
@@ -582,36 +600,25 @@ where
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
                     Opcode::Name => {
-                        let [Argument::Namestring(name), Argument::Object(object)] = &op.arguments[..] else {
-                            panic!()
-                        };
-
+                        extract_args!(op => [Argument::Namestring(name), Argument::Object(object)]);
                         let name = name.resolve(&context.current_scope)?;
                         self.namespace.lock().insert(name, object.clone())?;
                         context.retire_op(op);
                     }
                     Opcode::Fatal => {
-                        let [Argument::ByteData(typ), Argument::DWordData(code), Argument::Object(arg)] =
-                            &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        extract_args!(op => [Argument::ByteData(typ), Argument::DWordData(code), Argument::Object(arg)]);
                         let arg = arg.as_integer()?;
                         self.handler.handle_fatal_error(*typ, *code, arg);
                         context.retire_op(op);
                         return Err(AmlError::FatalErrorEncountered);
                     }
                     Opcode::OpRegion => {
-                        let [
+                        extract_args!(op => [
                             Argument::Namestring(name),
                             Argument::ByteData(region_space),
                             Argument::Object(region_offset),
                             Argument::Object(region_length),
-                        ] = &op.arguments[..]
-                        else {
-                            panic!()
-                        };
-
+                        ]);
                         let region_offset = region_offset.clone().unwrap_transparent_reference();
                         let region_length = region_length.clone().unwrap_transparent_reference();
 
@@ -625,15 +632,12 @@ where
                         context.retire_op(op);
                     }
                     Opcode::DataRegion => {
-                        let [
+                        extract_args!(op => [
                             Argument::Namestring(name),
                             Argument::Object(signature),
                             Argument::Object(oem_id),
                             Argument::Object(oem_table_id),
-                        ] = &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        ]);
                         let _signature = signature.as_string()?;
                         let _oem_id = oem_id.as_string()?;
                         let _oem_table_id = oem_table_id.as_string()?;
@@ -653,14 +657,11 @@ where
                         context.retire_op(op);
                     }
                     Opcode::Buffer => {
-                        let [
+                        extract_args!(op => [
                             Argument::TrackedPc(start_pc),
                             Argument::PkgLength(pkg_length),
                             Argument::Object(buffer_size),
-                        ] = &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        ]);
                         let buffer_size = buffer_size.clone().unwrap_transparent_reference().as_integer()?;
 
                         let buffer_len = pkg_length - (context.current_block.pc - start_pc);
@@ -677,7 +678,11 @@ where
                     Opcode::Package => {
                         let mut elements = Vec::with_capacity(op.expected_arguments);
                         for arg in &op.arguments {
-                            let Argument::Object(object) = arg else { panic!() };
+                            let Argument::Object(object) = arg else {
+                                return Err(AmlError::InternalError(
+                                    "Invalid argument type produced for package element".to_string(),
+                                ));
+                            };
                             elements.push(object.clone());
                         }
 
@@ -699,13 +704,17 @@ where
                         context.retire_op(op);
                     }
                     Opcode::VarPackage => {
-                        let Argument::Object(total_elements) = &op.arguments[0] else { panic!() };
+                        extract_args!(op[0..1] => [Argument::Object(total_elements)]);
                         let total_elements =
                             total_elements.clone().unwrap_transparent_reference().as_integer()? as usize;
 
                         let mut elements = Vec::with_capacity(total_elements);
                         for arg in &op.arguments[1..] {
-                            let Argument::Object(object) = arg else { panic!() };
+                            let Argument::Object(object) = arg else {
+                                return Err(AmlError::InternalError(
+                                    "Invalid argument type produced for package element".to_string(),
+                                ));
+                            };
                             elements.push(object.clone());
                         }
 
@@ -720,14 +729,11 @@ where
                         context.retire_op(op);
                     }
                     Opcode::If => {
-                        let [
+                        extract_args!(op => [
                             Argument::TrackedPc(start_pc),
                             Argument::PkgLength(then_length),
                             Argument::Object(predicate),
-                        ] = &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        ]);
                         let predicate = predicate.as_integer()?;
                         let remaining_then_length = then_length - (context.current_block.pc - start_pc);
 
@@ -759,9 +765,7 @@ where
                     | opcode @ Opcode::CreateWordField
                     | opcode @ Opcode::CreateDWordField
                     | opcode @ Opcode::CreateQWordField => {
-                        let [Argument::Object(buffer), Argument::Object(index)] = &op.arguments[..] else {
-                            panic!()
-                        };
+                        extract_args!(op => [Argument::Object(buffer), Argument::Object(index)]);
                         let name = context.namestring()?;
                         let index = index.as_integer()?;
                         let (offset, length) = match opcode {
@@ -779,11 +783,7 @@ where
                         context.retire_op(op);
                     }
                     Opcode::CreateField => {
-                        let [Argument::Object(buffer), Argument::Object(bit_index), Argument::Object(num_bits)] =
-                            &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        extract_args!(op => [Argument::Object(buffer), Argument::Object(bit_index), Argument::Object(num_bits)]);
                         let name = context.namestring()?;
                         let bit_index = bit_index.as_integer()?;
                         let num_bits = num_bits.as_integer()?;
@@ -800,23 +800,19 @@ where
                         context.retire_op(op);
                     }
                     Opcode::Store => {
-                        let [Argument::Object(object), Argument::Object(target)] = &op.arguments[..] else {
-                            panic!()
-                        };
+                        extract_args!(op => [Argument::Object(object), Argument::Object(target)]);
                         self.do_store(target.clone(), object.clone())?;
                         context.retire_op(op);
                     }
                     Opcode::RefOf => {
-                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(object)]);
                         let reference =
                             Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap();
                         context.contribute_arg(Argument::Object(reference));
                         context.retire_op(op);
                     }
                     Opcode::CondRefOf => {
-                        let [Argument::Object(object), Argument::Object(target)] = &op.arguments[..] else {
-                            panic!()
-                        };
+                        extract_args!(op => [Argument::Object(object), Argument::Object(target)]);
                         let result = if let Object::Reference { kind: ReferenceKind::Unresolved, .. } = **object {
                             Object::Integer(0)
                         } else {
@@ -829,7 +825,7 @@ where
                         context.retire_op(op);
                     }
                     Opcode::DerefOf => {
-                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(object)]);
                         let result = if object.typ() == ObjectType::Reference {
                             object.clone().unwrap_reference()
                         } else if object.typ() == ObjectType::String {
@@ -846,26 +842,21 @@ where
                         context.retire_op(op);
                     }
                     Opcode::Load => {
-                        let [Argument::Namestring(object), Argument::Object(result)] = &op.arguments[..] else {
-                            panic!();
-                        };
+                        extract_args!(op => [Argument::Namestring(object), Argument::Object(result)]);
                         // TODO: read the AML from the object and load it
                         warn!("Ignoring unsupported DefLoad operation (object={}, result = {})", object, result);
                         context.retire_op(op);
                         return Err(AmlError::LibUnimplemented);
                     }
                     Opcode::LoadTable => {
-                        let [
+                        extract_args!(op => [
                             Argument::Object(signature),
                             Argument::Object(oem_id),
                             Argument::Object(oem_table_id),
                             Argument::Object(root_path),
                             Argument::Object(parameter_path),
                             Argument::Object(parameter_data),
-                        ] = &op.arguments[..]
-                        else {
-                            panic!();
-                        };
+                        ]);
                         // TODO: search for the table in the RSDT/XSDT and load the contained AML
                         warn!(
                             "Ignoring unsupported DefLoadTable operation (signature = {}, oem_id = {}, oem_table_id = {}, root_path = {}, parameter_path = {}, parameter_data = {})",
@@ -875,17 +866,17 @@ where
                         return Err(AmlError::LibUnimplemented);
                     }
                     Opcode::Sleep => {
-                        let [Argument::Object(msec)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(msec)]);
                         self.handler.sleep(msec.as_integer()?);
                         context.retire_op(op);
                     }
                     Opcode::Stall => {
-                        let [Argument::Object(usec)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(usec)]);
                         self.handler.stall(usec.as_integer()?);
                         context.retire_op(op);
                     }
                     Opcode::Acquire => {
-                        let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(mutex)]);
                         let Object::Mutex { mutex, sync_level: _ } = **mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Acquire, typ: mutex.typ() })?
                         };
@@ -901,7 +892,7 @@ where
                         context.retire_op(op);
                     }
                     Opcode::Release => {
-                        let [Argument::Object(mutex)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(mutex)]);
                         let Object::Mutex { mutex, sync_level: _ } = **mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Release, typ: mutex.typ() })?
                         };
@@ -916,11 +907,7 @@ where
                         context.retire_op(op);
                     }
                     Opcode::InternalMethodCall => {
-                        let [Argument::Object(method), Argument::Namestring(method_scope)] = &op.arguments[0..2]
-                        else {
-                            panic!()
-                        };
-
+                        extract_args!(op[0..2] => [Argument::Object(method), Argument::Namestring(method_scope)]);
                         let args = op.arguments[2..]
                             .iter()
                             .map(|arg| {
@@ -950,7 +937,7 @@ where
                         }
                     }
                     Opcode::Return => {
-                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(object)]);
                         let object = object.clone().unwrap_transparent_reference();
 
                         if let Some(last) = self.context_stack.lock().pop() {
@@ -966,47 +953,51 @@ where
                         }
                     }
                     Opcode::ObjectType => {
-                        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(object)]);
+
                         // TODO: this should technically support scopes as well - this is less easy
                         // (they should return `0`)
-                        let typ = match object.typ() {
-                            ObjectType::Uninitialized => 0,
-                            ObjectType::Integer => 1,
-                            ObjectType::String => 2,
-                            ObjectType::Buffer => 3,
-                            ObjectType::Package => 4,
-                            ObjectType::FieldUnit => 5,
-                            ObjectType::Device => 6,
-                            ObjectType::Event => 7,
-                            ObjectType::Method => 8,
-                            ObjectType::Mutex => 9,
-                            ObjectType::OpRegion => 10,
-                            ObjectType::PowerResource => 11,
-                            ObjectType::Processor => 12,
-                            ObjectType::ThermalZone => 13,
-                            ObjectType::BufferField => 14,
-                            // XXX: 15 is reserved
-                            ObjectType::Debug => 16,
-                            ObjectType::Reference => panic!(),
-                            ObjectType::RawDataBuffer => 17,
-                        };
+                        fn object_type(object: &Object) -> u64 {
+                            if let Object::Reference { kind: _, inner } = object {
+                                object_type(&inner)
+                            } else {
+                                match object.typ() {
+                                    ObjectType::Uninitialized => 0,
+                                    ObjectType::Integer => 1,
+                                    ObjectType::String => 2,
+                                    ObjectType::Buffer => 3,
+                                    ObjectType::Package => 4,
+                                    ObjectType::FieldUnit => 5,
+                                    ObjectType::Device => 6,
+                                    ObjectType::Event => 7,
+                                    ObjectType::Method => 8,
+                                    ObjectType::Mutex => 9,
+                                    ObjectType::OpRegion => 10,
+                                    ObjectType::PowerResource => 11,
+                                    ObjectType::Processor => 12,
+                                    ObjectType::ThermalZone => 13,
+                                    ObjectType::BufferField => 14,
+                                    // XXX: 15 is reserved
+                                    ObjectType::Debug => 16,
+                                    ObjectType::RawDataBuffer => 17,
+                                    ObjectType::Reference => unreachable!(),
+                                }
+                            }
+                        }
 
-                        context.contribute_arg(Argument::Object(Object::Integer(typ).wrap()));
+                        context.contribute_arg(Argument::Object(Object::Integer(object_type(&object)).wrap()));
                         context.retire_op(op);
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
                     Opcode::Index => self.do_index(&mut context, op)?,
                     Opcode::BankField => {
-                        let [
+                        extract_args!(op => [
                             Argument::TrackedPc(start_pc),
                             Argument::PkgLength(pkg_length),
                             Argument::Namestring(region_name),
                             Argument::Namestring(bank_name),
                             Argument::Object(bank_value),
-                        ] = &op.arguments[..]
-                        else {
-                            panic!()
-                        };
+                        ]);
                         let bank_value = bank_value.as_integer()?;
                         let field_flags = context.next()?;
 
@@ -1026,8 +1017,7 @@ where
                          * We've just evaluated the predicate for an iteration of a while loop. If
                          * false, skip over the rest of the loop, otherwise carry on.
                          */
-                        let [Argument::Object(predicate)] = &op.arguments[..] else { panic!() };
-                        let predicate = predicate.as_integer()?;
+                        extract_args!(op => [Argument::Object(predicate)]);
                         let predicate = predicate.clone().unwrap_transparent_reference().as_integer()?;
 
                         if predicate == 0 {
@@ -1342,9 +1332,7 @@ where
                 Opcode::Revision => {
                     context.contribute_arg(Argument::Object(Object::Integer(INTERPRETER_REVISION).wrap()));
                 }
-                Opcode::Debug => {
-                    context.contribute_arg(Argument::Object(Object::Debug.wrap()));
-                }
+                Opcode::Debug => context.contribute_arg(Argument::Object(Object::Debug.wrap())),
                 Opcode::Fatal => {
                     let typ = context.next()?;
                     let code = context.next_u32()?;
@@ -1861,10 +1849,7 @@ where
     }
 
     fn do_binary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(left), Argument::Object(right), Argument::Object(target)] = &op.arguments[0..3]
-        else {
-            panic!()
-        };
+        extract_args!(op[0..3] => [Argument::Object(left), Argument::Object(right), Argument::Object(target)]);
         let target2 = if op.op == Opcode::Divide { Some(&op.arguments[3]) } else { None };
 
         let left = left.clone().unwrap_transparent_reference().as_integer()?;
@@ -1899,7 +1884,7 @@ where
     }
 
     fn do_unary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(operand)]);
         let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
 
         let result = match op.op {
@@ -1942,7 +1927,7 @@ where
 
     fn do_logical_op(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         if op.op == Opcode::LNot {
-            let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
+            extract_args!(op => [Argument::Object(operand)]);
             let operand = operand.clone().unwrap_transparent_reference().as_integer()?;
             let result = if operand == 0 { u64::MAX } else { 0 };
 
@@ -1951,7 +1936,7 @@ where
             return Ok(());
         }
 
-        let [Argument::Object(left), Argument::Object(right)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(left), Argument::Object(right)]);
         let left = left.clone().unwrap_transparent_reference();
         let right = right.clone().unwrap_transparent_reference();
 
@@ -2016,7 +2001,7 @@ where
     }
 
     fn do_to_buffer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand), Argument::Object(target)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(operand), Argument::Object(target)]);
         let operand = operand.clone().unwrap_transparent_reference();
 
         let result = match *operand {
@@ -2049,7 +2034,7 @@ where
     }
 
     fn do_to_integer(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand), Argument::Object(target)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(operand), Argument::Object(target)]);
         let operand = operand.clone().unwrap_transparent_reference();
 
         let result = match *operand {
@@ -2095,10 +2080,7 @@ where
     }
 
     fn do_to_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(source), Argument::Object(length), Argument::Object(target)] = &op.arguments[..]
-        else {
-            panic!()
-        };
+        extract_args!(op => [Argument::Object(source), Argument::Object(length), Argument::Object(target)]);
         let source = source.clone().unwrap_transparent_reference();
         let source = source.as_buffer()?;
         let length = length.clone().unwrap_transparent_reference().as_integer()? as usize;
@@ -2126,7 +2108,7 @@ where
 
     /// Perform a `ToDecimalString` or `ToHexString` operation
     fn do_to_dec_hex_string(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(operand), Argument::Object(target)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(operand), Argument::Object(target)]);
         let operand = operand.clone().unwrap_transparent_reference();
 
         let result = match *operand {
@@ -2167,15 +2149,7 @@ where
     }
 
     fn do_mid(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [
-            Argument::Object(source),
-            Argument::Object(index),
-            Argument::Object(length),
-            Argument::Object(target),
-        ] = &op.arguments[..]
-        else {
-            panic!()
-        };
+        extract_args!(op => [Argument::Object(source), Argument::Object(index), Argument::Object(length), Argument::Object(target)]);
         let index = index.clone().unwrap_transparent_reference().as_integer()? as usize;
         let length = length.clone().unwrap_transparent_reference().as_integer()? as usize;
 
@@ -2209,11 +2183,7 @@ where
     }
 
     fn do_concat(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        // TODO
-        let [Argument::Object(source1), Argument::Object(source2), Argument::Object(target)] = &op.arguments[..]
-        else {
-            panic!()
-        };
+        extract_args!(op => [Argument::Object(source1), Argument::Object(source2), Argument::Object(target)]);
         let source1 = source1.clone().unwrap_transparent_reference();
         let source2 = source2.clone().unwrap_transparent_reference();
 
@@ -2273,7 +2243,7 @@ where
     }
 
     fn do_from_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(value)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(value)]);
         let mut value = value.clone().unwrap_transparent_reference().as_integer()?;
 
         let mut result = 0;
@@ -2290,7 +2260,7 @@ where
     }
 
     fn do_to_bcd(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(value)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(value)]);
         let mut value = value.clone().unwrap_transparent_reference().as_integer()?;
 
         let mut result = 0;
@@ -2307,7 +2277,7 @@ where
     }
 
     fn do_size_of(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        let [Argument::Object(object)] = &op.arguments[..] else { panic!() };
+        extract_args!(op => [Argument::Object(object)]);
         let object = object.clone().unwrap_transparent_reference();
 
         let result = match *object {
@@ -2323,12 +2293,7 @@ where
     }
 
     fn do_index(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        // TODO
-        let [Argument::Object(object), Argument::Object(index_value), Argument::Object(target)] =
-            &op.arguments[..]
-        else {
-            panic!()
-        };
+        extract_args!(op => [Argument::Object(object), Argument::Object(index_value), Argument::Object(target)]);
         let object = object.clone().unwrap_transparent_reference();
         let index_value = index_value.clone().unwrap_transparent_reference().as_integer()?;
 
@@ -3515,4 +3480,8 @@ pub enum AmlError {
     /// This variant is set by the host, not by the library, and can be used when it is convenient
     /// not to construct a more complex error type around [`AmlError`].
     HostError(String),
+
+    /// An internal interpreter error has occured, and the interpreter has been left in an unknown
+    /// state. More information may be given in the contained value.
+    InternalError(String),
 }
