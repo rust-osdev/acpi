@@ -41,9 +41,10 @@ suite as well as our own. This can be done by:
 2. Navigating to the root of that repo.
 3. Running something like: 
    ```shell
-   AML_TESTER_PATH=../acpi/target/debug/aml_tester python3 tests/run_tests.py --test-runner ../acpi/target/debug/uacpi_test_adapter`
+   python3 tests/run_tests.py --test-runner ../acpi/target/debug/uacpi_test_adapter
    ```
-   Adjusting the paths as necessary. (And editing as needed for PowerShell)
+   Adjusting the paths as necessary. See the `uacpi_test_adapter` documentation for details on how it finds
+   `aml_tester`.
 
 Note that, at present, several of the uACPI tests run indefinitely. You may want to skip these! The easiest way to do so
 is probably just to delete them... The relevant tests are:
