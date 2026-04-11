@@ -93,7 +93,6 @@ If the ASL contains a MAIN method, it will be executed.",
         cmd.print_help().unwrap();
         return ExitCode::SUCCESS;
     }
-    log::set_max_level(log::LevelFilter::Info);
 
     let matches = cmd.get_matches();
 
@@ -230,13 +229,16 @@ If the ASL contains a MAIN method, it will be executed.",
             }
         };
 
+        if let Some(ref interpreter) = interpreter_returned {
+            println!("Namespace: {}", interpreter.namespace.lock());
+        }
+
         interpreter = match interpreter_returned {
             _ if !combined_test => new_interpreter(new_handler()),
             None => new_interpreter(new_handler()),
             Some(i) => i,
         };
 
-        println!("Namespace: {}", interpreter.namespace.lock());
         summaries.insert((file_entry, simple_result));
     }
 
