@@ -389,7 +389,7 @@ where
             if result_matches(expected_result, &result) {
                 Ok(())
             } else {
-                let e = format!("Unexpected MAIN result: {:?}", expected_result);
+                let e = format!("Unexpected MAIN result: {}, expected: {:?}", *result, expected_result);
                 error!("{}", e);
                 Err(AmlError::HostError(e))
             }
