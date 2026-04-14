@@ -219,7 +219,7 @@ impl Object {
                  */
                 let length = usize::min(bytes.len(), allowed_bytes);
                 let mut to_interpret = [0u8; 8];
-                to_interpret[0..length].copy_from_slice(bytes);
+                to_interpret[0..length].copy_from_slice(&bytes[0..length]);
                 Ok(u64::from_le_bytes(to_interpret))
             }
             Object::String(value) => {
@@ -591,5 +591,39 @@ mod tests {
 
         copy_bits(&src, 0, &mut dst, 2, 15);
         assert_eq!(dst, [0b1111_1101, 0b1101_1110, 0b0000_0001, 0b0000_0000, 0b0000_0000]);
+    }
+
+    #[test]
+    fn buffer_to_integer() {
+        let buffer = Object::Buffer(Vec::from([0xab, 0xcd, 0xef, 0x01, 0xff]));
+        assert_eq!(buffer.to_integer(4).unwrap(), 0x01efcdab);
+    }
+
+
+    #[test]
+    fn buffer_field_to_integer() {
+        const BUFFER: [u8; 5] = [0xffu8; 5];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer_field = Object::BufferField {
+            buffer,
+            offset: 5,
+            length: 9,
+        };
+
+        assert_eq!(buffer_field.to_integer(4).unwrap(), 0x1ff);
+    }
+
+    #[test]
+    fn buffer_field_to_4_byte_integer() {
+        // The ones in this buffer are strategically chosen to not make it to the final integer.
+        const BUFFER: [u8; 5] = [0x0f, 0x00, 0x00, 0x00, 0xf0];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer_field = Object::BufferField {
+            buffer,
+            offset: 4,
+            length: 36, // This should be truncated to 32 bits in the conversion
+        };
+
+        assert_eq!(buffer_field.to_integer(4).unwrap(), 0);
     }
 }
