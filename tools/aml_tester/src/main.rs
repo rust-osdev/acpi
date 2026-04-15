@@ -25,6 +25,7 @@ use aml_test_tools::{
 };
 use clap::{Arg, ArgAction, ArgGroup};
 use colored::Colorize;
+use parse_int::parse;
 use std::{
     collections::HashSet,
     fs::{self},
@@ -104,7 +105,7 @@ If the ASL contains a MAIN method, it will be executed.",
 
             match expect_type.as_str() {
                 "int" => {
-                    let parsed = expect_value.parse::<u64>().map_err(|_| {
+                    let parsed = parse::<u64>(expect_value).map_err(|_| {
                         println!("Invalid --expect value for type int: expected an unsigned integer");
                     })?;
                     Ok(ExpectedResult::Integer(parsed))
