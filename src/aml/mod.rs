@@ -580,7 +580,7 @@ where
 
                                 let to_sleep = u64::min(timeout, 10);
                                 if timeout < 0xffff {
-                                    remaining_sleep -= to_sleep
+                                    remaining_sleep = remaining_sleep.saturating_sub(to_sleep);
                                 }
                                 self.handler.sleep(to_sleep);
                             }
