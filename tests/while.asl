@@ -22,4 +22,10 @@ DefinitionBlock("while.aml", "DSDT", 1, "RSACPI", "WHILE", 1) {
         Continue
         Z++
     }
+
+    // Test `Decrement` in the predicate - common pattern
+    Local0 = 5
+    While (Local0--) {
+        Continue
+    }
 }
