@@ -474,6 +474,7 @@ where
                         };
 
                         *operand = new_value;
+                        context.contribute_arg(Argument::Object(Object::Integer(new_value).wrap()));
                         context.retire_op(op);
                     }
                     Opcode::LAnd
