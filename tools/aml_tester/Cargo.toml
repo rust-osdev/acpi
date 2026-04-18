@@ -10,4 +10,5 @@ aml_test_tools = { path = "../aml_test_tools" }
 clap = "4"
 colored = "3.1.1"
 log = "0.4"
+parse_int = "0.9.0"
 pretty_env_logger = "0.5.0"

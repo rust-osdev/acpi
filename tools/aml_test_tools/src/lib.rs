@@ -1,21 +1,27 @@
+#![feature(sync_unsafe_cell)]
 //! A collection of helper utilities for testing AML using the [`acpi`] crate.
 //!
 //! These utilities are very heavily based on the way the [`acpi`] crate has used them historically.
 //! As always, feel free to offer PRs for improvements.
 
 pub mod handlers;
+pub mod result;
 pub mod tables;
 
-use crate::tables::{TestAcpiTable, bytes_to_tables};
+use crate::{
+    result::{ExpectedResult, result_matches},
+    tables::{TestAcpiTable, bytes_to_tables},
+};
 use acpi::{
     Handler,
     PhysicalMapping,
     address::MappedGas,
-    aml::{AmlError, Interpreter, namespace::AmlName, object::Object},
-    sdt::Signature,
+    aml::{AmlError, Interpreter, namespace::AmlName},
+    sdt::{Signature, facs::Facs},
 };
 use log::{error, trace};
 use std::{
+    cell::SyncUnsafeCell,
     ffi::OsStr,
     fmt::Debug,
     fs::File,
@@ -25,7 +31,7 @@ use std::{
     process::Command,
     ptr::NonNull,
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, atomic::AtomicU32},
 };
 use tempfile::{NamedTempFile, TempDir, tempdir};
 
@@ -194,6 +200,11 @@ pub fn resolve_and_compile(path: &PathBuf, can_compile: bool) -> CompilationOutc
 ///
 /// * `handler`: The Handler to be called by the interpreter when needed. This crate includes some
 ///   example [handlers].
+///
+/// Thread safety:
+///
+/// This function uses a single, static, FACS for all tests. If tests are run in parallel, this
+/// means they will share a single global lock.
 pub fn new_interpreter<T>(handler: T) -> Interpreter<T>
 where
     T: Handler + Clone,
@@ -234,17 +245,38 @@ where
         },
     });
 
+    // As noted in the doc-comment, this Facs is shared between all tests - so if tests are run in
+    // parallel, they will share a single global lock.
+    //
+    // This construct is needed because the FACS in a real system is effectively 'static, and the
+    // interpreter relies on that.
+    static FAKE_FACS: SyncUnsafeCell<Facs> = SyncUnsafeCell::new(Facs {
+        signature: Signature::FACS,
+        length: size_of::<Facs>() as u32,
+        hardware_signature: 0,
+        firmware_waking_vector: 0,
+        global_lock: AtomicU32::new(0),
+        flags: 0,
+        x_firmware_waking_vector: 0,
+        version: 2,
+        _reserved0: [0; 3],
+        ospm_flags: 0,
+        reserved1: [0; 24],
+    });
+
+    let fake_facs_ptr = FAKE_FACS.get();
+
     // This PhysicalMapping is dropped when the interpreter is dropped, and if you use logging in
     // the handler object you'll see a call to Handler::unmap_physical_region without any
     // corresponding call to Interpreter::map_physical_region.
-    let fake_facs = PhysicalMapping {
+    let fake_facs_mapping = PhysicalMapping {
         physical_start: 0x0,
-        virtual_start: NonNull::new(0x8000_0000_0000_0000 as *mut acpi::sdt::facs::Facs).unwrap(),
+        virtual_start: NonNull::new(fake_facs_ptr).unwrap(),
         region_length: 32,
         mapped_length: 32,
         handler: handler.clone(),
     };
-    Interpreter::new(handler, 2, fake_registers, Some(fake_facs))
+    Interpreter::new(handler, 2, fake_registers, Some(fake_facs_mapping))
 }
 
 /// Test an ASL script given as a string, using [`run_test`].
@@ -253,14 +285,18 @@ where
 /// * `asl`: A string slice containing an ASL script. This will be compiled to AML using `iasl` and
 ///   then tested using [`run_test`]
 /// * `interpreter`: The interpreter to use for testing.
-pub fn run_test_for_string<T>(asl: &'static str, interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test_for_string<T>(
+    asl: &'static str,
+    interpreter: Interpreter<T>,
+    expected_result: &Option<ExpectedResult>,
+) -> RunTestResult<T>
 where
     T: Handler,
 {
     let script = create_script_file(asl);
     match resolve_and_compile(&script.asl_file.path().to_path_buf(), true) {
         CompilationOutcome::Succeeded(aml_path) | CompilationOutcome::IsAml(aml_path) => {
-            run_test_for_file(&aml_path, interpreter)
+            run_test_for_file(&aml_path, interpreter, expected_result)
         }
         _ => RunTestResult::Failed(interpreter, TestFailureReason::CompileFail),
     }
@@ -273,7 +309,11 @@ where
 /// * `file`: The path to the AML file to test. This must be an AML file otherwise the test will
 ///   fail very quickly.
 /// * `interpreter`: The interpreter to use for testing.
-pub fn run_test_for_file<T>(file: &PathBuf, interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test_for_file<T>(
+    file: &PathBuf,
+    interpreter: Interpreter<T>,
+    expected_result: &Option<ExpectedResult>,
+) -> RunTestResult<T>
 where
     T: Handler,
 {
@@ -287,7 +327,7 @@ where
         return RunTestResult::Failed(interpreter, TestFailureReason::TablesErr);
     };
 
-    run_test(tables, interpreter)
+    run_test(tables, interpreter, expected_result)
 }
 
 /// Internal function to create a temporary script file from an ASL string, plus to calculate the
@@ -318,7 +358,11 @@ fn create_script_file(asl: &'static str) -> TempScriptFile {
 /// * `interpreter`: The interpreter to test with. The interpreter is consumed to maintain unwind
 ///   safety - if the interpreter panics, the caller should not be able to see the interpreter in
 ///   an inconsistent state.
-pub fn run_test<T>(tables: Vec<TestAcpiTable>, interpreter: Interpreter<T>) -> RunTestResult<T>
+pub fn run_test<T>(
+    tables: Vec<TestAcpiTable>,
+    interpreter: Interpreter<T>,
+    expected_result: &Option<ExpectedResult>,
+) -> RunTestResult<T>
 where
     T: Handler,
 {
@@ -341,18 +385,13 @@ where
         trace!("All tables loaded");
 
         if let Some(result) = interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])? {
-            match *result {
-                Object::Integer(0) => Ok(()),
-                Object::Integer(other) => {
-                    let e = format!("Test _MAIN returned non-zero exit code: {}", other);
-                    error!("{}", e);
-                    Err(AmlError::HostError(e))
-                }
-                _ => {
-                    let e = format!("Test _MAIN returned unexpected object type: {}", *result);
-                    error!("{}", e);
-                    Err(AmlError::HostError(e))
-                }
+            let expected_result = expected_result.as_ref().unwrap_or(&ExpectedResult::Integer(0));
+            if result_matches(expected_result, &result) {
+                Ok(())
+            } else {
+                let e = format!("Unexpected MAIN result: {}, expected: {:?}", *result, expected_result);
+                error!("{}", e);
+                Err(AmlError::HostError(e))
             }
         } else {
             Ok(())

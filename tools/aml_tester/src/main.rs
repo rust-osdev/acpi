@@ -7,6 +7,9 @@
  *      - Run the AML parser on each AML file, printing test output like `cargo test` does in a nice table for
  *        each AML file
  *      - For failing tests, print out a nice summary of the errors for each file
+ *
+ * `aml_tester` can be used with `uacpi_test_adapter` to run the uACPI test suite (except for the
+ * resource tests). See the `uacpi_test_adapter` documentation for more information.
  */
 
 use acpi::Handler;
@@ -14,6 +17,7 @@ use aml_test_tools::{
     handlers::{logging_handler::LoggingHandler, null_handler::NullHandler},
     new_interpreter,
     resolve_and_compile,
+    result::ExpectedResult,
     CompilationOutcome,
     RunTestResult,
     TestFailureReason,
@@ -21,14 +25,14 @@ use aml_test_tools::{
 };
 use clap::{Arg, ArgAction, ArgGroup};
 use colored::Colorize;
+use parse_int::parse;
 use std::{
     collections::HashSet,
     fs::{self},
     io::Write,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, ExitCode},
 };
-use std::process::ExitCode;
 
 /// The result of a test, with all other information (error codes etc.) stripped away. This value
 /// can then be stored in a Set - the test results with more info cannot.
@@ -73,6 +77,16 @@ If the ASL contains a MAIN method, it will be executed.",
                 .help("Don't clear the namespace between tests"),
         )
         .arg(Arg::new("path").short('p').long("path").required(false).action(ArgAction::Set).value_name("DIR"))
+        // The --expect argument is defined to exactly match the parameters sent by the uACPI test
+        // runner. This makes it much easier to test our crate against their tests.
+        .arg(
+            Arg::new("expect")
+                .long("expect")
+                .value_names(["TYPE", "VALUE"])
+                .num_args(2)
+                .required(false)
+                .help("Expect MAIN to return a value: --expect int <unsigned> or --expect str <text>"),
+        )
         .arg(Arg::new("files").action(ArgAction::Append).value_name("FILE.{asl,aml}"))
         .group(ArgGroup::new("files_list").args(["path", "files"]).required(true));
     if std::env::args().count() <= 1 {
@@ -82,6 +96,31 @@ If the ASL contains a MAIN method, it will be executed.",
     log::set_max_level(log::LevelFilter::Info);
 
     let matches = cmd.get_matches();
+
+    let Ok(expected_result) = matches
+        .get_many::<String>("expect")
+        .map(|mut values| {
+            let expect_type = values.next().unwrap();
+            let expect_value = values.next().unwrap();
+
+            match expect_type.as_str() {
+                "int" => {
+                    let parsed = parse::<u64>(expect_value).map_err(|_| {
+                        println!("Invalid --expect value for type int: expected an unsigned integer");
+                    })?;
+                    Ok(ExpectedResult::Integer(parsed))
+                }
+                "str" => Ok(ExpectedResult::String(expect_value.clone())),
+                _ => {
+                    println!("Invalid --expect type: expected `int` or `str`");
+                    Err(())
+                }
+            }
+        })
+        .transpose()
+    else {
+        return ExitCode::FAILURE;
+    };
 
     // Make sure we have the ability to compile ASL -> AML, if user wants it
     let user_wants_compile = !matches.get_flag("no_compile");
@@ -164,7 +203,7 @@ If the ASL contains a MAIN method, it will be executed.",
         print!("Testing AML file: {:?}... ", file_entry);
         std::io::stdout().flush().unwrap();
 
-        let result = aml_test_tools::run_test_for_file(&file_entry, interpreter);
+        let result = aml_test_tools::run_test_for_file(&file_entry, interpreter, &expected_result);
         let simple_result: FinalTestResult = TestResult::from(&result).into();
 
         let interpreter_returned = match result {

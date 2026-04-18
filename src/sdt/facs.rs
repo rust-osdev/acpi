@@ -11,7 +11,7 @@ pub struct Facs {
     pub flags: u32,
     pub x_firmware_waking_vector: u64,
     pub version: u8,
-    _reserved0: [u8; 3],
+    pub _reserved0: [u8; 3],
     pub ospm_flags: u32,
-    reserved1: [u8; 24],
+    pub reserved1: [u8; 24],
 }

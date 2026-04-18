@@ -14,6 +14,6 @@ pub fn run_aml_test(asl: &'static str, handler: impl Handler) {
     let logged_handler = LoggingHandler::new(handler);
     let interpreter = new_interpreter(logged_handler);
 
-    let result = run_test_for_string(asl, interpreter);
+    let result = run_test_for_string(asl, interpreter, &None);
     assert!(matches!(result, RunTestResult::Pass(_)), "Test failed with: {:?}", TestResult::from(&result));
 }
