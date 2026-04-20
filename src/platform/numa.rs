@@ -11,6 +11,7 @@ use core::alloc::Allocator;
 
 /// Information about the setup of NUMA (Non-Uniform Memory Architecture) resources within the
 /// sytem.
+#[derive(Clone, Debug)]
 pub struct NumaInfo<A: Allocator = Global> {
     pub processor_affinity: Vec<ProcessorAffinity, A>,
     pub memory_affinity: Vec<MemoryAffinity, A>,
