@@ -249,11 +249,7 @@ impl Object {
             }
             Object::BufferField { .. } => {
                 let o = self.read_buffer_field(allowed_bytes)?;
-                match o {
-                    Object::Integer(value) => Ok(value),
-                    Object::Buffer(bytes) => Ok(u64::from_le_bytes(bytes.try_into().unwrap())),
-                    _ => unreachable!(),
-                }
+                o.to_integer(allowed_bytes)
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: self.typ() })?,
         }
@@ -601,5 +597,36 @@ mod tests {
     fn buffer_to_integer() {
         let buffer = Object::Buffer(Vec::from([0xab, 0xcd, 0xef, 0x01, 0xff]));
         assert_eq!(buffer.to_integer(4).unwrap(), 0x01efcdab);
+    }
+    #[test]
+    fn buffer_field_to_integer() {
+        const BUFFER: [u8; 5] = [0xffu8; 5];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer_field = Object::BufferField { buffer, offset: 5, length: 9 };
+
+        assert_eq!(buffer_field.to_integer(4).unwrap(), 0x1ff);
+    }
+
+    #[test]
+    fn buffer_field_to_4_byte_integer() {
+        // The ones in this buffer are strategically chosen to not make it to the final integer.
+        const BUFFER: [u8; 5] = [0x0f, 0x00, 0x00, 0x00, 0xf0];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer_field = Object::BufferField {
+            buffer,
+            offset: 4,
+            length: 36, // This should be truncated to 32 bits in the conversion
+        };
+
+        assert_eq!(buffer_field.to_integer(4).unwrap(), 0);
+    }
+
+    #[test]
+    fn buffer_field_to_8_byte_integer() {
+        const BUFFER: [u8; 6] = [0x0f, 0x00, 0x00, 0x00, 0xf0, 0xff];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer_field = Object::BufferField { buffer, offset: 4, length: 36 };
+
+        assert_eq!(buffer_field.to_integer(8).unwrap(), 0x0000000f_00000000);
     }
 }
