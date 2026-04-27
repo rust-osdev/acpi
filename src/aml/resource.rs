@@ -551,7 +551,6 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::sync::Arc;
 
     #[test]
     fn test_parses_keyboard_crs() {
