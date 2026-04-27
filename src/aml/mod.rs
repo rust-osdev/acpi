@@ -16,6 +16,7 @@
  *  - Fuzzing and guarantee panic-free interpretation
  */
 
+pub mod dsdt_info;
 pub mod namespace;
 pub mod object;
 pub mod op_region;
@@ -28,6 +29,7 @@ use crate::{
     Handle,
     Handler,
     PhysicalMapping,
+    aml::dsdt_info::{DsdtInfo, IntegerSize},
     platform::AcpiPlatform,
     registers::{FixedRegisters, Pm1ControlBit},
     sdt::{SdtHeader, facs::Facs, fadt::Fadt},
@@ -106,7 +108,7 @@ where
     pub namespace: Spinlock<Namespace>,
     pub object_token: Spinlock<ObjectToken>,
     context_stack: Spinlock<Vec<MethodContext>>,
-    dsdt_revision: u8,
+    dsdt_info: DsdtInfo,
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
 
     global_lock_mutex: Handle,
@@ -142,7 +144,7 @@ where
             namespace: Spinlock::new(Namespace::new(global_lock_mutex)),
             object_token: Spinlock::new(unsafe { ObjectToken::create_interpreter_token() }),
             context_stack: Spinlock::new(Vec::new()),
-            dsdt_revision,
+            dsdt_info: DsdtInfo::from_revision(dsdt_revision),
             region_handlers: Spinlock::new(BTreeMap::new()),
             global_lock_mutex,
             registers,
@@ -403,12 +405,6 @@ where
                 break is_pending;
             }
         }
-    }
-
-    /// Returns the size of an integer (in bytes) for the set of tables parsed so far. This depends
-    /// on the revision of the initial DSDT.
-    pub fn integer_size(&self) -> usize {
-        if self.dsdt_revision >= 2 { 8 } else { 4 }
     }
 
     fn do_execute_method(&self, mut context: MethodContext) -> Result<WrappedObject, AmlError> {
@@ -1619,7 +1615,7 @@ where
                                         let value = self.do_field_read(field)?;
                                         context.last_op()?.arguments.push(Argument::Object(value));
                                     } else if let Object::BufferField { .. } = *object {
-                                        let value = object.read_buffer_field(self.integer_size())?;
+                                        let value = object.read_buffer_field(self.dsdt_info.integer_size)?;
                                         context.last_op()?.arguments.push(Argument::Object(value.wrap()));
                                     } else {
                                         context.last_op()?.arguments.push(Argument::Object(object));
@@ -1869,9 +1865,8 @@ where
         extract_args!(op[0..3] => [Argument::Object(left), Argument::Object(right), Argument::Object(target)]);
         let target2 = if op.op == Opcode::Divide { Some(&op.arguments[3]) } else { None };
 
-        let allowed_length = if self.dsdt_revision >= 2 { 8 } else { 4 };
-        let left = left.clone().unwrap_transparent_reference().to_integer(allowed_length)?;
-        let right = right.clone().unwrap_transparent_reference().to_integer(allowed_length)?;
+        let left = left.clone().unwrap_transparent_reference().to_integer(self.dsdt_info.integer_size)?;
+        let right = right.clone().unwrap_transparent_reference().to_integer(self.dsdt_info.integer_size)?;
 
         let result = match op.op {
             Opcode::Add => left.wrapping_add(right),
@@ -1914,10 +1909,9 @@ where
                      * This is a particularly important place to respect the integer width as set
                      * by the DSDT revision.
                      */
-                    match self.integer_size() {
-                        4 => ((operand as u32).leading_zeros() + 1) as u64,
-                        8 => (operand.leading_zeros() + 1) as u64,
-                        _ => unreachable!(),
+                    match self.dsdt_info.integer_size {
+                        IntegerSize::FourBytes => ((operand as u32).leading_zeros() + 1) as u64,
+                        IntegerSize::EightBytes => (operand.leading_zeros() + 1) as u64,
                     }
                 }
             }
@@ -2025,7 +2019,7 @@ where
         let result = match *operand {
             Object::Buffer(ref bytes) => Object::Buffer(bytes.clone()),
             Object::Integer(value) => {
-                if self.integer_size() == 8 {
+                if self.dsdt_info.integer_size == IntegerSize::EightBytes {
                     Object::Buffer(value.to_le_bytes().to_vec())
                 } else {
                     Object::Buffer((value as u32).to_le_bytes().to_vec())
@@ -2055,7 +2049,7 @@ where
         extract_args!(op => [Argument::Object(operand), Argument::Object(target)]);
         let operand = operand.clone().unwrap_transparent_reference();
 
-        let result = Object::Integer(operand.to_integer(if self.dsdt_revision >= 2 { 8 } else { 4 })?).wrap();
+        let result = Object::Integer(operand.to_integer(self.dsdt_info.integer_size)?).wrap();
         let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
@@ -2196,9 +2190,9 @@ where
         let result = match source1.typ() {
             ObjectType::Integer => {
                 let source1 = source1.as_integer()?;
-                let source2 = source2.to_integer(self.integer_size())?;
+                let source2 = source2.to_integer(self.dsdt_info.integer_size)?;
                 let mut buffer = Vec::new();
-                if self.integer_size() == 8 {
+                if self.dsdt_info.integer_size == IntegerSize::EightBytes {
                     buffer.extend_from_slice(&source1.to_le_bytes());
                     buffer.extend_from_slice(&source2.to_le_bytes());
                 } else {
@@ -2209,7 +2203,7 @@ where
             }
             ObjectType::Buffer => {
                 let mut buffer = source1.as_buffer()?.to_vec();
-                buffer.extend(source2.to_buffer(self.integer_size())?);
+                buffer.extend(source2.to_buffer(self.dsdt_info.integer_size)?);
                 Object::Buffer(buffer).wrap()
             }
             _ => {
@@ -2447,7 +2441,7 @@ where
     /// return either an `Integer` or `Buffer` as appropriate, guided by the size of the field
     /// and expected integer size (as per the DSDT revision).
     fn do_field_read(&self, field: &FieldUnit) -> Result<WrappedObject, AmlError> {
-        let needs_buffer = field.bit_length > (self.integer_size() * 8);
+        let needs_buffer = field.bit_length > (self.dsdt_info.integer_size as usize * 8);
         let access_width_bits = field.flags.access_type_bytes()? * 8;
 
         trace!("AML field read. Field = {:?}", field);

@@ -1,4 +1,4 @@
-use crate::aml::{AmlError, Handle, Operation, op_region::OpRegion};
+use crate::aml::{AmlError, Handle, Operation, dsdt_info::IntegerSize, op_region::OpRegion};
 use alloc::{
     borrow::Cow,
     string::{String, ToString},
@@ -209,12 +209,7 @@ impl Object {
     /// Converts the object to an integer. Used for both implicit and explicit conversions.
     ///
     /// To avoid the cast, use [`Object::as_integer`] instead.
-    pub fn to_integer(&self, allowed_bytes: usize) -> Result<u64, AmlError> {
-        // This check shouldn't hit, but it protects the `to_interpret` buffer below from panicking.
-        if allowed_bytes > size_of::<u64>() {
-            return Err(AmlError::InvalidIntegerSize(allowed_bytes));
-        }
-
+    pub fn to_integer(&self, integer_size: IntegerSize) -> Result<u64, AmlError> {
         match self {
             Object::Integer(value) => Ok(*value),
             Object::Buffer(bytes) => {
@@ -222,7 +217,7 @@ impl Object {
                  * The spec says this should respect the revision of the current definition block.
                  * Apparently, the NT interpreter always uses the first 8 bytes of the buffer.
                  */
-                let length = usize::min(bytes.len(), allowed_bytes);
+                let length = usize::min(bytes.len(), integer_size as usize);
                 let mut to_interpret = [0u8; 8];
                 to_interpret[0..length].copy_from_slice(&bytes[0..length]);
                 Ok(u64::from_le_bytes(to_interpret))
@@ -248,34 +243,32 @@ impl Object {
                 }
             }
             Object::BufferField { .. } => {
-                let o = self.read_buffer_field(allowed_bytes)?;
-                o.to_integer(allowed_bytes)
+                self.read_buffer_field(integer_size)?.to_integer(integer_size)
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: self.typ() })?,
         }
     }
 
-    pub fn to_buffer(&self, allowed_bytes: usize) -> Result<Vec<u8>, AmlError> {
+    pub fn to_buffer(&self, integer_size: IntegerSize) -> Result<Vec<u8>, AmlError> {
         match self {
             Object::Buffer(bytes) => Ok(bytes.clone()),
-            Object::Integer(value) => match allowed_bytes {
-                4 => Ok((*value as u32).to_le_bytes().to_vec()),
-                8 => Ok(value.to_le_bytes().to_vec()),
-                _ => panic!(),
+            Object::Integer(value) => match integer_size {
+                IntegerSize::FourBytes => Ok((*value as u32).to_le_bytes().to_vec()),
+                IntegerSize::EightBytes => Ok(value.to_le_bytes().to_vec()),
             },
             Object::String(value) => Ok(value.as_bytes().to_vec()),
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ConvertToBuffer, typ: self.typ() }),
         }
     }
 
-    pub fn read_buffer_field(&self, integer_size: usize) -> Result<Object, AmlError> {
+    pub fn read_buffer_field(&self, integer_size: IntegerSize) -> Result<Object, AmlError> {
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match **buffer {
                 Object::Buffer(ref buffer) => buffer.as_slice(),
                 Object::String(ref string) => string.as_bytes(),
                 _ => panic!(),
             };
-            if *length <= integer_size {
+            if *length <= integer_size as usize {
                 let mut dst = [0u8; 8];
                 copy_bits(buffer, *offset, &mut dst, 0, *length);
                 Ok(Object::Integer(u64::from_le_bytes(dst)))
@@ -596,7 +589,7 @@ mod tests {
     #[test]
     fn buffer_to_integer() {
         let buffer = Object::Buffer(Vec::from([0xab, 0xcd, 0xef, 0x01, 0xff]));
-        assert_eq!(buffer.to_integer(4).unwrap(), 0x01efcdab);
+        assert_eq!(buffer.to_integer(IntegerSize::FourBytes).unwrap(), 0x01efcdab);
     }
     #[test]
     fn buffer_field_to_integer() {
@@ -604,7 +597,7 @@ mod tests {
         let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
         let buffer_field = Object::BufferField { buffer, offset: 5, length: 9 };
 
-        assert_eq!(buffer_field.to_integer(4).unwrap(), 0x1ff);
+        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes).unwrap(), 0x1ff);
     }
 
     #[test]
@@ -618,7 +611,7 @@ mod tests {
             length: 36, // This should be truncated to 32 bits in the conversion
         };
 
-        assert_eq!(buffer_field.to_integer(4).unwrap(), 0);
+        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes).unwrap(), 0);
     }
 
     #[test]
@@ -627,6 +620,6 @@ mod tests {
         let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
         let buffer_field = Object::BufferField { buffer, offset: 4, length: 36 };
 
-        assert_eq!(buffer_field.to_integer(8).unwrap(), 0x0000000f_00000000);
+        assert_eq!(buffer_field.to_integer(IntegerSize::EightBytes).unwrap(), 0x0000000f_00000000);
     }
 }
