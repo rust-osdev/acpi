@@ -3495,7 +3495,4 @@ pub enum AmlError {
     /// An internal interpreter error has occured, and the interpreter has been left in an unknown
     /// state. More information may be given in the contained value.
     InternalError(String),
-
-    /// An integer operation was attempted for an integer greater than 8 bytes long.
-    InvalidIntegerSize(usize),
 }
