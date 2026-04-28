@@ -378,7 +378,13 @@ where
         let others = tables.iter().filter(|t| t.header().signature != Signature::DSDT);
 
         for t in others {
-            trace!("Loading table: {:?}", t.header().signature);
+            let h = t.header();
+            trace!(
+                "Loading table: {:?}/{:?}/{:?}",
+                h.signature,
+                str::from_utf8(&h.oem_id).unwrap_or("Unknown"),
+                str::from_utf8(&h.oem_table_id).unwrap_or("Unknown")
+            );
             interpreter.load_table(t.content())?;
         }
 
