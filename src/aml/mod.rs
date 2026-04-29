@@ -1174,10 +1174,13 @@ where
                      * most places, but could also encode a `NullName` if we are expecting a
                      * `Target`. We handle the latter in logic for stores to targets.
                      */
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(0).wrap()));
+                    context.contribute_arg(Argument::Object(Object::Integer(0).wrap()));
                 }
                 Opcode::One => {
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(1).wrap()));
+                    context.contribute_arg(Argument::Object(Object::Integer(1).wrap()));
+                }
+                Opcode::Ones => {
+                    context.contribute_arg(Argument::Object(Object::Integer(u64::MAX).wrap()));
                 }
                 Opcode::Alias => {
                     let source = context.namestring()?;
@@ -1198,15 +1201,15 @@ where
                 }
                 Opcode::BytePrefix => {
                     let value = context.next()?;
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value as u64).wrap()));
+                    context.contribute_arg(Argument::Object(Object::Integer(value as u64).wrap()));
                 }
                 Opcode::WordPrefix => {
                     let value = context.next_u16()?;
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value as u64).wrap()));
+                    context.contribute_arg(Argument::Object(Object::Integer(value as u64).wrap()));
                 }
                 Opcode::DWordPrefix => {
                     let value = context.next_u32()?;
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value as u64).wrap()));
+                    context.contribute_arg(Argument::Object(Object::Integer(value as u64).wrap()));
                 }
                 Opcode::StringPrefix => {
                     let str_start = context.current_block.pc;
@@ -1216,11 +1219,11 @@ where
                         str::from_utf8(&context.current_block.stream()[str_start..(context.current_block.pc - 1)])
                             .unwrap(),
                     );
-                    context.last_op()?.arguments.push(Argument::Object(Object::String(str).wrap()));
+                    context.contribute_arg(Argument::Object(Object::String(str).wrap()));
                 }
                 Opcode::QWordPrefix => {
                     let value = context.next_u64()?;
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(value).wrap()));
+                    context.contribute_arg(Argument::Object(Object::Integer(value).wrap()));
                 }
                 Opcode::Scope => {
                     let start_pc = context.current_block.pc;
@@ -1521,16 +1524,15 @@ where
                 }
                 Opcode::Local(local) => {
                     let local = context.locals[local as usize].clone();
-                    context.last_op()?.arguments.push(Argument::Object(
+                    context.contribute_arg(Argument::Object(
                         Object::Reference { kind: ReferenceKind::Local, inner: local }.wrap(),
                     ));
                 }
                 Opcode::Arg(arg) => {
                     let arg = context.args[arg as usize].clone();
-                    context
-                        .last_op()?
-                        .arguments
-                        .push(Argument::Object(Object::Reference { kind: ReferenceKind::Arg, inner: arg }.wrap()));
+                    context.contribute_arg(Argument::Object(
+                        Object::Reference { kind: ReferenceKind::Arg, inner: arg }.wrap(),
+                    ));
                 }
                 Opcode::Store => context.start(OpInFlight::new(
                     Opcode::Store,
@@ -1566,7 +1568,7 @@ where
                             let object = self.namespace.lock().search(&name, &context.current_scope);
                             match object {
                                 Ok((_resolved_name, object)) => {
-                                    context.last_op()?.arguments.push(Argument::Object(
+                                    context.contribute_arg(Argument::Object(
                                         Object::Reference { kind: ReferenceKind::Named, inner: object }.wrap(),
                                     ));
                                 }
@@ -1577,14 +1579,14 @@ where
                             let object = self.namespace.lock().search(&name, &context.current_scope);
                             match object {
                                 Ok((_resolved_name, object)) => {
-                                    context.last_op()?.arguments.push(Argument::Object(object));
+                                    context.contribute_arg(Argument::Object(object));
                                 }
                                 Err(AmlError::ObjectDoesNotExist(_)) => {
                                     let reference = Object::Reference {
                                         kind: ReferenceKind::Unresolved,
                                         inner: Object::String(name.to_string()).wrap(),
                                     };
-                                    context.last_op()?.arguments.push(Argument::Object(reference.wrap()));
+                                    context.contribute_arg(Argument::Object(reference.wrap()));
                                 }
                                 Err(err) => Err(err)?,
                             }
@@ -1615,22 +1617,19 @@ where
                                         ))
                                     } else if let Object::FieldUnit(ref field) = *object {
                                         let value = self.do_field_read(field)?;
-                                        context.last_op()?.arguments.push(Argument::Object(value));
+                                        context.contribute_arg(Argument::Object(value));
                                     } else if let Object::BufferField { .. } = *object {
                                         let value = object.read_buffer_field(self.integer_size())?;
-                                        context.last_op()?.arguments.push(Argument::Object(value.wrap()));
+                                        context.contribute_arg(Argument::Object(value.wrap()));
                                     } else {
-                                        context.last_op()?.arguments.push(Argument::Object(object));
+                                        context.contribute_arg(Argument::Object(object));
                                     }
                                 }
                                 Err(err) => Err(err)?,
                             }
                         }
                         ResolveBehaviour::AsPackageElements => {
-                            context
-                                .last_op()?
-                                .arguments
-                                .push(Argument::Object(Object::String(name.to_string()).wrap()));
+                            context.contribute_arg(Argument::Object(Object::String(name.to_string()).wrap()));
                         }
                         ResolveBehaviour::Placeholder => {
                             panic!("Invalid resolve behaviour for name to be resolved!")
@@ -1788,9 +1787,6 @@ where
                 Opcode::Noop => {}
                 Opcode::Breakpoint => {
                     self.handler.breakpoint();
-                }
-                Opcode::Ones => {
-                    context.last_op()?.arguments.push(Argument::Object(Object::Integer(u64::MAX).wrap()));
                 }
 
                 Opcode::InternalMethodCall => panic!(),
