@@ -1703,9 +1703,12 @@ where
                     context.start(OpInFlight::new(Opcode::CreateField, &[ResolveBehaviour::TermArg; 3]))
                 }
 
+                Opcode::LNot => {
+                    context.start(OpInFlight::new(Opcode::LNot, &[ResolveBehaviour::TermArg]));
+                }
+
                 Opcode::LAnd
                 | Opcode::LOr
-                | Opcode::LNot
                 | Opcode::LNotEqual
                 | Opcode::LLessEqual
                 | Opcode::LGreaterEqual
