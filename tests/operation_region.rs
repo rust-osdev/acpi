@@ -146,7 +146,7 @@ fn test_region_in_pci_device() {
     Device(TEST) {
         Name (_ADR, 0x00020001) // Arbitrary choice.
         Name (_BBN, 3)
-        Name (_SEG, 4)
+        Method (_SEG, 0, NotSerialized) { Return (4) }
 
         OperationRegion(MEM, PCI_Config, 0x40, 0x20)
         Field(MEM, ByteAcc, NoLock, Preserve) {

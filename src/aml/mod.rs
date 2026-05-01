@@ -105,7 +105,6 @@ where
     handler: H,
     pub namespace: Spinlock<Namespace>,
     pub object_token: Spinlock<ObjectToken>,
-    context_stack: Spinlock<Vec<MethodContext>>,
     dsdt_revision: u8,
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
 
@@ -141,7 +140,6 @@ where
             handler,
             namespace: Spinlock::new(Namespace::new(global_lock_mutex)),
             object_token: Spinlock::new(unsafe { ObjectToken::create_interpreter_token() }),
-            context_stack: Spinlock::new(Vec::new()),
             dsdt_revision,
             region_handlers: Spinlock::new(BTreeMap::new()),
             global_lock_mutex,
@@ -434,6 +432,8 @@ where
          * traditional fast bytecode VM, but also provides enough flexibility to handle the
          * quirkier parts of the AML grammar, particularly the left-to-right encoding of operands.
          */
+        let mut context_stack: Vec<MethodContext> = Vec::new();
+
         loop {
             /*
              * First, see if we've gathered enough arguments to complete some in-flight operations.
@@ -939,7 +939,7 @@ where
                             let new_context =
                                 MethodContext::new_from_method(method.clone(), args, method_scope.clone())?;
                             let old_context = mem::replace(&mut context, new_context);
-                            self.context_stack.lock().push(old_context);
+                            context_stack.push(old_context);
                             context.retire_op(op);
                         } else if let Object::NativeMethod { ref f, .. } = **method {
                             let result = f(&args)?;
@@ -952,7 +952,7 @@ where
                         extract_args!(op => [Argument::Object(object)]);
                         let object = object.clone().unwrap_transparent_reference();
 
-                        if let Some(last) = self.context_stack.lock().pop() {
+                        if let Some(last) = context_stack.pop() {
                             context = last;
                             context.contribute_arg(Argument::Object(object.clone()));
                             context.retire_op(op);
@@ -1060,7 +1060,7 @@ where
                         BlockKind::Method { method_scope } => {
                             self.namespace.lock().remove_level(method_scope)?;
 
-                            if let Some(prev_context) = self.context_stack.lock().pop() {
+                            if let Some(prev_context) = context_stack.pop() {
                                 context = prev_context;
                                 continue;
                             } else {
