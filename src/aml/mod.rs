@@ -20,6 +20,7 @@ pub mod namespace;
 pub mod object;
 pub mod op_region;
 pub mod pci_routing;
+pub mod pkglength;
 pub mod resource;
 
 use crate::{
@@ -28,6 +29,7 @@ use crate::{
     Handle,
     Handler,
     PhysicalMapping,
+    aml::pkglength::decode_stream as decode_pkglength,
     platform::AcpiPlatform,
     registers::{FixedRegisters, Pm1ControlBit},
     sdt::{SdtHeader, facs::Facs, fadt::Fadt},
@@ -3200,19 +3202,7 @@ impl MethodContext {
     }
 
     fn pkglength(&mut self) -> Result<usize, AmlError> {
-        let lead_byte = self.next()?;
-        let byte_count = lead_byte.get_bits(6..8);
-        assert!(byte_count < 4);
-
-        if byte_count == 0 {
-            Ok(lead_byte.get_bits(0..6) as usize)
-        } else {
-            let mut length = lead_byte.get_bits(0..4) as usize;
-            for i in 0..byte_count {
-                length |= (self.next()? as usize) << (4 + i * 8);
-            }
-            Ok(length)
-        }
+        decode_pkglength(|| self.next())
     }
 
     fn namestring(&mut self) -> Result<AmlName, AmlError> {
