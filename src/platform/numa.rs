@@ -20,13 +20,13 @@ pub struct NumaInfo<A: Allocator = Global> {
 }
 
 impl NumaInfo<Global> {
-    pub fn new(tables: AcpiTables<impl Handler>) -> NumaInfo<Global> {
+    pub fn new(tables: &AcpiTables<impl Handler>) -> NumaInfo<Global> {
         Self::new_in(tables, Global)
     }
 }
 
 impl<A: Allocator + Clone> NumaInfo<A> {
-    pub fn new_in(tables: AcpiTables<impl Handler>, allocator: A) -> NumaInfo<A> {
+    pub fn new_in(tables: &AcpiTables<impl Handler>, allocator: A) -> NumaInfo<A> {
         let mut processor_affinity = Vec::new_in(allocator.clone());
         let mut memory_affinity = Vec::new_in(allocator.clone());
 
