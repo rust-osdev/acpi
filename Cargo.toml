@@ -1,10 +1,14 @@
 [workspace]
-members = ["tools/aml_tester", "tools/acpi_dumper", "tools/aml_test_tools", "tools/uacpi_test_adapter"]
+members = ["tools/aml_test_tools"]
+# PILOT-FOLLOWUP: the other tools (aml_tester, acpi_dumper, uacpi_test_adapter)
+# reference the pre-refactor API; they need their own port. aml_test_tools is
+# the only one load-bearing for the in-repo integration test suite.
+exclude = ["tools/aml_tester", "tools/acpi_dumper", "tools/uacpi_test_adapter"]
 resolver = "2"
 
 [package]
 name = "acpi"
-version = "6.1.2"
+version = "6.2.0"
 authors = ["Isaac Woods"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "A pure-Rust library for interacting with ACPI"
