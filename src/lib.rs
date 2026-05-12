@@ -278,7 +278,7 @@ pub enum AcpiError {
 
     Timeout,
 
-    #[cfg(feature = "alloc")]
+    #[cfg(feature = "aml")]
     Aml(aml::AmlError),
 
     /// This is emitted to signal that the library does not support the requested behaviour. This

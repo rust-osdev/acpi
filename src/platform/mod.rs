@@ -36,7 +36,7 @@ pub struct AcpiPlatform<H: Handler, A: Allocator = Global> {
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo<A>>,
     pub pm_timer: Option<PmTimer>,
-    pub registers: Arc<FixedRegisters<H>>,
+    pub registers: Arc<FixedRegisters<H>, A>,
 }
 
 unsafe impl<H, A> Send for AcpiPlatform<H, A>
@@ -63,9 +63,9 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
         let Some(fadt) = tables.find_table::<Fadt>() else { Err(AcpiError::TableNotFound(Signature::FADT))? };
         let power_profile = fadt.power_profile();
 
-        let (interrupt_model, processor_info) = InterruptModel::new_in(&tables, allocator)?;
+        let (interrupt_model, processor_info) = InterruptModel::new_in(&tables, allocator.clone())?;
         let pm_timer = PmTimer::new(&fadt)?;
-        let registers = Arc::new(FixedRegisters::new(&fadt, handler.clone())?);
+        let registers = Arc::new_in(FixedRegisters::new(&fadt, handler.clone())?, allocator);
 
         Ok(AcpiPlatform {
             handler: handler.clone(),
