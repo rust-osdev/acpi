@@ -528,7 +528,10 @@ pub struct FieldUnit<A: Allocator + Clone> {
 
 impl<A: Allocator + Clone> fmt::Debug for FieldUnit<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FieldUnit").field("flags", &self.flags).field("bit_length", &self.bit_length).finish_non_exhaustive()
+        f.debug_struct("FieldUnit")
+            .field("flags", &self.flags)
+            .field("bit_length", &self.bit_length)
+            .finish_non_exhaustive()
     }
 }
 

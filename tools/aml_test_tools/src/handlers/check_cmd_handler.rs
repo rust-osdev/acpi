@@ -271,8 +271,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::handlers::null_handler::NullHandler;
     use super::*;
+    use crate::handlers::null_handler::NullHandler;
 
     #[test]
     fn handler_basic_functions() {

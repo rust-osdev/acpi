@@ -210,41 +210,44 @@ pub fn new_interpreter<T>(handler: T) -> Interpreter<T, Global>
 where
     T: Handler + Clone,
 {
-    let fake_registers = Arc::new_in(acpi::registers::FixedRegisters {
-        pm1_event_registers: acpi::registers::Pm1EventRegisterBlock {
-            pm1_event_length: 8,
-            pm1a: unsafe {
-                MappedGas::map_gas(
-                    acpi::address::GenericAddress {
-                        address_space: acpi::address::AddressSpace::SystemIo,
-                        bit_width: 32,
-                        bit_offset: 0,
-                        access_size: 1,
-                        address: 0x400,
-                    },
-                    &handler,
-                )
-                .unwrap()
+    let fake_registers = Arc::new_in(
+        acpi::registers::FixedRegisters {
+            pm1_event_registers: acpi::registers::Pm1EventRegisterBlock {
+                pm1_event_length: 8,
+                pm1a: unsafe {
+                    MappedGas::map_gas(
+                        acpi::address::GenericAddress {
+                            address_space: acpi::address::AddressSpace::SystemIo,
+                            bit_width: 32,
+                            bit_offset: 0,
+                            access_size: 1,
+                            address: 0x400,
+                        },
+                        &handler,
+                    )
+                    .unwrap()
+                },
+                pm1b: None,
             },
-            pm1b: None,
-        },
-        pm1_control_registers: acpi::registers::Pm1ControlRegisterBlock {
-            pm1a: unsafe {
-                MappedGas::map_gas(
-                    acpi::address::GenericAddress {
-                        address_space: acpi::address::AddressSpace::SystemIo,
-                        bit_width: 32,
-                        bit_offset: 0,
-                        access_size: 1,
-                        address: 0x600,
-                    },
-                    &handler,
-                )
-                .unwrap()
+            pm1_control_registers: acpi::registers::Pm1ControlRegisterBlock {
+                pm1a: unsafe {
+                    MappedGas::map_gas(
+                        acpi::address::GenericAddress {
+                            address_space: acpi::address::AddressSpace::SystemIo,
+                            bit_width: 32,
+                            bit_offset: 0,
+                            access_size: 1,
+                            address: 0x600,
+                        },
+                        &handler,
+                    )
+                    .unwrap()
+                },
+                pm1b: None,
             },
-            pm1b: None,
         },
-    }, Global);
+        Global,
+    );
 
     // As noted in the doc-comment, this Facs is shared between all tests - so if tests are run in
     // parallel, they will share a single global lock.

@@ -29,14 +29,26 @@ impl<A: Allocator + Clone> Namespace<A> {
     where
         A: 'static,
     {
-        let mut namespace =
-            Namespace { alloc: alloc.clone(), root: NamespaceLevel::new_in(NamespaceLevelKind::Scope, alloc.clone()) };
+        let mut namespace = Namespace {
+            alloc: alloc.clone(),
+            root: NamespaceLevel::new_in(NamespaceLevelKind::Scope, alloc.clone()),
+        };
 
-        namespace.add_level(AmlName::parse_in("\\_GPE", alloc.clone()).unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::parse_in("\\_SB", alloc.clone()).unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::parse_in("\\_SI", alloc.clone()).unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::parse_in("\\_PR", alloc.clone()).unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::parse_in("\\_TZ", alloc.clone()).unwrap(), NamespaceLevelKind::Scope).unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_GPE", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_SB", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_SI", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_PR", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_TZ", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
 
         namespace
             .insert(
@@ -347,7 +359,10 @@ impl<A: Allocator + Clone> Namespace<A> {
 
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
     /// last segment to index into that level. This must not be called on `\\`.
-    fn get_level_for_path_mut(&mut self, path: &AmlName<A>) -> Result<(&mut NamespaceLevel<A>, NameSeg), AmlError<A>> {
+    fn get_level_for_path_mut(
+        &mut self,
+        path: &AmlName<A>,
+    ) -> Result<(&mut NamespaceLevel<A>, NameSeg), AmlError<A>> {
         assert_ne!(*path, AmlName::root_in(self.alloc.clone()));
 
         let (last_seg, levels) = path.0[1..].split_last().unwrap();

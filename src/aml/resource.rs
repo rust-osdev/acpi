@@ -559,8 +559,7 @@ fn extended_interrupt_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::alloc::Global;
-    use alloc::vec::Vec;
+    use alloc::{alloc::Global, vec::Vec};
 
     #[test]
     fn test_parses_keyboard_crs() {

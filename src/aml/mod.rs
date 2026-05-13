@@ -212,8 +212,7 @@ where
         // `Arc<FixedRegisters<H>, A>`) via `Arc::allocator(&arc)`. Saves a
         // signature change on `new_from_platform`.
         let alloc = Arc::allocator(&registers).clone();
-        let interpreter =
-            Interpreter::new_in(platform.handler.clone(), dsdt.revision, registers, facs, alloc);
+        let interpreter = Interpreter::new_in(platform.handler.clone(), dsdt.revision, registers, facs, alloc);
 
         if let Err(err) = load_table(&interpreter, dsdt) {
             error!("Error while loading DSDT: {:?}. Continuing; this may cause downstream errors.", err);
@@ -292,10 +291,16 @@ where
         /*
          * This should match the initialization order of ACPICA and uACPI.
          */
-        if let Err(err) = self.evaluate_if_present(AmlName::parse_in("\\_INI", self.alloc.clone()).unwrap(), vec_in!(self.alloc.clone())) {
+        if let Err(err) = self.evaluate_if_present(
+            AmlName::parse_in("\\_INI", self.alloc.clone()).unwrap(),
+            vec_in!(self.alloc.clone()),
+        ) {
             warn!("Invoking \\_INI failed: {:?}", err);
         }
-        if let Err(err) = self.evaluate_if_present(AmlName::parse_in("\\_SB._INI", self.alloc.clone()).unwrap(), vec_in!(self.alloc.clone())) {
+        if let Err(err) = self.evaluate_if_present(
+            AmlName::parse_in("\\_SB._INI", self.alloc.clone()).unwrap(),
+            vec_in!(self.alloc.clone()),
+        ) {
             warn!("Invoking \\_SB._INI failed: {:?}", err);
         }
 
@@ -324,9 +329,10 @@ where
                 | NamespaceLevelKind::Processor
                 | NamespaceLevelKind::ThermalZone
                 | NamespaceLevelKind::PowerResource => {
-                    let should_initialize = match self
-                        .evaluate_if_present(AmlName::parse_in("_STA", self.alloc.clone()).unwrap().resolve(path)?, vec_in!(self.alloc.clone()))
-                    {
+                    let should_initialize = match self.evaluate_if_present(
+                        AmlName::parse_in("_STA", self.alloc.clone()).unwrap().resolve(path)?,
+                        vec_in!(self.alloc.clone()),
+                    ) {
                         Ok(Some(result)) => {
                             let Object::Integer(result) = *result else { panic!() };
                             let status = DeviceStatus(result);
@@ -341,9 +347,10 @@ where
 
                     if should_initialize {
                         num_devices_initialized += 1;
-                        if let Err(err) =
-                            self.evaluate_if_present(AmlName::parse_in("_INI", self.alloc.clone()).unwrap().resolve(path)?, vec_in!(self.alloc.clone()))
-                        {
+                        if let Err(err) = self.evaluate_if_present(
+                            AmlName::parse_in("_INI", self.alloc.clone()).unwrap().resolve(path)?,
+                            vec_in!(self.alloc.clone()),
+                        ) {
                             warn!("Failed to evaluate _INI for device {}: {:?}", path, err);
                         }
                         Ok(true)
@@ -534,7 +541,8 @@ where
                         };
 
                         *operand = new_value;
-                        context.contribute_arg(Argument::Object(Object::Integer(new_value).wrap(self.alloc.clone())));
+                        context
+                            .contribute_arg(Argument::Object(Object::Integer(new_value).wrap(self.alloc.clone())));
                         context.retire_op(op);
                     }
                     Opcode::LAnd
@@ -695,7 +703,9 @@ where
                             length: region_length.as_integer()?,
                             parent_device_path: context.current_scope.clone(),
                         });
-                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap(self.alloc.clone()))?;
+                        self.namespace
+                            .lock()
+                            .insert(name.resolve(&context.current_scope)?, region.wrap(self.alloc.clone()))?;
                         context.retire_op(op);
                     }
                     Opcode::DataRegion => {
@@ -720,7 +730,9 @@ where
                             length: 0,
                             parent_device_path: context.current_scope.clone(),
                         });
-                        self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap(self.alloc.clone()))?;
+                        self.namespace
+                            .lock()
+                            .insert(name.resolve(&context.current_scope)?, region.wrap(self.alloc.clone()))?;
                         context.retire_op(op);
                     }
                     Opcode::Buffer => {
@@ -768,7 +780,8 @@ where
                         assert_eq!(context.current_block.kind, BlockKind::<A>::Package);
                         assert_eq!(context.peek(), Err::<u8, AmlError<A>>(AmlError::RunOutOfStream));
                         context.current_block = context.block_stack.pop().unwrap();
-                        context.contribute_arg(Argument::Object(Object::Package(elements).wrap(self.alloc.clone())));
+                        context
+                            .contribute_arg(Argument::Object(Object::Package(elements).wrap(self.alloc.clone())));
                         context.retire_op(op);
                     }
                     Opcode::VarPackage => {
@@ -794,7 +807,8 @@ where
                         assert_eq!(context.current_block.kind, BlockKind::<A>::VarPackage);
                         assert_eq!(context.peek(), Err::<u8, AmlError<A>>(AmlError::RunOutOfStream));
                         context.current_block = context.block_stack.pop().unwrap();
-                        context.contribute_arg(Argument::Object(Object::Package(elements).wrap(self.alloc.clone())));
+                        context
+                            .contribute_arg(Argument::Object(Object::Package(elements).wrap(self.alloc.clone())));
                         context.retire_op(op);
                     }
                     Opcode::If => {
@@ -847,7 +861,8 @@ where
                         };
                         self.namespace.lock().insert(
                             name.resolve(&context.current_scope)?,
-                            Object::BufferField { buffer: buffer.clone(), offset: offset as usize, length }.wrap(self.alloc.clone()),
+                            Object::BufferField { buffer: buffer.clone(), offset: offset as usize, length }
+                                .wrap(self.alloc.clone()),
                         )?;
                         context.retire_op(op);
                     }
@@ -880,8 +895,8 @@ where
                     }
                     Opcode::RefOf => {
                         extract_args!(op, self.alloc.clone() => [Argument::Object(object)]);
-                        let reference =
-                            Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap(self.alloc.clone());
+                        let reference = Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }
+                            .wrap(self.alloc.clone());
                         context.contribute_arg(Argument::Object(reference));
                         context.retire_op(op);
                     }
@@ -891,7 +906,8 @@ where
                             Object::Integer(0)
                         } else {
                             let reference =
-                                Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }.wrap(self.alloc.clone());
+                                Object::Reference { kind: ReferenceKind::RefOf, inner: object.clone() }
+                                    .wrap(self.alloc.clone());
                             self.do_store(target.clone(), reference)?;
                             Object::Integer(u64::MAX)
                         };
@@ -999,8 +1015,12 @@ where
                                 .lock()
                                 .add_level(method_scope.clone(), NamespaceLevelKind::MethodLocals)?;
 
-                            let new_context =
-                                MethodContext::new_from_method(method.clone(), args, method_scope.clone(), self.alloc.clone())?;
+                            let new_context = MethodContext::new_from_method(
+                                method.clone(),
+                                args,
+                                method_scope.clone(),
+                                self.alloc.clone(),
+                            )?;
                             let old_context = mem::replace(&mut context, new_context);
                             context_stack.push(old_context);
                             context.retire_op(op);
@@ -1060,7 +1080,9 @@ where
                             }
                         }
 
-                        context.contribute_arg(Argument::Object(Object::Integer(object_type(&object)).wrap(self.alloc.clone())));
+                        context.contribute_arg(Argument::Object(
+                            Object::Integer(object_type(&object)).wrap(self.alloc.clone()),
+                        ));
                         context.retire_op(op);
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
@@ -1158,7 +1180,9 @@ where
                             {
                                 let num_elements_left = package_op.expected_arguments - package_op.arguments.len();
                                 for _ in 0..num_elements_left {
-                                    package_op.arguments.push(Argument::Object(Object::Uninitialized.wrap(self.alloc.clone())));
+                                    package_op
+                                        .arguments
+                                        .push(Argument::Object(Object::Uninitialized.wrap(self.alloc.clone())));
                                 }
                             }
 
@@ -1186,7 +1210,9 @@ where
                                 };
 
                                 for _ in 0..num_elements_left {
-                                    package_op.arguments.push(Argument::Object(Object::Uninitialized.wrap(self.alloc.clone())));
+                                    package_op
+                                        .arguments
+                                        .push(Argument::Object(Object::Uninitialized.wrap(self.alloc.clone())));
                                 }
                             }
 
@@ -1264,15 +1290,18 @@ where
                 }
                 Opcode::BytePrefix => {
                     let value = context.next()?;
-                    context.contribute_arg(Argument::Object(Object::Integer(value as u64).wrap(self.alloc.clone())));
+                    context
+                        .contribute_arg(Argument::Object(Object::Integer(value as u64).wrap(self.alloc.clone())));
                 }
                 Opcode::WordPrefix => {
                     let value = context.next_u16()?;
-                    context.contribute_arg(Argument::Object(Object::Integer(value as u64).wrap(self.alloc.clone())));
+                    context
+                        .contribute_arg(Argument::Object(Object::Integer(value as u64).wrap(self.alloc.clone())));
                 }
                 Opcode::DWordPrefix => {
                     let value = context.next_u32()?;
-                    context.contribute_arg(Argument::Object(Object::Integer(value as u64).wrap(self.alloc.clone())));
+                    context
+                        .contribute_arg(Argument::Object(Object::Integer(value as u64).wrap(self.alloc.clone())));
                 }
                 Opcode::StringPrefix => {
                     let str_start = context.current_block.pc;
@@ -1376,13 +1405,18 @@ where
 
                     let name = name.resolve(&context.current_scope)?;
                     let mutex = self.handler.create_mutex();
-                    self.namespace.lock().insert(name, Object::Mutex { mutex, sync_level }.wrap(self.alloc.clone()))?;
+                    self.namespace
+                        .lock()
+                        .insert(name, Object::Mutex { mutex, sync_level }.wrap(self.alloc.clone()))?;
                 }
                 Opcode::Event => {
                     let name = context.namestring()?;
 
                     let name = name.resolve(&context.current_scope)?;
-                    self.namespace.lock().insert(name, Object::Event(Arc::new_in(AtomicU64::new(0), self.alloc.clone())).wrap(self.alloc.clone()))?;
+                    self.namespace.lock().insert(
+                        name,
+                        Object::Event(Arc::new_in(AtomicU64::new(0), self.alloc.clone())).wrap(self.alloc.clone()),
+                    )?;
                 }
                 Opcode::LoadTable => {
                     context.start(self.new_op(Opcode::LoadTable, &[ResolveBehaviour::TermArg; 6]));
@@ -1400,16 +1434,20 @@ where
                 Opcode::Acquire => context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName])),
                 Opcode::Release => context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName])),
                 Opcode::Signal => context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName])),
-                Opcode::Wait => context
-                    .start(self.new_op(opcode, &[ResolveBehaviour::SuperName, ResolveBehaviour::TermArg])),
+                Opcode::Wait => {
+                    context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName, ResolveBehaviour::TermArg]))
+                }
                 Opcode::Reset => context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName])),
-                Opcode::Notify => context
-                    .start(self.new_op(opcode, &[ResolveBehaviour::SuperName, ResolveBehaviour::TermArg])),
+                Opcode::Notify => {
+                    context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName, ResolveBehaviour::TermArg]))
+                }
                 Opcode::FromBCD | Opcode::ToBCD => {
                     context.start(self.new_op(opcode, &[ResolveBehaviour::TermArg, ResolveBehaviour::Target]))
                 }
                 Opcode::Revision => {
-                    context.contribute_arg(Argument::Object(Object::Integer(INTERPRETER_REVISION).wrap(self.alloc.clone())));
+                    context.contribute_arg(Argument::Object(
+                        Object::Integer(INTERPRETER_REVISION).wrap(self.alloc.clone()),
+                    ));
                 }
                 Opcode::Debug => context.contribute_arg(Argument::Object(Object::Debug.wrap(self.alloc.clone()))),
                 Opcode::Fatal => {
@@ -1598,19 +1636,14 @@ where
                         Object::Reference { kind: ReferenceKind::Arg, inner: arg }.wrap(self.alloc.clone()),
                     ));
                 }
-                Opcode::Store => context.start(self.new_op(
-                    Opcode::Store,
-                    &[ResolveBehaviour::TermArg, ResolveBehaviour::SuperName],
-                )),
-                Opcode::CopyObject => context.start(self.new_op(
-                    Opcode::CopyObject,
-                    &[ResolveBehaviour::TermArg, ResolveBehaviour::SimpleName],
-                )),
+                Opcode::Store => context
+                    .start(self.new_op(Opcode::Store, &[ResolveBehaviour::TermArg, ResolveBehaviour::SuperName])),
+                Opcode::CopyObject => context.start(
+                    self.new_op(Opcode::CopyObject, &[ResolveBehaviour::TermArg, ResolveBehaviour::SimpleName]),
+                ),
                 Opcode::RefOf => context.start(self.new_op(Opcode::RefOf, &[ResolveBehaviour::SuperName])),
-                Opcode::CondRefOf => context.start(self.new_op(
-                    opcode,
-                    &[ResolveBehaviour::SuperNameIfExists, ResolveBehaviour::Target],
-                )),
+                Opcode::CondRefOf => context
+                    .start(self.new_op(opcode, &[ResolveBehaviour::SuperNameIfExists, ResolveBehaviour::Target])),
 
                 Opcode::DualNamePrefix
                 | Opcode::MultiNamePrefix
@@ -1633,7 +1666,8 @@ where
                             match object {
                                 Ok((_resolved_name, object)) => {
                                     context.contribute_arg(Argument::Object(
-                                        Object::Reference { kind: ReferenceKind::Named, inner: object }.wrap(self.alloc.clone()),
+                                        Object::Reference { kind: ReferenceKind::Named, inner: object }
+                                            .wrap(self.alloc.clone()),
                                     ));
                                 }
                                 Err(err) => Err(err)?,
@@ -1686,7 +1720,8 @@ where
                                         let value = self.do_field_read(field)?;
                                         context.contribute_arg(Argument::Object(value));
                                     } else if let Object::BufferField { .. } = *object {
-                                        let value = object.read_buffer_field(self.integer_size(), self.alloc.clone())?;
+                                        let value =
+                                            object.read_buffer_field(self.integer_size(), self.alloc.clone())?;
                                         context.contribute_arg(Argument::Object(value.wrap(self.alloc.clone())));
                                     } else {
                                         context.contribute_arg(Argument::Object(object));
@@ -1699,7 +1734,9 @@ where
                             let mut name_str = AmlString::new_in(self.alloc.clone());
                             use core::fmt::Write;
                             write!(name_str, "{}", name).unwrap();
-                            context.contribute_arg(Argument::Object(Object::String(name_str).wrap(self.alloc.clone())));
+                            context.contribute_arg(Argument::Object(
+                                Object::String(name_str).wrap(self.alloc.clone()),
+                            ));
                         }
                         ResolveBehaviour::Placeholder => {
                             panic!("Invalid resolve behaviour for name to be resolved!")
@@ -1737,8 +1774,9 @@ where
                 Opcode::Increment | Opcode::Decrement => {
                     context.start(self.new_op(opcode, &[ResolveBehaviour::SuperName]))
                 }
-                Opcode::Not => context
-                    .start(self.new_op(Opcode::Not, &[ResolveBehaviour::TermArg, ResolveBehaviour::Target])),
+                Opcode::Not => {
+                    context.start(self.new_op(Opcode::Not, &[ResolveBehaviour::TermArg, ResolveBehaviour::Target]))
+                }
                 Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
                     context.start(self.new_op(opcode, &[ResolveBehaviour::TermArg, ResolveBehaviour::Target]))
                 }
@@ -1765,9 +1803,7 @@ where
                 | Opcode::CreateByteField
                 | Opcode::CreateWordField
                 | Opcode::CreateDWordField
-                | Opcode::CreateQWordField => {
-                    context.start(self.new_op(opcode, &[ResolveBehaviour::TermArg; 2]))
-                }
+                | Opcode::CreateQWordField => context.start(self.new_op(opcode, &[ResolveBehaviour::TermArg; 2])),
                 Opcode::CreateField => {
                     context.start(self.new_op(Opcode::CreateField, &[ResolveBehaviour::TermArg; 3]))
                 }
@@ -1922,7 +1958,9 @@ where
                         bit_length: field_length,
                         flags: FieldFlags(flags),
                     });
-                    self.namespace.lock().insert(field_name.resolve(&context.current_scope)?, field.wrap(self.alloc.clone()))?;
+                    self.namespace
+                        .lock()
+                        .insert(field_name.resolve(&context.current_scope)?, field.wrap(self.alloc.clone()))?;
 
                     field_offset += field_length;
                 }
@@ -1945,7 +1983,10 @@ where
             Opcode::Multiply => left.wrapping_mul(right),
             Opcode::Divide => {
                 if let Some(Argument::Object(remainder)) = target2 {
-                    self.do_store(remainder.clone(), Object::Integer(left.wrapping_rem(right)).wrap(self.alloc.clone()))?;
+                    self.do_store(
+                        remainder.clone(),
+                        Object::Integer(left.wrapping_rem(right)).wrap(self.alloc.clone()),
+                    )?;
                 }
                 left.wrapping_div_euclid(right)
             }
@@ -2466,7 +2507,11 @@ where
     ///      object is overwritten
     ///    - Index references behave the same as locals
     ///    - Named objects are stored into, with implicit casting
-    fn do_store(&self, target: WrappedObject<A>, object: WrappedObject<A>) -> Result<WrappedObject<A>, AmlError<A>> {
+    fn do_store(
+        &self,
+        target: WrappedObject<A>,
+        object: WrappedObject<A>,
+    ) -> Result<WrappedObject<A>, AmlError<A>> {
         let object = object.unwrap_transparent_reference();
         let token = self.object_token.lock();
 
@@ -2656,7 +2701,8 @@ where
                     let Object::FieldUnit(ref data) = **data else { panic!() };
                     self.do_field_write(
                         index,
-                        Object::Integer((index_field_idx + i * (access_width_bits / 8)) as u64).wrap(self.alloc.clone()),
+                        Object::Integer((index_field_idx + i * (access_width_bits / 8)) as u64)
+                            .wrap(self.alloc.clone()),
                     )?;
 
                     // The offset is always that of the data register, as we always read from the
@@ -2737,7 +2783,8 @@ where
                     let Object::FieldUnit(ref data) = **data else { panic!() };
                     self.do_field_write(
                         index,
-                        Object::Integer((index_field_idx + i * (access_width_bits / 8)) as u64).wrap(self.alloc.clone()),
+                        Object::Integer((index_field_idx + i * (access_width_bits / 8)) as u64)
+                            .wrap(self.alloc.clone()),
                     )?;
 
                     // The offset is always that of the data register, as we always read from the
@@ -2787,7 +2834,12 @@ where
     /// Performs an actual read from an operation region. `offset` and `length` must respect the
     /// access requirements of the field being read, and are supplied in **bytes**. This may call
     /// AML methods if required, and may invoke user-supplied handlers.
-    fn do_native_region_read(&self, region: &OpRegion<A>, offset: usize, length: usize) -> Result<u64, AmlError<A>> {
+    fn do_native_region_read(
+        &self,
+        region: &OpRegion<A>,
+        offset: usize,
+        length: usize,
+    ) -> Result<u64, AmlError<A>> {
         trace!("Native field read. Region = {:?}, offset = {:#x}, length={:#x}", region, offset, length);
 
         match region.space {
@@ -2913,16 +2965,25 @@ where
          * TODO: it's not ideal to do these reads for every native access. See if we can
          * cache them somewhere?
          */
-        let seg = match self.evaluate_if_present(AmlName::parse_in("_SEG", self.alloc.clone()).unwrap().resolve(path)?, vec_in!(self.alloc.clone()))? {
+        let seg = match self.evaluate_if_present(
+            AmlName::parse_in("_SEG", self.alloc.clone()).unwrap().resolve(path)?,
+            vec_in!(self.alloc.clone()),
+        )? {
             Some(value) => value.as_integer()?,
             None => 0,
         };
-        let bus = match self.evaluate_if_present(AmlName::parse_in("_BBN", self.alloc.clone()).unwrap().resolve(path)?, vec_in!(self.alloc.clone()))? {
+        let bus = match self.evaluate_if_present(
+            AmlName::parse_in("_BBN", self.alloc.clone()).unwrap().resolve(path)?,
+            vec_in!(self.alloc.clone()),
+        )? {
             Some(value) => value.as_integer()?,
             None => 0,
         };
         let (device, function) = {
-            let adr = self.evaluate_if_present(AmlName::parse_in("_ADR", self.alloc.clone()).unwrap().resolve(path)?, vec_in!(self.alloc.clone()))?;
+            let adr = self.evaluate_if_present(
+                AmlName::parse_in("_ADR", self.alloc.clone()).unwrap().resolve(path)?,
+                vec_in!(self.alloc.clone()),
+            )?;
             let adr = match adr {
                 Some(adr) => adr.as_integer()?,
                 None => 0,
@@ -3762,10 +3823,9 @@ impl<A: Allocator + Clone, A2: Allocator + Clone> PartialEq<AmlError<A2>> for Am
             (LevelDoesNotExist(a), LevelDoesNotExist(b)) => a == b,
             (NameCollision(a), NameCollision(b)) => a == b,
             (ObjectDoesNotExist(a), ObjectDoesNotExist(b)) => a == b,
-            (
-                InvalidOperationOnObject { op: o1, typ: t1 },
-                InvalidOperationOnObject { op: o2, typ: t2 },
-            ) => o1 == o2 && t1 == t2,
+            (InvalidOperationOnObject { op: o1, typ: t1 }, InvalidOperationOnObject { op: o2, typ: t2 }) => {
+                o1 == o2 && t1 == t2
+            }
             (
                 ObjectNotOfExpectedType { expected: e1, got: g1 },
                 ObjectNotOfExpectedType { expected: e2, got: g2 },
