@@ -16,7 +16,7 @@ use acpi::{
     Handler,
     PhysicalMapping,
     address::MappedGas,
-    aml::{AmlError, Interpreter, namespace::AmlName, pkglength::encode},
+    aml::{AmlError, Interpreter, namespace::AmlName, pkglength},
     sdt::{SdtHeader, Signature, facs::Facs},
 };
 use log::{error, trace};
@@ -351,7 +351,7 @@ where
     // DefMethod := MethodOp PkgLength NameString MethodFlags TermList
     let mut method_bytes: Vec<u8> = vec![0x14];
     // PkgLength - add 5 to cover the length of the method name and flags.
-    method_bytes.extend(encode(opcodes.len() as u32 + 5).unwrap().iter());
+    method_bytes.extend(pkglength::encode(opcodes.len() as u32 + 5).unwrap().iter());
     method_bytes.extend(r"MAIN".as_bytes()); // NameString
     method_bytes.extend([0]); // MethodFlags
     // Nothing for termlist
