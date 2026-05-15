@@ -17,6 +17,7 @@ DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
         Local0 = (DerefOf(\_SB.ADAT[0x09]))
         // This relies on subtraction rather than equality as logical ops on BufferFields don't work
         // yet.
+        // TODO: Use logical ops for clarity, when available.
         return (Local0 - 0xaa)
     }
 }

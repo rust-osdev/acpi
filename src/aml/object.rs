@@ -1,4 +1,4 @@
-use crate::aml::{AmlError, Handle, Operation, dsdt_info::IntegerSize, op_region::OpRegion};
+use crate::aml::{AmlError, Handle, IntegerSize, Operation, op_region::OpRegion};
 use alloc::{
     borrow::Cow,
     string::{String, ToString},
@@ -242,9 +242,7 @@ impl Object {
                     })?),
                 }
             }
-            Object::BufferField { .. } => {
-                self.read_buffer_field(integer_size)?.to_integer(integer_size)
-            }
+            Object::BufferField { .. } => self.read_buffer_field(integer_size)?.to_integer(integer_size),
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: self.typ() })?,
         }
     }
