@@ -1,6 +1,9 @@
 use acpi::Handler;
 use aml_test_tools::{RunTestResult, TestResult, handlers::logging_handler::LoggingHandler, new_interpreter, run_test_for_string, run_test_for_opcodes};
 
+// The following two functions are very similar in structure, but whilst there are only two of them
+// it's not worth adding complexity to make them DRY.
+
 /// Run a test against an ASL string.
 ///
 /// The string `asl` represents a compile-able ASL string, so needs to include the `DefinitionBlock`
@@ -24,8 +27,6 @@ pub fn run_aml_test(asl: &'static str, handler: impl Handler) {
 /// opcodes to execute.
 #[allow(dead_code)]
 pub fn run_opcodes_test(opcodes: &[u8], handler: impl Handler) {
-    // This function is very similar in structure to `run_aml_test`, but whilst there are only two
-    // similar functions it's not worth adding complexity to make them DRY.
     let _ = pretty_env_logger::try_init();
 
     let logged_handler = LoggingHandler::new(handler);
