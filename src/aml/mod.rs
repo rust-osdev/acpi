@@ -20,7 +20,6 @@ pub mod namespace;
 pub mod object;
 pub mod op_region;
 pub mod pci_routing;
-pub mod pkglength;
 pub mod resource;
 
 use crate::{
@@ -29,7 +28,6 @@ use crate::{
     Handle,
     Handler,
     PhysicalMapping,
-    aml::pkglength::decode_stream as decode_pkglength,
     platform::AcpiPlatform,
     registers::{FixedRegisters, Pm1ControlBit},
     sdt::{SdtHeader, facs::Facs, fadt::Fadt},
@@ -3020,13 +3018,6 @@ impl MethodContext {
         }
     }
 
-    fn last_op(&mut self) -> Result<&mut OpInFlight, AmlError> {
-        match self.in_flight.last_mut() {
-            Some(op) => Ok(op),
-            None => Err(AmlError::NoCurrentOp),
-        }
-    }
-
     fn contribute_arg(&mut self, arg: Argument) {
         if let Some(in_flight) = self.in_flight.last_mut()
             && in_flight.arguments.len() < in_flight.expected_arguments
@@ -3202,7 +3193,19 @@ impl MethodContext {
     }
 
     fn pkglength(&mut self) -> Result<usize, AmlError> {
-        decode_pkglength(|| self.next())
+        let lead_byte = self.next()?;
+        let byte_count = lead_byte.get_bits(6..8);
+        assert!(byte_count < 4);
+
+        if byte_count == 0 {
+            Ok(lead_byte.get_bits(0..6) as usize)
+        } else {
+            let mut length = lead_byte.get_bits(0..4) as usize;
+            for i in 0..byte_count {
+                length |= (self.next()? as usize) << (4 + i * 8);
+            }
+            Ok(length)
+        }
     }
 
     fn namestring(&mut self) -> Result<AmlName, AmlError> {
