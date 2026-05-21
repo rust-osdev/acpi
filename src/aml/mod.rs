@@ -1949,57 +1949,34 @@ where
         let left = left.clone().unwrap_transparent_reference();
         let right = right.clone().unwrap_transparent_reference();
 
-        /*
-         * Some of these operations allow strings and buffers to be used as operands. Apparently
-         * NT's interpreter just takes the first 4 bytes of the string/buffer and casts them as an
-         * integer...
-         */
-        let (left, right) = match *left {
-            Object::Integer(left) => (left, right.as_integer()?),
-            Object::String(ref left) => {
-                let left = {
-                    let mut bytes = [0u8; 4];
-                    let left_bytes = left.as_bytes();
-                    let bytes_to_use = usize::min(4, left_bytes.len());
-                    (bytes[0..bytes_to_use]).copy_from_slice(&left_bytes[0..bytes_to_use]);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                let right = {
-                    let mut bytes = [0u8; 4];
-                    let right = right.as_string()?;
-                    let right_bytes = right.as_bytes();
-                    let bytes_to_use = usize::min(4, right_bytes.len());
-                    (bytes[0..bytes_to_use]).copy_from_slice(&right_bytes[0..bytes_to_use]);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                (left, right)
-            }
-            Object::Buffer(ref left) => {
-                let Object::Buffer(ref right) = *right else { panic!() };
-                let left = {
-                    let mut bytes = [0u8; 4];
-                    (bytes[0..left.len()]).copy_from_slice(left);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                let right = {
-                    let mut bytes = [0u8; 4];
-                    (bytes[0..right.len()]).copy_from_slice(right);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                (left, right)
+        let mut int_size = self.integer_size;
+
+        // Make sure both sides are the same type.
+        let right = match *left {
+            Object::Integer(_) => &Object::Integer(right.as_integer()?),
+            Object::String(_) => &Object::String(right.as_string()?.parse().unwrap()),
+            Object::Buffer(_) => {
+                // When doing && or ||, uACPI and NT only compare the first 4 bytes of a buffer.
+                int_size = IntegerSize::FourBytes;
+                if right.typ() == ObjectType::Buffer {
+                    &*right
+                } else {
+                    &Object::Buffer(right.to_buffer(self.integer_size)?)
+                }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::LogicalOp, typ: left.typ() })?,
         };
 
+        let ordering = left.aml_cmp(right);
         let result = match op.op {
-            Opcode::LAnd => (left > 0) && (right > 0),
-            Opcode::LOr => (left > 0) || (right > 0),
-            Opcode::LNotEqual => left != right,
-            Opcode::LLessEqual => left <= right,
-            Opcode::LGreaterEqual => left >= right,
-            Opcode::LEqual => left == right,
-            Opcode::LGreater => left > right,
-            Opcode::LLess => left < right,
+            Opcode::LAnd => (left.to_integer(int_size)? > 0) && (right.to_integer(int_size)? > 0),
+            Opcode::LOr => (left.to_integer(int_size)? > 0) || (right.to_integer(int_size)? > 0),
+            Opcode::LNotEqual => ordering?.is_ne(),
+            Opcode::LLessEqual => ordering?.is_le(),
+            Opcode::LGreaterEqual => ordering?.is_ge(),
+            Opcode::LEqual => ordering?.is_eq(),
+            Opcode::LGreater => ordering?.is_gt(),
+            Opcode::LLess => ordering?.is_lt(),
             _ => panic!(),
         };
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
