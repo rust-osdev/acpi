@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{cell::UnsafeCell, fmt, ops, sync::atomic::AtomicU64};
+use core::{cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::atomic::AtomicU64};
 
 type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError>;
 
@@ -353,6 +353,25 @@ impl Object {
             Object::String(_) => ObjectType::String,
             Object::ThermalZone => ObjectType::ThermalZone,
             Object::Debug => ObjectType::Debug,
+        }
+    }
+
+    /// Calculate the ordering of two objects using the AML rules
+    ///
+    /// This function is not intended to be used for `impl PartialOrd` because we don't want to tie
+    /// the meaning of `object_a.cmp(object_b)` to those AML rules - we may want more flexibility.
+    pub fn aml_cmp(&self, other: &Object) -> Result<Ordering, AmlError> {
+        match (self, &other) {
+            (Object::Integer(a), Object::Integer(b)) => Ok(a.cmp(b)),
+            (Object::String(a), Object::String(b)) => Ok(a.cmp(b)),
+            (Object::Buffer(a), Object::Buffer(b)) => {
+                let size_cmp = a.len().cmp(&b.len());
+                if size_cmp != Ordering::Equal {
+                    return Ok(size_cmp);
+                }
+                Ok(a.cmp(b))
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::LogicalOp, typ: self.typ() }),
         }
     }
 }
