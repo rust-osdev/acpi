@@ -2955,13 +2955,6 @@ impl MethodContext {
         }
     }
 
-    fn last_op(&mut self) -> Result<&mut OpInFlight, AmlError> {
-        match self.in_flight.last_mut() {
-            Some(op) => Ok(op),
-            None => Err(AmlError::NoCurrentOp),
-        }
-    }
-
     fn contribute_arg(&mut self, arg: Argument) {
         if let Some(in_flight) = self.in_flight.last_mut()
             && in_flight.arguments.len() < in_flight.expected_arguments
