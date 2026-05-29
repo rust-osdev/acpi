@@ -316,7 +316,7 @@ impl Object {
                 *value = u64::from_le_bytes(bytes);
             }
             Object::String(value) => {
-                *value = String::from_utf8_lossy(&new_bytes).to_string();
+                *value = String::from_utf8_lossy(&new_bytes).split('\0').next().unwrap().to_string();
             }
             Object::Buffer(value) => {
                 *value = new_bytes.to_vec();
