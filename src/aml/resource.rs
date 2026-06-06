@@ -16,7 +16,8 @@ pub enum Resource {
 
 /// Parse a `ResourceDescriptor` buffer into a list of resources.
 pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resource>, AmlError> {
-    if let Object::Buffer(ref bytes) = *descriptor {
+    let desc_read = descriptor.read();
+    if let Object::Buffer(ref bytes) = *desc_read {
         let mut descriptors = Vec::new();
         let mut bytes = bytes.as_slice();
 
@@ -33,7 +34,7 @@ pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resourc
 
         Ok(descriptors)
     } else {
-        Err(AmlError::InvalidOperationOnObject { op: Operation::ParseResource, typ: descriptor.typ() })
+        Err(AmlError::InvalidOperationOnObject { op: Operation::ParseResource, typ: desc_read.typ() })
     }
 }
 

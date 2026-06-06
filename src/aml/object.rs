@@ -6,9 +6,10 @@ use alloc::{
     vec::Vec,
 };
 use bit_field::BitField;
-use core::{cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::atomic::AtomicU64};
+use core::{cmp::Ordering, fmt, sync::atomic::AtomicU64};
+use spinning_top::{RwSpinlock, guard::{RwSpinlockReadGuard, RwSpinlockWriteGuard}};
 
-type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError>;
+type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError> + Send + Sync;
 
 #[derive(Clone)]
 pub enum Object {
@@ -36,7 +37,7 @@ pub enum Object {
 impl Object {
     pub fn native_method<F>(num_args: u8, f: F) -> Object
     where
-        F: Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError> + 'static,
+        F: Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError> + Send + Sync + 'static,
     {
         let mut flags = 0;
         flags.set_bits(0..3, num_args);
@@ -61,15 +62,15 @@ impl fmt::Display for Object {
             Object::Method { .. } => write!(f, "Method"),
             Object::NativeMethod { .. } => write!(f, "NativeMethod"),
             Object::Mutex { .. } => write!(f, "Mutex"),
-            Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, **inner),
+            Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, *inner.read()),
             Object::OpRegion(region) => write!(f, "{region:?}"),
             Object::Package(elements) => {
                 write!(f, "Package {{ ")?;
                 for (i, element) in elements.iter().enumerate() {
                     if i == elements.len() - 1 {
-                        write!(f, "{}", **element)?;
+                        write!(f, "{}", *element.read())?;
                     } else {
-                        write!(f, "{}, ", **element)?;
+                        write!(f, "{}, ", *element.read())?;
                     }
                 }
                 write!(f, " }}")?;
@@ -87,53 +88,38 @@ impl fmt::Display for Object {
     }
 }
 
-/// `ObjectToken` is used to mediate mutable access to objects from a [`WrappedObject`]. It must be
-/// acquired by locking the single token provided by [`super::Interpreter`].
-#[non_exhaustive]
-pub struct ObjectToken {
-    _dont_construct_me: (),
-}
+#[derive(Clone)]
+pub struct WrappedObject(Arc<RwSpinlock<Object>>);
 
-impl ObjectToken {
-    /// Create an [`ObjectToken`]. This should **only** be done **once** by the main interpreter,
-    /// as contructing your own token allows invalid mutable access to objects.
-    pub(super) unsafe fn create_interpreter_token() -> ObjectToken {
-        ObjectToken { _dont_construct_me: () }
+impl fmt::Debug for WrappedObject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "WrappedObject({})", *self.0.read())
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct WrappedObject(Arc<UnsafeCell<Object>>);
 
 impl WrappedObject {
     pub fn new(object: Object) -> WrappedObject {
-        #[allow(clippy::arc_with_non_send_sync)]
-        WrappedObject(Arc::new(UnsafeCell::new(object)))
+        WrappedObject(Arc::new(RwSpinlock::new(object)))
     }
 
-    /// Gain a mutable reference to an [`Object`] from this [`WrappedObject`].
-    ///
-    /// # Safety
-    /// This requires an [`ObjectToken`] which is protected by a lock on [`super::Interpreter`],
-    /// which prevents mutable access to objects from multiple contexts. It does not, however,
-    /// prevent the same object, referenced from multiple [`WrappedObject`]s, having multiple
-    /// mutable (and therefore aliasing) references being made to it, and therefore care must be
-    /// taken in the interpreter to prevent this.
-    pub unsafe fn gain_mut<'r, 'a, 't>(&'a self, _token: &'t ObjectToken) -> &'r mut Object
-    where
-        't: 'r,
-        'a: 'r,
-    {
-        unsafe { &mut *(self.0.get()) }
+    pub fn read(&self) -> RwSpinlockReadGuard<'_, Object> {
+        self.0.read()
+    }
+
+    pub fn write(&self) -> RwSpinlockWriteGuard<'_, Object> {
+        self.0.write()
     }
 
     pub fn unwrap_reference(self) -> WrappedObject {
         let mut object = self;
         loop {
-            if let Object::Reference { ref inner, .. } = *object {
-                object = inner.clone();
-            } else {
-                return object.clone();
+            let inner = {
+                let read = object.read();
+                if let Object::Reference { inner, .. } = &*read { Some(inner.clone()) } else { None }
+            };
+            match inner {
+                Some(inner) => object = inner,
+                None => return object,
             }
         }
     }
@@ -143,34 +129,27 @@ impl WrappedObject {
     pub fn unwrap_transparent_reference(self) -> WrappedObject {
         let mut object = self;
         loop {
-            if let Object::Reference { kind, ref inner } = *object
-                && (kind == ReferenceKind::Local || kind == ReferenceKind::Arg || kind == ReferenceKind::Named)
-            {
-                object = inner.clone();
-            } else {
-                return object.clone();
+            let inner = {
+                let read = object.read();
+                if let Object::Reference { kind, inner } = &*read
+                    && (*kind == ReferenceKind::Local || *kind == ReferenceKind::Arg || *kind == ReferenceKind::Named)
+                {
+                    Some(inner.clone())
+                } else {
+                    None
+                }
+            };
+            match inner {
+                Some(inner) => object = inner,
+                None => return object,
             }
         }
     }
 }
 
-impl ops::Deref for WrappedObject {
-    type Target = Object;
-
-    fn deref(&self) -> &Self::Target {
-        /*
-         * SAFETY: elided lifetime ensures reference cannot outlive at least one reference-counted
-         * instance of the object. `WrappedObject::gain_mut` is unsafe, and so it is the user's
-         * responsibility to ensure shared references from `Deref` do not co-exist with an
-         * exclusive reference.
-         */
-        unsafe { &*self.0.get() }
-    }
-}
-
 impl fmt::Display for WrappedObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Wrapped({})", unsafe { &*self.0.get() })
+        write!(f, "Wrapped({})", *self.0.read())
     }
 }
 
@@ -261,9 +240,10 @@ impl Object {
 
     pub fn read_buffer_field(&self, integer_size: IntegerSize) -> Result<Object, AmlError> {
         if let Self::BufferField { buffer, offset, length } = self {
-            let buffer = match **buffer {
-                Object::Buffer(ref buffer) => buffer.as_slice(),
-                Object::String(ref string) => string.as_bytes(),
+            let buffer_read = buffer.read();
+            let buffer = match &*buffer_read {
+                Object::Buffer(buffer) => buffer.as_slice(),
+                Object::String(string) => string.as_bytes(),
                 _ => panic!(),
             };
             if *length <= integer_size as usize {
@@ -280,10 +260,11 @@ impl Object {
         }
     }
 
-    pub fn write_buffer_field(&mut self, value: &[u8], token: &ObjectToken) -> Result<(), AmlError> {
+    pub fn write_buffer_field(&mut self, value: &[u8]) -> Result<(), AmlError> {
         // TODO: bounds check the buffer first to avoid panicking
         if let Self::BufferField { buffer, offset, length } = self {
-            let buffer = match unsafe { buffer.gain_mut(token) } {
+            let mut buffer_write = buffer.write();
+            let buffer = match &mut *buffer_write {
                 Object::Buffer(buffer) => buffer.as_mut_slice(),
                 // XXX: this unfortunately requires us to trust AML to keep the string as valid
                 // UTF8... maybe there is a better way?

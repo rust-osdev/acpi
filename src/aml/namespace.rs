@@ -69,10 +69,11 @@ impl Namespace {
                     if args.len() != 1 {
                         return Err(AmlError::MethodArgCountIncorrect);
                     }
-                    let Object::String(ref feature) = *args[0] else {
+                    let args0_read = args[0].read();
+                    let Object::String(ref feature) = *args0_read else {
                         return Err(AmlError::ObjectNotOfExpectedType {
                             expected: ObjectType::String,
-                            got: args[0].typ(),
+                            got: args0_read.typ(),
                         });
                     };
 
@@ -383,7 +384,7 @@ impl fmt::Display for Namespace {
                     if end { END } else { BRANCH },
                     name.as_str(),
                     if flags.is_alias() { "[A] " } else { "" },
-                    **object
+                    *object.read()
                 )?;
 
                 // If the object has a corresponding scope, print it here

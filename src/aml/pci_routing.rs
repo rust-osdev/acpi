@@ -66,9 +66,11 @@ impl PciRoutingTable {
 
         let prt = interpreter.evaluate(prt_path.clone(), vec![])?;
 
-        if let Object::Package(ref inner_values) = *prt {
+        let prt_read = prt.read();
+        if let Object::Package(inner_values) = &*prt_read {
             for value in inner_values {
-                if let Object::Package(ref pin_package) = **value {
+                let value_read = value.read();
+                if let Object::Package(pin_package) = &*value_read {
                     /*
                      * Each inner package has the following structure:
                      *   | Field      | Type      | Description                                               |
@@ -92,12 +94,13 @@ impl PciRoutingTable {
                      *   |            |           | pin is connected.                                         |
                      *   | -----------|-----------|-----------------------------------------------------------|
                      */
-                    let Object::Integer(address) = *pin_package[0] else {
-                        return Err(AmlError::PrtInvalidAddress);
+                    let address = match &*pin_package[0].read() {
+                        Object::Integer(addr) => *addr,
+                        _ => return Err(AmlError::PrtInvalidAddress),
                     };
                     let device = address.get_bits(16..32).try_into().map_err(|_| AmlError::PrtInvalidAddress)?;
                     let function = address.get_bits(0..16).try_into().map_err(|_| AmlError::PrtInvalidAddress)?;
-                    let pin = match *pin_package[1] {
+                    let pin = match &*pin_package[1].read() {
                         Object::Integer(0) => Pin::IntA,
                         Object::Integer(1) => Pin::IntB,
                         Object::Integer(2) => Pin::IntC,
@@ -105,14 +108,16 @@ impl PciRoutingTable {
                         _ => return Err(AmlError::PrtInvalidPin),
                     };
 
-                    match *pin_package[2] {
+                    let p2_read = pin_package[2].read();
+                    match &*p2_read {
                         Object::Integer(0) => {
                             /*
                              * The Source Index field contains the GSI number that this interrupt is attached
                              * to.
                              */
-                            let Object::Integer(gsi) = *pin_package[3] else {
-                                return Err(AmlError::PrtInvalidGsi);
+                            let gsi = match &*pin_package[3].read() {
+                                Object::Integer(gsi) => *gsi,
+                                _ => return Err(AmlError::PrtInvalidGsi),
                             };
                             entries.push(PciRoute {
                                 device,
@@ -121,11 +126,13 @@ impl PciRoutingTable {
                                 route_type: PciRouteType::Gsi(gsi as u32),
                             });
                         }
-                        Object::String(ref name) => {
+                        Object::String(name) => {
+                            let name = name.clone();
+                            drop(p2_read);
                             let link_object_name = interpreter
                                 .namespace
                                 .lock()
-                                .search_for_level(&AmlName::from_str(name)?, &prt_path)?;
+                                .search_for_level(&AmlName::from_str(&name)?, &prt_path)?;
                             entries.push(PciRoute {
                                 device,
                                 function,
@@ -136,13 +143,16 @@ impl PciRoutingTable {
                         _ => return Err(AmlError::PrtInvalidSource),
                     }
                 } else {
-                    return Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: value.typ() });
+                    return Err(AmlError::InvalidOperationOnObject {
+                        op: Operation::DecodePrt,
+                        typ: value_read.typ(),
+                    });
                 }
             }
 
             Ok(PciRoutingTable { entries })
         } else {
-            Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: prt.typ() })
+            Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: prt_read.typ() })
         }
     }
 
