@@ -110,7 +110,7 @@ where
     alloc: A,
     pub namespace: Spinlock<Namespace<A>>,
     pub object_token: Spinlock<ObjectToken>,
-    dsdt_revision: u8,
+    integer_size: IntegerSize,
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler<A>, A>, A>>,
 
     global_lock_mutex: Handle,
@@ -146,7 +146,7 @@ where
             handler,
             namespace: Spinlock::new(Namespace::new_in(global_lock_mutex, alloc.clone())),
             object_token: Spinlock::new(unsafe { ObjectToken::create_interpreter_token() }),
-            dsdt_revision,
+            integer_size: IntegerSize::from_revision(dsdt_revision),
             region_handlers: Spinlock::new(BTreeMap::new_in(alloc.clone())),
             global_lock_mutex,
             registers,
@@ -427,8 +427,6 @@ where
         }
     }
 
-    /// Returns the size of an integer (in bytes) for the set of tables parsed so far. This depends
-    /// on the revision of the initial DSDT.
     fn new_op(&self, op: Opcode, behaviours: &'static [ResolveBehaviour]) -> OpInFlight<A> {
         OpInFlight::new(op, behaviours, self.alloc.clone())
     }
@@ -440,10 +438,6 @@ where
         behaviours: &'static [ResolveBehaviour],
     ) -> OpInFlight<A> {
         OpInFlight::new_dynamic(op, expected_arguments, behaviours, self.alloc.clone())
-    }
-
-    pub fn integer_size(&self) -> usize {
-        if self.dsdt_revision >= 2 { 8 } else { 4 }
     }
 
     fn do_execute_method(&self, mut context: MethodContext<A>) -> Result<WrappedObject<A>, AmlError<A>> {
@@ -1691,7 +1685,7 @@ where
                                         context.contribute_arg(Argument::Object(value));
                                     } else if let Object::BufferField { .. } = *object {
                                         let value =
-                                            object.read_buffer_field(self.integer_size(), self.alloc.clone())?;
+                                            object.read_buffer_field(self.integer_size, self.alloc.clone())?;
                                         context.contribute_arg(Argument::Object(value.wrap(self.alloc.clone())));
                                     } else {
                                         context.contribute_arg(Argument::Object(object));
@@ -1944,8 +1938,10 @@ where
         extract_args!(op[0..3], self.alloc.clone() => [Argument::Object(left), Argument::Object(right), Argument::Object(target)]);
         let target2 = if op.op == Opcode::Divide { Some(&op.arguments[3]) } else { None };
 
-        let left = left.clone().unwrap_transparent_reference().as_integer()?;
-        let right = right.clone().unwrap_transparent_reference().as_integer()?;
+        let left =
+            left.clone().unwrap_transparent_reference().to_integer(self.integer_size, self.alloc.clone())?;
+        let right =
+            right.clone().unwrap_transparent_reference().to_integer(self.integer_size, self.alloc.clone())?;
 
         let result = match op.op {
             Opcode::Add => left.wrapping_add(right),
@@ -1991,10 +1987,9 @@ where
                      * This is a particularly important place to respect the integer width as set
                      * by the DSDT revision.
                      */
-                    match self.integer_size() {
-                        4 => ((operand as u32).leading_zeros() + 1) as u64,
-                        8 => (operand.leading_zeros() + 1) as u64,
-                        _ => unreachable!(),
+                    match self.integer_size {
+                        IntegerSize::FourBytes => ((operand as u32).leading_zeros() + 1) as u64,
+                        IntegerSize::EightBytes => (operand.leading_zeros() + 1) as u64,
                     }
                 }
             }
@@ -2035,57 +2030,40 @@ where
         let left = left.clone().unwrap_transparent_reference();
         let right = right.clone().unwrap_transparent_reference();
 
-        /*
-         * Some of these operations allow strings and buffers to be used as operands. Apparently
-         * NT's interpreter just takes the first 4 bytes of the string/buffer and casts them as an
-         * integer...
-         */
-        let (left, right) = match *left {
-            Object::Integer(left) => (left, right.as_integer()?),
-            Object::String(ref left) => {
-                let left = {
-                    let mut bytes = [0u8; 4];
-                    let left_bytes = left.as_bytes();
-                    let bytes_to_use = usize::min(4, left_bytes.len());
-                    (bytes[0..bytes_to_use]).copy_from_slice(&left_bytes[0..bytes_to_use]);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                let right = {
-                    let mut bytes = [0u8; 4];
-                    let right = right.as_string()?;
-                    let right_bytes = right.as_bytes();
-                    let bytes_to_use = usize::min(4, right_bytes.len());
-                    (bytes[0..bytes_to_use]).copy_from_slice(&right_bytes[0..bytes_to_use]);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                (left, right)
-            }
-            Object::Buffer(ref left) => {
-                let Object::Buffer(ref right) = *right else { panic!() };
-                let left = {
-                    let mut bytes = [0u8; 4];
-                    (bytes[0..left.len()]).copy_from_slice(left);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                let right = {
-                    let mut bytes = [0u8; 4];
-                    (bytes[0..right.len()]).copy_from_slice(right);
-                    u32::from_le_bytes(bytes) as u64
-                };
-                (left, right)
+        let mut int_size = self.integer_size;
+
+        // Make sure both sides are the same type.
+        let right = match *left {
+            Object::Integer(_) => &Object::Integer(right.as_integer()?),
+            Object::String(_) => &Object::String(AmlString::from_str_in(right.as_string()?, self.alloc.clone())),
+            Object::Buffer(_) => {
+                // When doing && or ||, uACPI and NT only compare the first 4 bytes of a buffer.
+                int_size = IntegerSize::FourBytes;
+                if right.typ() == ObjectType::Buffer {
+                    &*right
+                } else {
+                    &Object::Buffer(right.to_buffer(self.integer_size, self.alloc.clone())?)
+                }
             }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::LogicalOp, typ: left.typ() })?,
         };
 
+        let ordering = left.aml_cmp(right);
         let result = match op.op {
-            Opcode::LAnd => (left > 0) && (right > 0),
-            Opcode::LOr => (left > 0) || (right > 0),
-            Opcode::LNotEqual => left != right,
-            Opcode::LLessEqual => left <= right,
-            Opcode::LGreaterEqual => left >= right,
-            Opcode::LEqual => left == right,
-            Opcode::LGreater => left > right,
-            Opcode::LLess => left < right,
+            Opcode::LAnd => {
+                (left.to_integer(int_size, self.alloc.clone())? > 0)
+                    && (right.to_integer(int_size, self.alloc.clone())? > 0)
+            }
+            Opcode::LOr => {
+                (left.to_integer(int_size, self.alloc.clone())? > 0)
+                    || (right.to_integer(int_size, self.alloc.clone())? > 0)
+            }
+            Opcode::LNotEqual => ordering?.is_ne(),
+            Opcode::LLessEqual => ordering?.is_le(),
+            Opcode::LGreaterEqual => ordering?.is_ge(),
+            Opcode::LEqual => ordering?.is_eq(),
+            Opcode::LGreater => ordering?.is_gt(),
+            Opcode::LLess => ordering?.is_lt(),
             _ => panic!(),
         };
         let result = if result { Object::Integer(u64::MAX) } else { Object::Integer(0) };
@@ -2102,7 +2080,7 @@ where
         let result = match *operand {
             Object::Buffer(ref bytes) => Object::Buffer(bytes.clone()),
             Object::Integer(value) => {
-                if self.integer_size() == 8 {
+                if self.integer_size == IntegerSize::EightBytes {
                     Object::Buffer(value.to_le_bytes().to_vec_in(self.alloc.clone()))
                 } else {
                     Object::Buffer((value as u32).to_le_bytes().to_vec_in(self.alloc.clone()))
@@ -2132,43 +2110,8 @@ where
         extract_args!(op, self.alloc.clone() => [Argument::Object(operand), Argument::Object(target)]);
         let operand = operand.clone().unwrap_transparent_reference();
 
-        let result = match *operand {
-            Object::Integer(value) => Object::Integer(value),
-            Object::Buffer(ref bytes) => {
-                /*
-                 * The spec says this should respect the revision of the current definition block.
-                 * Apparently, the NT interpreter always uses the first 8 bytes of the buffer.
-                 */
-                let mut to_interpret = [0u8; 8];
-                (to_interpret[0..usize::min(bytes.len(), 8)]).copy_from_slice(bytes);
-                Object::Integer(u64::from_le_bytes(to_interpret))
-            }
-            Object::String(ref value) => {
-                /*
-                 * TODO:
-                 * This is about the same level of effort as ACPICA puts in. The uACPI test suite
-                 * has tests that this fails - namely because of support for octal, signs, strings
-                 * that won't fit in a `u64` etc. We probably need to write a more robust parser
-                 * 'real' parser to handle those cases.
-                 */
-                let value = value.as_str().trim();
-                let (value, radix): (&str, u32) =
-                    if let Some(v) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
-                        (v.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16)
-                    } else {
-                        (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10)
-                    };
-                match value.len() {
-                    0 => Object::Integer(0),
-                    _ => Object::Integer(u64::from_str_radix(value, radix).map_err(|_| {
-                        AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
-                    })?),
-                }
-            }
-            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToBuffer, typ: operand.typ() })?,
-        }
-        .wrap(self.alloc.clone());
-
+        let result =
+            Object::Integer(operand.to_integer(self.integer_size, self.alloc.clone())?).wrap(self.alloc.clone());
         let result = self.do_store(target.clone(), result)?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
@@ -2330,9 +2273,9 @@ where
         let result = match source1.typ() {
             ObjectType::Integer => {
                 let source1 = source1.as_integer()?;
-                let source2 = source2.to_integer(self.integer_size())?;
+                let source2 = source2.to_integer(self.integer_size, self.alloc.clone())?;
                 let mut buffer = Vec::new_in(self.alloc.clone());
-                if self.integer_size() == 8 {
+                if self.integer_size == IntegerSize::EightBytes {
                     buffer.extend_from_slice(&source1.to_le_bytes());
                     buffer.extend_from_slice(&source2.to_le_bytes());
                 } else {
@@ -2343,7 +2286,7 @@ where
             }
             ObjectType::Buffer => {
                 let mut buffer = source1.as_buffer()?.to_vec_in(self.alloc.clone());
-                buffer.extend(source2.to_buffer(self.integer_size(), self.alloc.clone())?);
+                buffer.extend(source2.to_buffer(self.integer_size, self.alloc.clone())?);
                 Object::Buffer(buffer).wrap(self.alloc.clone())
             }
             _ => {
@@ -2593,7 +2536,7 @@ where
     /// return either an `Integer` or `Buffer` as appropriate, guided by the size of the field
     /// and expected integer size (as per the DSDT revision).
     fn do_field_read(&self, field: &FieldUnit<A>) -> Result<WrappedObject<A>, AmlError<A>> {
-        let needs_buffer = field.bit_length > (self.integer_size() * 8);
+        let needs_buffer = field.bit_length > (self.integer_size as usize * 8);
         let access_width_bits = field.flags.access_type_bytes()? * 8;
 
         trace!("AML field read. Field = {:?}", field);
@@ -3827,5 +3770,17 @@ impl<A: Allocator + Clone> core::fmt::Debug for AmlError<A> {
             HostError(s) => write!(f, "HostError({:?})", s),
             InternalError(s) => write!(f, "InternalError({:?})", s),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IntegerSize {
+    FourBytes = 4,
+    EightBytes = 8,
+}
+
+impl IntegerSize {
+    pub fn from_revision(revision: u8) -> IntegerSize {
+        if revision >= 2 { IntegerSize::EightBytes } else { IntegerSize::FourBytes }
     }
 }

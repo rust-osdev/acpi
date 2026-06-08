@@ -12,7 +12,6 @@ mod test_infra;
 use aml_test_tools::handlers::null_handler::NullHandler;
 
 #[test]
-#[ignore] // Fails with ObjectNotOfExpectedType { expected: Reference, got: Integer }
 fn expressions_with_package() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
@@ -24,7 +23,10 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 
     // ACPICA: AE_SUPPORT, Expressions within package elements are not supported
     // Windows, uACPI: Local0 = 50
-    Local0 = TEST()
+    Method (MAIN, 0, NotSerialized) {
+        Local0 = TEST()
+        Return (Local0 != 50)
+    }
 }
     "#;
 
@@ -87,17 +89,19 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 }
 
 #[test]
-#[ignore] // ParseFail(ObjectNotOfExpectedType { expected: Reference, got: Integer })
 fn multilevel_references() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
-    Local0 = 123
-    Local1 = RefOf(Local0)
-    Local2 = RefOf(Local1)
+    Method(MAIN, 0, NotSerialized) {
+        Local0 = 123
+        Local1 = RefOf(Local0)
+        Local2 = RefOf(Local1)
 
-    // ACPICA: Local3 = reference->Local0
-    // Windows, uACPI: Local3 = 123
-    Local3 = DerefOf(Local2)
+        // ACPICA: Local3 = reference->Local0
+        // Windows, uACPI: Local3 = 123
+        Local3 = DerefOf(Local2)
+        Return (Local3 != 123)
+    }
 }"#;
 
     let handler = NullHandler;
@@ -105,15 +109,19 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 }
 
 #[test]
-#[ignore] // "Stores to objects like WrappedObject(UnsafeCell { .. }) are not yet supported"
 fn implicit_case_semantics() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
-    Name (TEST, "BAR")
+    Method(MAIN, 0, NotSerialized) {
+        Name (TEST, "BAR")
 
-    // ACPICA: TEST = "00000000004F4F46"
-    // Windows, uACPI: TEST = "FOO"
-    TEST = 0x4F4F46
+        // ACPICA: TEST = "00000000004F4F46"
+        // Windows, uACPI: TEST = "FOO"
+        TEST = 0x4F4F46
+
+        Return (Test != "FOO")
+    }
+
 }"#;
 
     let handler = NullHandler;
@@ -121,20 +129,23 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 }
 
 #[test]
-#[ignore] // "Stores to objects like WrappedObject(UnsafeCell { .. }) are not yet supported"
+// TODO: This test isn't quite right as we match on substrings rather than whole strings
 fn buffer_size_mutability() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
-    Name (TEST, "XXXX")
-    Name (VAL, "")
+    Method(MAIN, 0, NotSerialized) {
+        Name (TEST, "XXXX")
+        Name (VAL, "")
 
-    // ACPICA: TEST = "LONGSTRING"
-    // Windows, UACPI: TEST = "LONG"
-    TEST = "LONGSTRING"
+        // ACPICA: TEST = "LONGSTRING"
+        // Windows, UACPI: TEST = "LONG"
+        TEST = "LONGSTRING"
 
-    // ACPICA: VAL = "FOO"
-    // Windows, UACPI: VAL = ""
-    VAL = "FOO"
+        // ACPICA: VAL = "FOO"
+        // Windows, UACPI: VAL = ""
+        VAL = "FOO"
+        Return ((TEST != "LONGSTRING") || (VAL != "FOO"))
+    }
 }"#;
 
     let handler = NullHandler;
@@ -170,7 +181,7 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 }
 
 #[test]
-#[ignore] // CopyObject not yet implemented
+#[ignore] // See issue #300
 fn copy_object_to_self() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {

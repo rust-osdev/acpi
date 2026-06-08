@@ -1,7 +1,7 @@
-use crate::aml::{AmlError, Handle, Operation, op_region::OpRegion};
+use crate::aml::{AmlError, Handle, IntegerSize, Operation, op_region::OpRegion};
 use alloc::{sync::Arc, vec::Vec};
 use bit_field::BitField;
-use core::{alloc::Allocator, cell::UnsafeCell, fmt, ops, sync::atomic::AtomicU64};
+use core::{alloc::Allocator, cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::atomic::AtomicU64};
 
 // nightly's `String` is not allocator-parameterized (no
 // `String<A>` type, no `String::new_in`). `AmlString<A>` is a thin newtype
@@ -295,6 +295,9 @@ impl<A: Allocator + Clone> Object<A> {
         WrappedObject::new(self, alloc)
     }
 
+    /// Unwraps an integer object. Errors if not already an integer.
+    ///
+    /// For casting to integer, use [`Object::to_integer`] instead.
     pub fn as_integer(&self) -> Result<u64, AmlError<A>> {
         if let Object::Integer(value) = self {
             Ok(*value)
@@ -320,35 +323,67 @@ impl<A: Allocator + Clone> Object<A> {
         }
     }
 
-    pub fn to_integer(&self, allowed_bytes: usize) -> Result<u64, AmlError<A>> {
+    /// Converts the object to an integer. Used for both implicit and explicit conversions.
+    ///
+    /// To avoid the cast, use [`Object::as_integer`] instead.
+    pub fn to_integer(&self, integer_size: IntegerSize, alloc: A) -> Result<u64, AmlError<A>> {
         match self {
             Object::Integer(value) => Ok(*value),
-            Object::Buffer(value) => {
-                let length = usize::min(value.len(), allowed_bytes);
-                let mut bytes = [0u8; 8];
-                bytes[0..length].copy_from_slice(&value[0..length]);
-                Ok(u64::from_le_bytes(bytes))
+            Object::Buffer(bytes) => {
+                /*
+                 * The spec says this should respect the revision of the current definition block.
+                 * Apparently, the NT interpreter always uses the first 8 bytes of the buffer.
+                 */
+                let length = usize::min(bytes.len(), integer_size as usize);
+                let mut to_interpret = [0u8; 8];
+                to_interpret[0..length].copy_from_slice(&bytes[0..length]);
+                Ok(u64::from_le_bytes(to_interpret))
             }
-            // TODO: how should we handle invalid inputs? What does NT do here?
-            Object::String(value) => Ok(value.parse::<u64>().unwrap_or(0)),
-            // ^ AmlString::parse delegates to str::parse - same behavior as String.
-            _ => Ok(0),
+            Object::String(value) => {
+                /*
+                 * This is about the same level of effort as ACPICA puts in. The uACPI test suite
+                 * has tests that this fails - namely because of support for octal, signs, strings
+                 * that won't fit in a `u64` etc. We probably need to write a more robust parser
+                 * 'real' parser to handle those cases.
+                 */
+                let value = value.as_str().trim();
+                let (value, radix): (&str, u32) =
+                    if let Some(value) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
+                        (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16)
+                    } else {
+                        (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10)
+                    };
+                match value.len() {
+                    0 => Ok(0),
+                    _ => Ok(u64::from_str_radix(value, radix).map_err(|_| {
+                        AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: ObjectType::String }
+                    })?),
+                }
+            }
+            Object::BufferField { .. } => {
+                self.read_buffer_field(integer_size, alloc.clone())?.to_integer(integer_size, alloc)
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: self.typ() })?,
         }
     }
 
-    pub fn to_buffer(&self, allowed_bytes: usize, alloc: A) -> Result<Vec<u8, A>, AmlError<A>> {
+    pub fn to_buffer(&self, integer_size: IntegerSize, alloc: A) -> Result<Vec<u8, A>, AmlError<A>> {
         match self {
             Object::Buffer(bytes) => Ok(bytes.clone()),
-            Object::Integer(value) => {
-                let bytes: &[u8] = match allowed_bytes {
-                    4 => &(*value as u32).to_le_bytes(),
-                    8 => &value.to_le_bytes(),
-                    _ => panic!(),
-                };
-                let mut out = Vec::with_capacity_in(bytes.len(), alloc);
-                out.extend_from_slice(bytes);
-                Ok(out)
-            }
+            Object::Integer(value) => match integer_size {
+                IntegerSize::FourBytes => {
+                    let bytes = (*value as u32).to_le_bytes();
+                    let mut out = Vec::with_capacity_in(bytes.len(), alloc);
+                    out.extend_from_slice(&bytes);
+                    Ok(out)
+                }
+                IntegerSize::EightBytes => {
+                    let bytes = value.to_le_bytes();
+                    let mut out = Vec::with_capacity_in(bytes.len(), alloc);
+                    out.extend_from_slice(&bytes);
+                    Ok(out)
+                }
+            },
             Object::String(value) => {
                 let src = value.as_bytes();
                 let mut out = Vec::with_capacity_in(src.len(), alloc);
@@ -359,14 +394,14 @@ impl<A: Allocator + Clone> Object<A> {
         }
     }
 
-    pub fn read_buffer_field(&self, integer_size: usize, alloc: A) -> Result<Object<A>, AmlError<A>> {
+    pub fn read_buffer_field(&self, integer_size: IntegerSize, alloc: A) -> Result<Object<A>, AmlError<A>> {
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match **buffer {
                 Object::Buffer(ref buffer) => buffer.as_slice(),
                 Object::String(ref string) => string.as_bytes(),
                 _ => panic!(),
             };
-            if *length <= integer_size {
+            if *length <= integer_size as usize {
                 let mut dst = [0u8; 8];
                 copy_bits(buffer, *offset, &mut dst, 0, *length);
                 Ok(Object::Integer(u64::from_le_bytes(dst)))
@@ -503,6 +538,25 @@ impl<A: Allocator + Clone> Object<A> {
             Object::String(_) => ObjectType::String,
             Object::ThermalZone => ObjectType::ThermalZone,
             Object::Debug => ObjectType::Debug,
+        }
+    }
+
+    /// Calculate the ordering of two objects using the AML rules
+    ///
+    /// This function is not intended to be used for `impl PartialOrd` because we don't want to tie
+    /// the meaning of `object_a.cmp(object_b)` to those AML rules - we may want more flexibility.
+    pub fn aml_cmp(&self, other: &Object<A>) -> Result<Ordering, AmlError<A>> {
+        match (self, &other) {
+            (Object::Integer(a), Object::Integer(b)) => Ok(a.cmp(b)),
+            (Object::String(a), Object::String(b)) => Ok(a.as_str().cmp(b.as_str())),
+            (Object::Buffer(a), Object::Buffer(b)) => {
+                let size_cmp = a.len().cmp(&b.len());
+                if size_cmp != Ordering::Equal {
+                    return Ok(size_cmp);
+                }
+                Ok(a.cmp(b))
+            }
+            _ => Err(AmlError::InvalidOperationOnObject { op: Operation::LogicalOp, typ: self.typ() }),
         }
     }
 }
@@ -743,6 +797,7 @@ pub(crate) fn align_down(value: usize, align: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::alloc::Global;
 
     #[test]
     fn test_copy_bits() {
@@ -751,5 +806,42 @@ mod tests {
 
         copy_bits(&src, 0, &mut dst, 2, 15);
         assert_eq!(dst, [0b1111_1101, 0b1101_1110, 0b0000_0001, 0b0000_0000, 0b0000_0000]);
+    }
+
+    #[test]
+    fn buffer_to_integer() {
+        let buffer = Object::Buffer(Vec::from([0xab, 0xcd, 0xef, 0x01, 0xff]));
+        assert_eq!(buffer.to_integer(IntegerSize::FourBytes, Global).unwrap(), 0x01efcdab);
+    }
+    #[test]
+    fn buffer_field_to_integer() {
+        const BUFFER: [u8; 5] = [0xffu8; 5];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap(Global);
+        let buffer_field = Object::BufferField { buffer, offset: 5, length: 9 };
+
+        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes, Global).unwrap(), 0x1ff);
+    }
+
+    #[test]
+    fn buffer_field_to_4_byte_integer() {
+        // The ones in this buffer are strategically chosen to not make it to the final integer.
+        const BUFFER: [u8; 5] = [0x0f, 0x00, 0x00, 0x00, 0xf0];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap(Global);
+        let buffer_field = Object::BufferField {
+            buffer,
+            offset: 4,
+            length: 36, // This should be truncated to 32 bits in the conversion
+        };
+
+        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes, Global).unwrap(), 0);
+    }
+
+    #[test]
+    fn buffer_field_to_8_byte_integer() {
+        const BUFFER: [u8; 6] = [0x0f, 0x00, 0x00, 0x00, 0xf0, 0xff];
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap(Global);
+        let buffer_field = Object::BufferField { buffer, offset: 4, length: 36 };
+
+        assert_eq!(buffer_field.to_integer(IntegerSize::EightBytes, Global).unwrap(), 0x0000000f_00000000);
     }
 }
