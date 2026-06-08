@@ -345,6 +345,10 @@ where
     }
 
     pub fn acquire_global_lock(&self, timeout: u16) -> Result<(), AmlError<A>> {
+        if self.facs.is_none() {
+            return Ok(());
+        }
+
         // Handler::acquire returns `AmlError<Global>`; re-map to AmlError<A>.
         self.handler.acquire(self.global_lock_mutex, timeout).map_err(|_| AmlError::MutexAcquireTimeout)?;
 
@@ -362,6 +366,9 @@ where
                  * so for now let's just spin round and try and acquire it again...
                  */
                 self.handler.release(self.global_lock_mutex);
+                self.handler
+                    .acquire(self.global_lock_mutex, timeout)
+                    .map_err(|_| AmlError::MutexAcquireTimeout)?;
                 continue;
             }
         }
@@ -398,10 +405,15 @@ where
     }
 
     pub fn release_global_lock(&self) -> Result<(), AmlError<A>> {
+        if self.facs.is_none() {
+            return Ok(());
+        }
+
         let is_pending = self.do_release_firmware_lock();
         if is_pending {
             self.registers.pm1_control_registers.set_bit(Pm1ControlBit::GlobalLockRelease, true).unwrap();
         }
+        self.handler.release(self.global_lock_mutex);
         Ok(())
     }
 
