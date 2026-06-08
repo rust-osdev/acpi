@@ -60,16 +60,6 @@ use op_region::{OpRegion, RegionHandler, RegionSpace};
 use pci_types::PciAddress;
 use spinning_top::Spinlock;
 
-// PILOT-DECISION: was `alloc::format!` building a String<Global>. Now takes
-// `$alloc` (an `A: Allocator + Clone`) and builds an `AmlString<A>`. The
-// dynamic context info (file/line/stringify) is lost — the message is now a
-// fixed string. Callers are expected to pass `self.alloc.clone()` or
-// `context.alloc.clone()` depending on scope.
-//
-// PILOT-FOLLOWUP: restore dynamic formatting via `core::fmt::write!` into an
-// `AmlString<A>` once we add a `Write` impl on AmlString. Currently the
-// AmlString doesn't impl `core::fmt::Write`, so format-string macros don't
-// work on it.
 macro_rules! extract_args {
     ($op:ident, $alloc:expr => $args:tt) => {
         let $args = &$op.arguments[..] else {
@@ -90,9 +80,9 @@ macro_rules! extract_args {
 }
 
 /// Allocator-aware `vec![]` replacement. Three forms mirror `vec!`:
-///   `vec_in!(alloc)`              — empty Vec<T, A>
-///   `vec_in!(alloc; elem; n)`     — `n` copies of `elem`
-///   `vec_in!(alloc; a, b, c)`     — Vec with the given elements
+///   `vec_in!(alloc)`              - empty Vec<T, A>
+///   `vec_in!(alloc; elem; n)`     - `n` copies of `elem`
+///   `vec_in!(alloc; a, b, c)`     - Vec with the given elements
 macro_rules! vec_in {
     ($alloc:expr) => {{
         Vec::new_in($alloc)
@@ -117,9 +107,6 @@ where
     H: Handler,
 {
     handler: H,
-    // PILOT-DECISION: `alloc: A` is stored on the interpreter so that opcode
-    // handlers (Vec/AmlString/Object constructions during method evaluation)
-    // can derive an allocator without threading it through every signature.
     alloc: A,
     pub namespace: Spinlock<Namespace<A>>,
     pub object_token: Spinlock<ObjectToken>,
@@ -144,10 +131,6 @@ where
     /// Construct a new [`Interpreter`]. This does not load any tables - if you have an
     /// [`crate::AcpiTables`] already, construct an [`AcpiPlatform`] first and then use
     /// [`Interpreter::new_from_platform`]
-    //
-    // PILOT-DECISION: `new` → `new_in`. Takes the allocator alongside the
-    // existing args. `Arc<FixedRegisters<H>, A>` comes pre-allocated from
-    // the patched `AcpiPlatform::new_in`, so its allocator implicitly matches.
     pub fn new_in(
         handler: H,
         dsdt_revision: u8,
@@ -173,13 +156,6 @@ where
     }
 
     /// Construct a new [`Interpreter`] with the given [`AcpiPlatform`].
-    //
-    // PILOT-DECISION: error return changed from `AcpiError<A>` to `AcpiError`
-    // (no generic) — the `Aml(aml::AmlError<Global>)` placeholder in lib.rs
-    // can't carry an `AmlError<A>` for arbitrary A. AML errors from the
-    // inner `load_table` are logged via the existing `error!` machinery
-    // rather than propagated through `AcpiError`. This is consistent with
-    // the existing behavior (the loop already swallows per-SSDT errors).
     pub fn new_from_platform(platform: &AcpiPlatform<H, A>) -> Result<Interpreter<H, A>, AcpiError> {
         fn load_table<H: Handler, A: Allocator + Clone + 'static>(
             interpreter: &Interpreter<H, A>,
@@ -208,9 +184,6 @@ where
         };
 
         let dsdt = platform.tables.dsdt()?;
-        // PILOT-DECISION: derive the allocator from `registers` (an
-        // `Arc<FixedRegisters<H>, A>`) via `Arc::allocator(&arc)`. Saves a
-        // signature change on `new_from_platform`.
         let alloc = Arc::allocator(&registers).clone();
         let interpreter = Interpreter::new_in(platform.handler.clone(), dsdt.revision, registers, facs, alloc);
 
@@ -456,9 +429,6 @@ where
 
     /// Returns the size of an integer (in bytes) for the set of tables parsed so far. This depends
     /// on the revision of the initial DSDT.
-    // PILOT-DECISION: small helpers wrapping the allocator-aware OpInFlight
-    // constructors. Saves threading `self.alloc.clone()` through hundreds of
-    // call sites in `do_execute_method`.
     fn new_op(&self, op: Opcode, behaviours: &'static [ResolveBehaviour]) -> OpInFlight<A> {
         OpInFlight::new(op, behaviours, self.alloc.clone())
     }
@@ -998,7 +968,7 @@ where
                     }
                     Opcode::InternalMethodCall => {
                         extract_args!(op[0..2], self.alloc.clone() => [Argument::Object(method), Argument::Namestring(method_scope)]);
-                        // PILOT-DECISION: `.collect()` into a `Vec<_, A>` requires
+                        // `.collect()` into a `Vec<_, A>` requires
                         // an allocator-aware FromIterator, which doesn't exist
                         // on stable nightly yet. Manual `push` loop instead.
                         let mut args: Vec<WrappedObject<A>, A> = Vec::new_in(self.alloc.clone());
@@ -2181,9 +2151,6 @@ where
                  * that won't fit in a `u64` etc. We probably need to write a more robust parser
                  * 'real' parser to handle those cases.
                  */
-                // PILOT-DECISION: was `value.to_ascii_lowercase()` (String<Global>).
-                // Hex parsing accepts mixed case already, so we only need a
-                // case-insensitive prefix check for "0x"/"0X".
                 let value = value.as_str().trim();
                 let (value, radix): (&str, u32) =
                     if let Some(v) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
@@ -2258,17 +2225,16 @@ where
                 } else {
                     let mut string = AmlString::new_in(self.alloc.clone());
                     use core::fmt::Write;
-                    for byte in bytes {
+                    for (index, byte) in bytes.iter().enumerate() {
+                        if index > 0 {
+                            string.push(',');
+                        }
                         match op.op {
-                            Opcode::ToDecimalString => write!(string, "{byte},").unwrap(),
-                            Opcode::ToHexString => write!(string, "{byte:#04X},").unwrap(),
+                            Opcode::ToDecimalString => write!(string, "{byte}").unwrap(),
+                            Opcode::ToHexString => write!(string, "{byte:#04X}").unwrap(),
                             _ => panic!(),
                         }
                     }
-                    // PILOT-FOLLOWUP: trim trailing comma. AmlString doesn't
-                    // currently expose a `pop` method; needs adding for
-                    // strict fidelity to original behavior. For now, leave
-                    // trailing comma (cosmetic regression).
                     Object::String(string)
                 }
             }
@@ -2321,16 +2287,13 @@ where
         let source1 = source1.clone().unwrap_transparent_reference();
         let source2 = source2.clone().unwrap_transparent_reference();
 
-        // PILOT-DECISION: resolve_as_string was producing String<Global>.
-        // Now produces AmlString<A> via an inline write! against the
-        // formatter. Recursion handled by re-entering with a clone.
         fn resolve_as_string<A: Allocator + Clone>(obj: &Object<A>, alloc: A) -> AmlString<A> {
             use core::fmt::Write;
             let mut s = AmlString::new_in(alloc.clone());
             match obj {
                 Object::Uninitialized => s.push_str("[Uninitialized Object]"),
                 Object::Buffer(bytes) => {
-                    // PILOT-FOLLOWUP: original used String::from_utf8_lossy
+                    // TODO: original used String::from_utf8_lossy
                     // which goes through Global on invalid UTF-8. Best-effort
                     // ASCII-only conversion below.
                     for &b in bytes {
@@ -2579,13 +2542,7 @@ where
                 }
             }
             Object::Debug => {
-                // PILOT-FOLLOWUP: Handler::handle_debug is pinned to
-                // `&Object<Global>` per lib.rs. Passing `&object: &Object<A>`
-                // is a type mismatch and there's no clean conversion path
-                // since Object<A> doesn't have a Global counterpart in
-                // memory. Skipping the call preserves correctness (the
-                // default impl is a no-op anyway); restoring it requires
-                // making Handler generic on A.
+                // TODO: Route Debug stores through Handler once Handler can accept allocator-aware objects.
             }
             Object::Integer(0) => {} // Store to NullName
             _ => return Err(AmlError::InvalidOperationOnObject { op: Operation::Store, typ: target.typ() }),
@@ -3012,9 +2969,6 @@ struct MethodContext<A: Allocator + Clone + 'static> {
     current_scope: AmlName<A>,
 
     _method: Option<WrappedObject<A>>,
-    // PILOT-DECISION: carry the allocator on the context too, so opcode
-    // handlers that allocate Vec/AmlString for intermediate values can derive
-    // it from the active method context.
     alloc: A,
 }
 
@@ -3063,7 +3017,7 @@ impl<A: Allocator + Clone + 'static> core::fmt::Debug for BlockKind<A> {
     }
 }
 
-// PILOT-DECISION: PartialEq for BlockKind is impl'd manually to avoid
+// PartialEq for BlockKind is impl'd manually to avoid
 // deriving with `A: PartialEq` bound. The AmlName<A> fields use the
 // AmlName cross-A PartialEq impl from namespace.rs.
 impl<A: Allocator + Clone + 'static, A2: Allocator + Clone + 'static> PartialEq<BlockKind<A2>> for BlockKind<A> {
@@ -3125,7 +3079,7 @@ enum Argument<A: Allocator + Clone + 'static> {
     PkgLength(usize),
 }
 
-// Manual Debug impl — derive auto-adds `A: Debug` which `&'static BumpArena<N>`
+// Manual Debug impl - derive auto-adds `A: Debug` which `&'static BumpArena<N>`
 // doesn't satisfy.
 impl<A: Allocator + Clone + 'static> core::fmt::Debug for OpInFlight<A> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -3262,13 +3216,6 @@ impl<A: Allocator + Clone + 'static> MethodContext<A> {
             Ok(context)
         } else {
             Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Method, got: method.typ() })
-        }
-    }
-
-    fn last_op(&mut self) -> Result<&mut OpInFlight<A>, AmlError<A>> {
-        match self.in_flight.last_mut() {
-            Some(op) => Ok(op),
-            None => Err(AmlError::NoCurrentOp),
         }
     }
 
@@ -3709,12 +3656,6 @@ pub enum Operation {
     WaitEvent,
 }
 
-// PILOT-DECISION: AmlError gains `<A>` because 5 variants hold `AmlName<A>`
-// and 2 hold `AmlString<A>`. Derives stay only for Clone — PartialEq/Debug
-// get manual impls to dodge the auto-added `A: PartialEq`/`A: Debug` bounds.
-// PILOT-FOLLOWUP: the `lib.rs::AcpiError::Aml(aml::AmlError)` variant also
-// needs `<A>` propagation. Fixing that variant is mechanical but currently
-// blocks crate-level compilation.
 #[derive(Clone)]
 #[non_exhaustive]
 pub enum AmlError<A: Allocator + Clone> {

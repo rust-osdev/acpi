@@ -3,7 +3,7 @@ use alloc::{sync::Arc, vec::Vec};
 use bit_field::BitField;
 use core::{alloc::Allocator, cell::UnsafeCell, fmt, ops, sync::atomic::AtomicU64};
 
-// PILOT-DECISION: nightly's `String` is not allocator-parameterized (no
+// nightly's `String` is not allocator-parameterized (no
 // `String<A>` type, no `String::new_in`). `AmlString<A>` is a thin newtype
 // wrapping `Vec<u8, A>` with a UTF-8 invariant, providing the subset of
 // `String` operations the AML interpreter actually needs. Construction sites
@@ -78,7 +78,7 @@ impl<A: Allocator + Clone> Clone for AmlString<A> {
     }
 }
 
-// Manual PartialEq impls — derive would bound `A: PartialEq`, but Vec's
+// Manual PartialEq impls - derive would bound `A: PartialEq`, but Vec's
 // PartialEq impl works for any allocator (compares element-wise).
 impl<A: Allocator + Clone, A2: Allocator + Clone> PartialEq<AmlString<A2>> for AmlString<A> {
     fn eq(&self, other: &AmlString<A2>) -> bool {
@@ -108,7 +108,7 @@ impl<A: Allocator + Clone> fmt::Write for AmlString<A> {
     }
 }
 
-// PILOT-DECISION: NativeMethod is parameterized over `A` because the closure
+// NativeMethod is parameterized over `A` because the closure
 // produces and consumes WrappedObject<A>. The 'static bound stays on the
 // constructor (`Object::native_method` below).
 type NativeMethod<A> = dyn Fn(&[WrappedObject<A>]) -> Result<WrappedObject<A>, AmlError<A>>;
@@ -119,9 +119,9 @@ pub enum Object<A: Allocator + Clone> {
     Buffer(Vec<u8, A>),
     BufferField { buffer: WrappedObject<A>, offset: usize, length: usize },
     Device,
-    // PILOT-DECISION: Event's Arc is also allocator-parameterized. We could
+    // Event's Arc is also allocator-parameterized. We could
     // keep this Arc<AtomicU64, Global> as a "small exception" for shared
-    // synchronization primitives, but consistency wins — every allocation
+    // synchronization primitives, but consistency wins - every allocation
     // goes through the same arena.
     Event(Arc<AtomicU64, A>),
     FieldUnit(FieldUnit<A>),
@@ -141,13 +141,6 @@ pub enum Object<A: Allocator + Clone> {
 }
 
 impl<A: Allocator + Clone> Object<A> {
-    // PILOT-DECISION: native_method now takes `alloc: A`. Caller threads the
-    // allocator at construction. Matches the platform/* pattern of consuming
-    // an allocator (A: Clone makes this cheap). The `A: 'static` bound here
-    // is forced by `Arc<dyn Fn + 'static, A>`: the closure may capture
-    // variables of type A (e.g., a cloned allocator), and a `'static` trait
-    // object can't capture non-'static data. For `&'static BumpArena<N>`
-    // this is satisfied trivially.
     pub fn native_method<F>(num_args: u8, f: F, alloc: A) -> Object<A>
     where
         A: 'static,
@@ -221,7 +214,7 @@ impl ObjectToken {
 #[derive(Clone)]
 pub struct WrappedObject<A: Allocator + Clone>(Arc<UnsafeCell<Object<A>>, A>);
 
-// Manual Debug impl — derive auto-bounds `A: Debug`.
+// Manual Debug impl - derive auto-bounds `A: Debug`.
 impl<A: Allocator + Clone> fmt::Debug for WrappedObject<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("WrappedObject").finish_non_exhaustive()
@@ -229,8 +222,6 @@ impl<A: Allocator + Clone> fmt::Debug for WrappedObject<A> {
 }
 
 impl<A: Allocator + Clone> WrappedObject<A> {
-    // PILOT-DECISION: `new` takes the allocator explicitly. Previously this
-    // was `pub fn new(object: Object) -> WrappedObject` with implicit Global.
     pub fn new(object: Object<A>, alloc: A) -> WrappedObject<A> {
         #[allow(clippy::arc_with_non_send_sync)]
         WrappedObject(Arc::new_in(UnsafeCell::new(object), alloc))
@@ -312,11 +303,7 @@ impl<A: Allocator + Clone> Object<A> {
         }
     }
 
-    // PILOT-DECISION: signature changed from `Result<Cow<'_, str>, AmlError>`
-    // to `Result<&str, AmlError<A>>`. Cow<'_, str> is hardcoded to Owned=String<Global>,
-    // which can't represent String<A>. Every existing call site reads `as_string`
-    // as a borrowed view, so `&str` is functionally equivalent and simpler.
-    // API CHANGE — callers that explicitly wanted Cow must adjust.
+    /// Unwraps a string object as a borrowed string slice.
     pub fn as_string(&self) -> Result<&str, AmlError<A>> {
         if let Object::String(value) = self {
             Ok(value.as_str())
@@ -344,13 +331,11 @@ impl<A: Allocator + Clone> Object<A> {
             }
             // TODO: how should we handle invalid inputs? What does NT do here?
             Object::String(value) => Ok(value.parse::<u64>().unwrap_or(0)),
-            // ^ AmlString::parse delegates to str::parse — same behavior as String.
+            // ^ AmlString::parse delegates to str::parse - same behavior as String.
             _ => Ok(0),
         }
     }
 
-    // PILOT-DECISION: `to_buffer` takes an allocator to construct the returned
-    // Vec<u8, A>. Caller threads the allocator at the call site.
     pub fn to_buffer(&self, allowed_bytes: usize, alloc: A) -> Result<Vec<u8, A>, AmlError<A>> {
         match self {
             Object::Buffer(bytes) => Ok(bytes.clone()),
@@ -374,8 +359,6 @@ impl<A: Allocator + Clone> Object<A> {
         }
     }
 
-    // PILOT-DECISION: `read_buffer_field` allocates a Vec<u8, A> for the
-    // multi-byte path. Takes `alloc: A` parameter.
     pub fn read_buffer_field(&self, integer_size: usize, alloc: A) -> Result<Object<A>, AmlError<A>> {
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match **buffer {
@@ -388,8 +371,6 @@ impl<A: Allocator + Clone> Object<A> {
                 copy_bits(buffer, *offset, &mut dst, 0, *length);
                 Ok(Object::Integer(u64::from_le_bytes(dst)))
             } else {
-                // PILOT-DECISION: was `alloc::vec![0u8; length.div_ceil(8)]`
-                // (Global). Use allocator-aware Vec::with_capacity_in + resize.
                 let size = length.div_ceil(8);
                 let mut dst = Vec::with_capacity_in(size, alloc);
                 dst.resize(size, 0u8);
@@ -421,18 +402,6 @@ impl<A: Allocator + Clone> Object<A> {
     /// Replace this object's contents with that of a `new` object, applying implicit casting rules
     /// as needed. This follows the NT interpreter's creative interpretation of implicit casts, which is
     /// effectively a byte-wise transmutation.
-    //
-    // PILOT-DECISION: signature gains `alloc: A` for the cases where new
-    // backing storage is needed (clearing+repopulating String/Buffer can reuse
-    // the existing allocator, but the Buffer→Buffer path's `value.clone()`
-    // also wants A for the source clone — no extra param needed since A is
-    // already on `new: Object<A>`).
-    //
-    // PILOT-FOLLOWUP: the original code did `String::from_utf8_lossy(...).to_string()`
-    // which goes through Global on invalid UTF-8. The new path below handles
-    // the valid prefix only and substitutes a single replacement char on
-    // invalid input. This is a behavioral regression compared to from_utf8_lossy;
-    // a proper allocator-aware lossy decoder is left for follow-up.
     pub fn replace_with_implicit_casting(&mut self, new: Object<A>) -> Result<(), AmlError<A>> {
         // Extract a &[u8] view of `new` without taking ownership (so we can keep
         // its allocator A live for the lifetime of the borrow).
@@ -470,13 +439,7 @@ impl<A: Allocator + Clone> Object<A> {
                 }
                 Object::String(value) => {
                     value.clear();
-                    match core::str::from_utf8(new_bytes) {
-                        Ok(s) => value.push_str(s),
-                        Err(_) => {
-                            // See PILOT-FOLLOWUP above.
-                            value.push(char::REPLACEMENT_CHARACTER);
-                        }
-                    }
+                    push_utf8_lossy_until_nul(value, new_bytes);
                 }
                 Object::Buffer(value) => {
                     value.clear();
@@ -485,6 +448,32 @@ impl<A: Allocator + Clone> Object<A> {
                 _ => return Err(AmlError::InvalidImplicitCast { from: target.typ(), to: ObjectType::Buffer }),
             }
             Ok(())
+        }
+
+        fn push_utf8_lossy_until_nul<A2: Allocator + Clone>(target: &mut AmlString<A2>, bytes: &[u8]) {
+            let mut remaining = bytes.split(|byte| *byte == b'\0').next().unwrap_or_default();
+
+            loop {
+                match core::str::from_utf8(remaining) {
+                    Ok(valid) => {
+                        target.push_str(valid);
+                        return;
+                    }
+                    Err(error) => {
+                        let valid_up_to = error.valid_up_to();
+                        if valid_up_to > 0 {
+                            // SAFETY: `valid_up_to` is the UTF-8-valid prefix reported by `from_utf8`.
+                            target.push_str(unsafe { core::str::from_utf8_unchecked(&remaining[..valid_up_to]) });
+                        }
+
+                        target.push(char::REPLACEMENT_CHARACTER);
+                        let Some(error_len) = error.error_len() else {
+                            return;
+                        };
+                        remaining = &remaining[(valid_up_to + error_len)..];
+                    }
+                }
+            }
         }
     }
 
@@ -573,9 +562,6 @@ pub enum FieldUpdateRule {
 }
 
 impl FieldFlags {
-    // PILOT-DECISION: FieldFlags is allocator-free (just a u8 newtype), but
-    // its methods return `Result<_, AmlError<A>>`. Adding `<A>` to each
-    // method lets the caller's A flow through via type inference.
     pub fn access_type<A: Allocator + Clone>(&self) -> Result<FieldAccessType, AmlError<A>> {
         match self.0.get_bits(0..4) {
             0 => Ok(FieldAccessType::Any),

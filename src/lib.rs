@@ -257,12 +257,6 @@ pub unsafe trait AcpiTable {
     }
 }
 
-// PILOT-FOLLOWUP: AcpiError needs to grow `<A>` (the AML variant carries
-// `aml::AmlError<A>`). The cleanest shape is probably an unconditional
-// `<A: Allocator + Clone = Global>` with `PhantomData<A>` for the !aml
-// case, but `alloc::alloc::Global` is only available when the `alloc`
-// feature is on — meaning the default itself must be cfg-gated. Deferred
-// to a focused lib.rs pass once mod.rs settles.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum AcpiError {
@@ -474,12 +468,6 @@ pub trait Handler: Clone {
     ///
     /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
     /// without causing a deadlock.
-    // PILOT-FOLLOWUP: Handler trait methods that touch AML types now pin
-    // to `aml::AmlError<Global>` and `aml::Object<Global>` because the
-    // Handler trait itself isn't generic on A. The interpreter call sites
-    // need to convert between A and Global on these boundaries. A fuller
-    // design might split the trait into a base + an `AmlHandler<A>` trait,
-    // but that's a larger API change.
     #[cfg(feature = "aml")]
     fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError<alloc::alloc::Global>>;
     #[cfg(feature = "aml")]

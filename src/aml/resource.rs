@@ -17,10 +17,6 @@ pub enum Resource {
 }
 
 /// Parse a `ResourceDescriptor` buffer into a list of resources.
-//
-// PILOT-DECISION: takes `<A>` for the error type. Returns Vec<Resource>
-// allocated through Global since the descriptors themselves are small fixed-
-// size enums. Switching to Vec<Resource, A> is a follow-up if needed.
 pub fn resource_descriptor_list<A: Allocator + Clone>(
     descriptor: WrappedObject<A>,
 ) -> Result<alloc::vec::Vec<Resource>, AmlError<A>> {
@@ -339,7 +335,7 @@ fn irq_format_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource,
      * Byte 2   IRQ mask bits[15:8], _INT
      *          Bit [0] represents IRQ8, bit[1] is IRQ9, and so on.
      * Byte 3   IRQ Information. Each bit, when set, indicates this device is capable of driving a certain type of interrupt.
-     *          (Optional—if not included then assume edge sensitive, high true interrupts.)
+     *          (Optional: if not included then assume edge sensitive, high true interrupts.)
      *          These bits can be used both for reporting and setting IRQ resources.
      *          Note: This descriptor is meant for describing interrupts that are connected to PIC-compatible interrupt
      *                controllers, which can only be programmed for Active-High-Edge-Triggered or Active-Low-Level-Triggered

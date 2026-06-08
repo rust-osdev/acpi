@@ -10,21 +10,12 @@ use log::{trace, warn};
 
 #[derive(Clone)]
 pub struct Namespace<A: Allocator + Clone> {
-    // PILOT-DECISION: Namespace owns a clone of the allocator so methods
-    // (`add_level`, `insert`, etc.) can construct new NamespaceLevel/AmlName
-    // values without threading `alloc` through every signature. For
-    // `&'static BumpArena<N>` this costs 8 bytes per Namespace, paid once.
     alloc: A,
     root: NamespaceLevel<A>,
 }
 
 impl<A: Allocator + Clone> Namespace<A> {
     /// Create a new AML namespace, with the expected pre-defined objects.
-    //
-    // PILOT-DECISION: `new` → `new_in(global_lock_mutex, alloc)`. The handful
-    // of AmlName/String constructions in the body are each allocator-aware.
-    // The `A: 'static` bound propagates from `Object::native_method` (used to
-    // build `_OSI`); see the note on that method.
     pub fn new_in(global_lock_mutex: Handle, alloc: A) -> Namespace<A>
     where
         A: 'static,
@@ -65,8 +56,6 @@ impl<A: Allocator + Clone> Namespace<A> {
          *
          * See https://www.kernel.org/doc/html/latest/firmware-guide/acpi/osi.html for more information.
          */
-        // PILOT-DECISION: was `"Microsoft Windows NT".to_string()` (Global).
-        // `AmlString::from_str_in` is the allocator-aware replacement.
         let os_name = AmlString::from_str_in("Microsoft Windows NT", alloc.clone());
         namespace
             .insert(
@@ -86,10 +75,6 @@ impl<A: Allocator + Clone> Namespace<A> {
          *    - We answer 'yes' to `_OSI("Darwin")
          *    - We answer 'no' to `_OSI("Linux")`, and report that the tables are doing the wrong thing
          */
-        // PILOT-DECISION: the native_method closure now produces WrappedObject<A>
-        // and must capture the allocator (moved in). Two clones used:
-        // - `inner_alloc` (captured by the closure, used for every result wrap)
-        // - `alloc.clone()` for `native_method`'s `alloc` argument (the Arc)
         let inner_alloc = alloc.clone();
         let osi_method = Object::native_method(
             1,
@@ -168,21 +153,14 @@ impl<A: Allocator + Clone> Namespace<A> {
         namespace
     }
 
-    // PILOT-FOLLOWUP: all the AmlError variants below (LevelDoesNotExist,
-    // NameCollision, etc.) currently take `AmlName<Global>`. With AmlName<A>,
-    // they need to become `LevelDoesNotExist(AmlName<A>)` etc. — meaning
-    // AmlError gains `<A>`. That's the largest viral spread we've hit so far.
-    // For now these construction sites will fail to compile in the crate,
-    // pointing exactly at what AmlError needs to grow.
-
     pub fn add_level(&mut self, path: AmlName<A>, kind: NamespaceLevelKind) -> Result<(), AmlError<A>> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
         // Don't try to recreate the root scope
         if path != AmlName::root_in(self.alloc.clone()) {
-            // PILOT-DECISION: clone `self.alloc` *before* the mutable borrow
-            // below. Doing it after (as we did initially) trips E0502 —
+            // clone `self.alloc` *before* the mutable borrow
+            // below. Doing it after (as we did initially) trips E0502 -
             // `level` is `&mut`-borrowed from `self`, so `self.alloc` can't
             // be read until `level` is dropped.
             let level_alloc = self.alloc.clone();
@@ -426,12 +404,6 @@ impl<A: Allocator + Clone> Namespace<A> {
     }
 }
 
-// PILOT-FOLLOWUP: this Display impl uses String<Global> via indent_stack and
-// String::from. It's only invoked when explicitly formatting a Namespace
-// (e.g., for debug printing) and isn't reachable from normal AML evaluation
-// — but it does prevent the crate from being "no Global at link time" if a
-// downstream caller ever instantiates it. Rewriting to use a depth integer
-// + per-level write loop is ~20 lines of work; left for follow-up.
 impl<A: Allocator + Clone> fmt::Display for Namespace<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const STEM: &str = "│   ";
@@ -520,9 +492,9 @@ impl<A: Allocator + Clone> NamespaceLevel<A> {
     }
 }
 
-// PILOT-DECISION: only Clone is derived. PartialEq/Debug get manual impls
+// only Clone is derived. PartialEq/Debug get manual impls
 // below to avoid the derive macro's auto-added `A: PartialEq` / `A: Debug`
-// bounds — `&'static BumpArena<N>` satisfies neither, and the bounds aren't
+// bounds - `&'static BumpArena<N>` satisfies neither, and the bounds aren't
 // needed because Vec<T, A>'s own impls don't require A: PartialEq/Debug.
 #[derive(Clone)]
 pub struct AmlName<A: Allocator + Clone>(Vec<NameComponent, A>);
@@ -537,7 +509,7 @@ impl<A: Allocator + Clone> Eq for AmlName<A> {}
 
 impl<A: Allocator + Clone> fmt::Debug for AmlName<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Use Display representation — that's what an AmlName "looks like".
+        // Use Display representation - that's what an AmlName "looks like".
         write!(f, "AmlName({})", self)
     }
 }
@@ -550,9 +522,6 @@ pub enum NameComponent {
 }
 
 impl<A: Allocator + Clone> AmlName<A> {
-    // PILOT-DECISION: was `root()` returning `AmlName` (Global). Now takes an
-    // allocator. Most call sites already have one (Namespace::alloc or via
-    // an existing AmlName they can clone-allocator from).
     pub fn root_in(alloc: A) -> AmlName<A> {
         let mut v = Vec::with_capacity_in(1, alloc);
         v.push(NameComponent::Root);
@@ -569,11 +538,7 @@ impl<A: Allocator + Clone> AmlName<A> {
         AmlName(components)
     }
 
-    // PILOT-DECISION: replacement for `FromStr::from_str`. FromStr's trait
-    // signature is `fn from_str(s: &str) -> Result<Self, Self::Err>` — no
-    // way to thread an allocator. We provide `parse_in` as the allocator-
-    // aware constructor; FromStr can be impl'd for AmlName<Global> as a
-    // convenience for Global-only callers (left as PILOT-FOLLOWUP).
+    // Allocator-aware replacement for `FromStr::from_str`.
     pub fn parse_in(mut string: &str, alloc: A) -> Result<AmlName<A>, AmlError<A>> {
         if string.is_empty() {
             return Err(AmlError::EmptyNamesAreInvalid);
@@ -633,8 +598,6 @@ impl<A: Allocator + Clone> AmlName<A> {
             return Ok(self);
         }
 
-        // PILOT-DECISION: derive the allocator from self.0 instead of taking
-        // it as a parameter. `Vec::allocator()` returns `&A` so we clone.
         let alloc = self.0.allocator().clone();
         Ok(AmlName(self.0.iter().try_fold(Vec::new_in(alloc), |mut name, &component| match component {
             seg @ NameComponent::Segment(_) => {
@@ -689,9 +652,6 @@ impl<A: Allocator + Clone> AmlName<A> {
     }
 }
 
-// PILOT-DECISION: Display for AmlName rewritten to write directly to the
-// formatter without allocating. Previously delegated to `as_string()` which
-// folded into a Global-allocated String.
 impl<A: Allocator + Clone> fmt::Display for AmlName<A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.0.iter().peekable();
@@ -737,10 +697,6 @@ impl NameSeg {
         unsafe { str::from_utf8_unchecked(&self.0) }
     }
 
-    // PILOT-DECISION: was `impl FromStr for NameSeg`. NameSeg doesn't hold
-    // allocations so FromStr would work in principle, but `AmlName::parse_in`
-    // now calls this directly and we don't need the trait surface. Kept as
-    // an inherent method to make the call site explicit.
     pub fn from_str_inner<A: Allocator + Clone>(s: &str) -> Result<NameSeg, AmlError<A>> {
         // Each NameSeg can only have four chars, and must have at least one
         if s.is_empty() || s.len() > 4 {

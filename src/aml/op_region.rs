@@ -1,10 +1,6 @@
 use crate::aml::{AmlError, namespace::AmlName};
 use core::alloc::Allocator;
 
-// PILOT-DECISION: OpRegion was holding `AmlName` (Global). Now generic over A
-// so OpRegion<A> embeds AmlName<A>. RegionHandler keeps its non-generic
-// trait shape; each method has its own `<A>` parameter for the error type,
-// letting concrete handler impls live in callers' allocator universe.
 #[derive(Clone)]
 pub struct OpRegion<A: core::alloc::Allocator + Clone> {
     pub space: RegionSpace,
@@ -24,9 +20,6 @@ impl<A: core::alloc::Allocator + Clone> core::fmt::Debug for OpRegion<A> {
     }
 }
 
-// PILOT-DECISION: trait parameterized by A so it's object-safe — generic
-// methods can't appear on a `Box<dyn Trait>`. Concrete handler impls now
-// pin themselves to a specific A (typically the same A as the interpreter).
 pub trait RegionHandler<A: Allocator + Clone> {
     fn read_u8(&self, region: &OpRegion<A>) -> Result<u8, AmlError<A>>;
     fn read_u16(&self, region: &OpRegion<A>) -> Result<u16, AmlError<A>>;
