@@ -7,9 +7,9 @@ use crate::aml::{
     object::Object,
     resource::{self, InterruptPolarity, InterruptTrigger, Resource},
 };
-use alloc::{vec, vec::Vec};
+use alloc::{alloc::Global, vec::Vec};
 use bit_field::BitField;
-use core::str::FromStr;
+use core::alloc::Allocator;
 
 pub use crate::aml::resource::IrqDescriptor;
 
@@ -22,7 +22,7 @@ pub enum Pin {
 }
 
 #[derive(Debug)]
-pub enum PciRouteType {
+pub enum PciRouteType<A: Allocator + Clone = Global> {
     /// The interrupt is hard-coded to a specific GSI
     Gsi(u32),
 
@@ -33,15 +33,15 @@ pub enum PciRouteType {
      * The actual object itself will just be a `Device`, and we need paths to its children objects to do
      * anything useful, so we just store the resolved name here.
      */
-    LinkObject(AmlName),
+    LinkObject(AmlName<A>),
 }
 
 #[derive(Debug)]
-pub struct PciRoute {
+pub struct PciRoute<A: Allocator + Clone = Global> {
     device: u16,
     function: u16,
     pin: Pin,
-    route_type: PciRouteType,
+    route_type: PciRouteType<A>,
 }
 
 /// A `PciRoutingTable` is used to interpret the data in a `_PRT` object, which provides a mapping
@@ -49,22 +49,23 @@ pub struct PciRoute {
 /// present under each PCI root bridge, and consists of a package of packages, each of which describes the
 /// mapping of a single PCI interrupt pin.
 #[derive(Debug)]
-pub struct PciRoutingTable {
-    entries: Vec<PciRoute>,
+pub struct PciRoutingTable<A: Allocator + Clone + 'static = Global> {
+    entries: Vec<PciRoute<A>, A>,
 }
 
-impl PciRoutingTable {
+impl<A: Allocator + Clone + 'static> PciRoutingTable<A> {
     /// Construct a `PciRoutingTable` from a path to a `_PRT` object. Returns
     /// `AmlError::InvalidOperationOnObject` if the value passed is not a package, or if any of the
     /// values within it are not packages. Returns the various `AmlError::Prt*` errors if the
     /// internal structure of the entries is invalid.
-    pub fn from_prt_path(
-        prt_path: AmlName,
-        interpreter: &Interpreter<impl Handler>,
-    ) -> Result<PciRoutingTable, AmlError> {
-        let mut entries = Vec::new();
+    pub fn from_prt_path<H: Handler>(
+        prt_path: AmlName<A>,
+        interpreter: &Interpreter<H, A>,
+        alloc: A,
+    ) -> Result<PciRoutingTable<A>, AmlError<A>> {
+        let mut entries = Vec::new_in(alloc.clone());
 
-        let prt = interpreter.evaluate(prt_path.clone(), vec![])?;
+        let prt = interpreter.evaluate(prt_path.clone(), Vec::new_in(alloc.clone()))?;
 
         if let Object::Package(ref inner_values) = *prt {
             for value in inner_values {
@@ -125,7 +126,7 @@ impl PciRoutingTable {
                             let link_object_name = interpreter
                                 .namespace
                                 .lock()
-                                .search_for_level(&AmlName::from_str(name)?, &prt_path)?;
+                                .search_for_level(&AmlName::parse_in(name.as_str(), alloc.clone())?, &prt_path)?;
                             entries.push(PciRoute {
                                 device,
                                 function,
@@ -148,13 +149,14 @@ impl PciRoutingTable {
 
     /// Get the interrupt input that a given PCI interrupt pin is wired to. Returns `AmlError::PrtNoEntry` if the
     /// PRT doesn't contain an entry for the given address + pin.
-    pub fn route(
+    pub fn route<H: Handler>(
         &self,
         device: u16,
         function: u16,
         pin: Pin,
-        interpreter: &Interpreter<impl Handler>,
-    ) -> Result<IrqDescriptor, AmlError> {
+        interpreter: &Interpreter<H, A>,
+        alloc: A,
+    ) -> Result<IrqDescriptor, AmlError<A>> {
         let entry = self
             .entries
             .iter()
@@ -175,8 +177,8 @@ impl PciRoutingTable {
                 irq: gsi,
             }),
             PciRouteType::LinkObject(ref name) => {
-                let path = AmlName::from_str("_CRS").unwrap().resolve(name)?;
-                let link_crs = interpreter.evaluate(path, vec![])?;
+                let path = AmlName::parse_in("_CRS", alloc.clone()).unwrap().resolve(name)?;
+                let link_crs = interpreter.evaluate(path, Vec::new_in(alloc.clone()))?;
 
                 let resources = resource::resource_descriptor_list(link_crs)?;
                 match resources.as_slice() {

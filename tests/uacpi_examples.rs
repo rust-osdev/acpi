@@ -9,7 +9,7 @@
 
 mod test_infra;
 
-use aml_test_tools::{handlers::null_handler::NullHandler};
+use aml_test_tools::handlers::null_handler::NullHandler;
 
 #[test]
 fn expressions_with_package() {

@@ -1,41 +1,50 @@
 use super::{
     AmlError,
     Handle,
-    object::{Object, ObjectType, WrappedObject},
+    object::{AmlString, Object, ObjectType, WrappedObject},
 };
-use alloc::{
-    collections::btree_map::BTreeMap,
-    string::{String, ToString},
-    vec,
-    vec::Vec,
-};
+use alloc::{alloc::Global, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use bit_field::BitField;
-use core::{
-    fmt,
-    str::{self, FromStr},
-};
+use core::{alloc::Allocator, fmt, str};
 use log::{trace, warn};
 
 #[derive(Clone)]
-pub struct Namespace {
-    root: NamespaceLevel,
+pub struct Namespace<A: Allocator + Clone = Global> {
+    alloc: A,
+    root: NamespaceLevel<A>,
 }
 
-impl Namespace {
+impl<A: Allocator + Clone> Namespace<A> {
     /// Create a new AML namespace, with the expected pre-defined objects.
-    pub fn new(global_lock_mutex: Handle) -> Namespace {
-        let mut namespace = Namespace { root: NamespaceLevel::new(NamespaceLevelKind::Scope) };
+    pub fn new_in(global_lock_mutex: Handle, alloc: A) -> Namespace<A>
+    where
+        A: 'static,
+    {
+        let mut namespace = Namespace {
+            alloc: alloc.clone(),
+            root: NamespaceLevel::new_in(NamespaceLevelKind::Scope, alloc.clone()),
+        };
 
-        namespace.add_level(AmlName::from_str("\\_GPE").unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::from_str("\\_SB").unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::from_str("\\_SI").unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::from_str("\\_PR").unwrap(), NamespaceLevelKind::Scope).unwrap();
-        namespace.add_level(AmlName::from_str("\\_TZ").unwrap(), NamespaceLevelKind::Scope).unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_GPE", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_SB", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_SI", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_PR", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
+        namespace
+            .add_level(AmlName::parse_in("\\_TZ", alloc.clone()).unwrap(), NamespaceLevelKind::Scope)
+            .unwrap();
 
         namespace
             .insert(
-                AmlName::from_str("\\_GL").unwrap(),
-                Object::Mutex { mutex: global_lock_mutex, sync_level: 0 }.wrap(),
+                AmlName::parse_in("\\_GL", alloc.clone()).unwrap(),
+                Object::Mutex { mutex: global_lock_mutex, sync_level: 0 }.wrap(alloc.clone()),
             )
             .unwrap();
 
@@ -47,8 +56,12 @@ impl Namespace {
          *
          * See https://www.kernel.org/doc/html/latest/firmware-guide/acpi/osi.html for more information.
          */
+        let os_name = AmlString::from_str_in("Microsoft Windows NT", alloc.clone());
         namespace
-            .insert(AmlName::from_str("\\_OS").unwrap(), Object::String("Microsoft Windows NT".to_string()).wrap())
+            .insert(
+                AmlName::parse_in("\\_OS", alloc.clone()).unwrap(),
+                Object::String(os_name).wrap(alloc.clone()),
+            )
             .unwrap();
 
         /*
@@ -62,67 +75,69 @@ impl Namespace {
          *    - We answer 'yes' to `_OSI("Darwin")
          *    - We answer 'no' to `_OSI("Linux")`, and report that the tables are doing the wrong thing
          */
-        namespace
-            .insert(
-                AmlName::from_str("\\_OSI").unwrap(),
-                Object::native_method(1, |args| {
-                    if args.len() != 1 {
-                        return Err(AmlError::MethodArgCountIncorrect);
+        let inner_alloc = alloc.clone();
+        let osi_method = Object::native_method(
+            1,
+            move |args| -> Result<WrappedObject<A>, AmlError<A>> {
+                if args.len() != 1 {
+                    return Err(AmlError::MethodArgCountIncorrect);
+                }
+                let Object::String(ref feature) = *args[0] else {
+                    return Err(AmlError::ObjectNotOfExpectedType {
+                        expected: ObjectType::String,
+                        got: args[0].typ(),
+                    });
+                };
+
+                let is_supported = match feature.as_str() {
+                    "Windows 2000" => true,       // 2000
+                    "Windows 2001" => true,       // XP
+                    "Windows 2001 SP1" => true,   // XP SP1
+                    "Windows 2001 SP2" => true,   // XP SP2
+                    "Windows 2001.1" => true,     // Server 2003
+                    "Windows 2001.1 SP1" => true, // Server 2003 SP1
+                    "Windows 2006" => true,       // Vista
+                    "Windows 2006 SP1" => true,   // Vista SP1
+                    "Windows 2006 SP2" => true,   // Vista SP2
+                    "Windows 2006.1" => true,     // Server 2008
+                    "Windows 2009" => true,       // 7 and Server 2008 R2
+                    "Windows 2012" => true,       // 8 and Server 2012
+                    "Windows 2013" => true,       // 8.1 and Server 2012 R2
+                    "Windows 2015" => true,       // 10
+                    "Windows 2016" => true,       // 10 version 1607
+                    "Windows 2017" => true,       // 10 version 1703
+                    "Windows 2017.2" => true,     // 10 version 1709
+                    "Windows 2018" => true,       // 10 version 1803
+                    "Windows 2018.2" => true,     // 10 version 1809
+                    "Windows 2019" => true,       // 10 version 1903
+                    "Windows 2020" => true,       // 10 version 20H1
+                    "Windows 2021" => true,       // 11
+                    "Windows 2022" => true,       // 11 version 22H2
+
+                    // TODO: Linux answers yes to this, NT answers no. Maybe make configurable
+                    "Darwin" => false,
+
+                    "Linux" => {
+                        // TODO: should we allow users to specify that this should be true? Linux has a
+                        // command line option for this.
+                        warn!("ACPI evaluated `_OSI(\"Linux\")`. This is a bug. Reporting no support.");
+                        false
                     }
-                    let Object::String(ref feature) = *args[0] else {
-                        return Err(AmlError::ObjectNotOfExpectedType {
-                            expected: ObjectType::String,
-                            got: args[0].typ(),
-                        });
-                    };
 
-                    let is_supported = match feature.as_str() {
-                        "Windows 2000" => true,       // 2000
-                        "Windows 2001" => true,       // XP
-                        "Windows 2001 SP1" => true,   // XP SP1
-                        "Windows 2001 SP2" => true,   // XP SP2
-                        "Windows 2001.1" => true,     // Server 2003
-                        "Windows 2001.1 SP1" => true, // Server 2003 SP1
-                        "Windows 2006" => true,       // Vista
-                        "Windows 2006 SP1" => true,   // Vista SP1
-                        "Windows 2006 SP2" => true,   // Vista SP2
-                        "Windows 2006.1" => true,     // Server 2008
-                        "Windows 2009" => true,       // 7 and Server 2008 R2
-                        "Windows 2012" => true,       // 8 and Server 2012
-                        "Windows 2013" => true,       // 8.1 and Server 2012 R2
-                        "Windows 2015" => true,       // 10
-                        "Windows 2016" => true,       // 10 version 1607
-                        "Windows 2017" => true,       // 10 version 1703
-                        "Windows 2017.2" => true,     // 10 version 1709
-                        "Windows 2018" => true,       // 10 version 1803
-                        "Windows 2018.2" => true,     // 10 version 1809
-                        "Windows 2019" => true,       // 10 version 1903
-                        "Windows 2020" => true,       // 10 version 20H1
-                        "Windows 2021" => true,       // 11
-                        "Windows 2022" => true,       // 11 version 22H2
+                    "Extended Address Space Descriptor" => true,
+                    "Module Device" => true,
+                    "3.0 Thermal Model" => true,
+                    "3.0 _SCP Extensions" => true,
+                    "Processor Aggregator Device" => true,
+                    _ => false,
+                };
 
-                        // TODO: Linux answers yes to this, NT answers no. Maybe make configurable
-                        "Darwin" => false,
-
-                        "Linux" => {
-                            // TODO: should we allow users to specify that this should be true? Linux has a
-                            // command line option for this.
-                            warn!("ACPI evaluated `_OSI(\"Linux\")`. This is a bug. Reporting no support.");
-                            false
-                        }
-
-                        "Extended Address Space Descriptor" => true,
-                        "Module Device" => true,
-                        "3.0 Thermal Model" => true,
-                        "3.0 _SCP Extensions" => true,
-                        "Processor Aggregator Device" => true,
-                        _ => false,
-                    };
-
-                    Ok(Object::Integer(if is_supported { u64::MAX } else { 0 }).wrap())
-                })
-                .wrap(),
-            )
+                Ok(Object::Integer(if is_supported { u64::MAX } else { 0 }).wrap(inner_alloc.clone()))
+            },
+            alloc.clone(),
+        );
+        namespace
+            .insert(AmlName::parse_in("\\_OSI", alloc.clone()).unwrap(), osi_method.wrap(alloc.clone()))
             .unwrap();
 
         /*
@@ -131,36 +146,43 @@ impl Namespace {
          * return `2`), and so they switched to just returning `2` (as we'll also do). `_REV` should be considered
          * useless and deprecated (this is mirrored in newer specs, which claim `2` means "ACPI 2 or greater").
          */
-        namespace.insert(AmlName::from_str("\\_REV").unwrap(), Object::Integer(2).wrap()).unwrap();
+        namespace
+            .insert(AmlName::parse_in("\\_REV", alloc.clone()).unwrap(), Object::Integer(2).wrap(alloc.clone()))
+            .unwrap();
 
         namespace
     }
 
-    pub fn add_level(&mut self, path: AmlName, kind: NamespaceLevelKind) -> Result<(), AmlError> {
+    pub fn add_level(&mut self, path: AmlName<A>, kind: NamespaceLevelKind) -> Result<(), AmlError<A>> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
         // Don't try to recreate the root scope
-        if path != AmlName::root() {
+        if path != AmlName::root_in(self.alloc.clone()) {
+            // clone `self.alloc` *before* the mutable borrow
+            // below. Doing it after (as we did initially) trips E0502 -
+            // `level` is `&mut`-borrowed from `self`, so `self.alloc` can't
+            // be read until `level` is dropped.
+            let level_alloc = self.alloc.clone();
             let (level, last_seg) = self.get_level_for_path_mut(&path)?;
 
             /*
              * If the level has already been added, we don't need to add it again. The parser can try to add it
              * multiple times if the ASL contains multiple blocks that add to the same scope/device.
              */
-            level.children.entry(last_seg).or_insert_with(|| NamespaceLevel::new(kind));
+            level.children.entry(last_seg).or_insert_with(move || NamespaceLevel::new_in(kind, level_alloc));
         }
 
         Ok(())
     }
 
-    pub fn remove_level(&mut self, path: AmlName) -> Result<(), AmlError> {
+    pub fn remove_level(&mut self, path: AmlName<A>) -> Result<(), AmlError<A>> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
         // Don't try to remove the root scope
         // TODO: we probably shouldn't be able to remove the pre-defined scopes either?
-        if path != AmlName::root() {
+        if path != AmlName::root_in(self.alloc.clone()) {
             let (level, last_seg) = self.get_level_for_path_mut(&path)?;
             level.children.remove(&last_seg);
         }
@@ -168,7 +190,7 @@ impl Namespace {
         Ok(())
     }
 
-    pub fn insert(&mut self, path: AmlName, object: WrappedObject) -> Result<(), AmlError> {
+    pub fn insert(&mut self, path: AmlName<A>, object: WrappedObject<A>) -> Result<(), AmlError<A>> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -186,7 +208,7 @@ impl Namespace {
         }
     }
 
-    pub fn create_alias(&mut self, path: AmlName, object: WrappedObject) -> Result<(), AmlError> {
+    pub fn create_alias(&mut self, path: AmlName<A>, object: WrappedObject<A>) -> Result<(), AmlError<A>> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -197,7 +219,7 @@ impl Namespace {
         }
     }
 
-    pub fn get(&mut self, path: AmlName) -> Result<WrappedObject, AmlError> {
+    pub fn get(&mut self, path: AmlName<A>) -> Result<WrappedObject<A>, AmlError<A>> {
         assert!(path.is_absolute());
         let path = path.normalize()?;
 
@@ -211,7 +233,11 @@ impl Namespace {
     /// Search for an object at the given path of the namespace, applying the search rules described in §5.3 of the
     /// ACPI specification, if they are applicable. Returns the resolved name, and the handle of the first valid
     /// object, if found.
-    pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, WrappedObject), AmlError> {
+    pub fn search(
+        &self,
+        path: &AmlName<A>,
+        starting_scope: &AmlName<A>,
+    ) -> Result<(AmlName<A>, WrappedObject<A>), AmlError<A>> {
         if path.search_rules_apply() {
             /*
              * If search rules apply, we need to recursively look through the namespace. If the
@@ -253,7 +279,11 @@ impl Namespace {
         }
     }
 
-    pub fn search_for_level(&self, level_name: &AmlName, starting_scope: &AmlName) -> Result<AmlName, AmlError> {
+    pub fn search_for_level(
+        &self,
+        level_name: &AmlName<A>,
+        starting_scope: &AmlName<A>,
+    ) -> Result<AmlName<A>, AmlError<A>> {
         if level_name.search_rules_apply() {
             let mut scope = starting_scope.clone().normalize()?;
             assert!(scope.is_absolute());
@@ -280,8 +310,8 @@ impl Namespace {
 
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
     /// last segment to index into that level. This must not be called on `\\`.
-    fn get_level_for_path(&self, path: &AmlName) -> Result<(&NamespaceLevel, NameSeg), AmlError> {
-        assert_ne!(*path, AmlName::root());
+    fn get_level_for_path(&self, path: &AmlName<A>) -> Result<(&NamespaceLevel<A>, NameSeg), AmlError<A>> {
+        assert_ne!(*path, AmlName::root_in(self.alloc.clone()));
 
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
         let NameComponent::Segment(last_seg) = last_seg else {
@@ -289,7 +319,7 @@ impl Namespace {
         };
 
         // TODO: this helps with diagnostics, but requires a heap allocation just in case we need to error.
-        let mut traversed_path = AmlName::root();
+        let mut traversed_path = AmlName::root_in(self.alloc.clone());
 
         let mut current_level = &self.root;
         for level in levels {
@@ -307,8 +337,11 @@ impl Namespace {
 
     /// Split an absolute path into a bunch of level segments (used to traverse the level data structure), and a
     /// last segment to index into that level. This must not be called on `\\`.
-    fn get_level_for_path_mut(&mut self, path: &AmlName) -> Result<(&mut NamespaceLevel, NameSeg), AmlError> {
-        assert_ne!(*path, AmlName::root());
+    fn get_level_for_path_mut(
+        &mut self,
+        path: &AmlName<A>,
+    ) -> Result<(&mut NamespaceLevel<A>, NameSeg), AmlError<A>> {
+        assert_ne!(*path, AmlName::root_in(self.alloc.clone()));
 
         let (last_seg, levels) = path.0[1..].split_last().unwrap();
         let NameComponent::Segment(last_seg) = last_seg else {
@@ -318,7 +351,7 @@ impl Namespace {
         // TODO: this helps with diagnostics, but requires a heap allocation just in case we need to error. We can
         // improve this by changing the `levels` interation into an `enumerate()`, and then using the index to
         // create the correct path on the error path
-        let mut traversed_path = AmlName::root();
+        let mut traversed_path = AmlName::root_in(self.alloc.clone());
 
         let mut current_level = &mut self.root;
         for level in levels {
@@ -336,19 +369,23 @@ impl Namespace {
         Ok((current_level, *last_seg))
     }
 
-    /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError>` -
+    /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError<A>>` -
     /// errors terminate the traversal and are propagated, and the `bool` on the successful path marks whether the
     /// children of the level should also be traversed.
-    pub fn traverse<F>(&mut self, mut f: F) -> Result<(), AmlError>
+    pub fn traverse<F>(&mut self, mut f: F) -> Result<(), AmlError<A>>
     where
-        F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+        F: FnMut(&AmlName<A>, &NamespaceLevel<A>) -> Result<bool, AmlError<A>>,
     {
-        fn traverse_level<F>(level: &NamespaceLevel, scope: &AmlName, f: &mut F) -> Result<(), AmlError>
+        fn traverse_level<A: Allocator + Clone, F>(
+            level: &NamespaceLevel<A>,
+            scope: &AmlName<A>,
+            f: &mut F,
+        ) -> Result<(), AmlError<A>>
         where
-            F: FnMut(&AmlName, &NamespaceLevel) -> Result<bool, AmlError>,
+            F: FnMut(&AmlName<A>, &NamespaceLevel<A>) -> Result<bool, AmlError<A>>,
         {
             for (name, child) in level.children.iter() {
-                let name = AmlName::from_name_seg(*name).resolve(scope)?;
+                let name = AmlName::from_name_seg_in(*name, scope.0.allocator().clone()).resolve(scope)?;
 
                 if f(&name, child)? {
                     traverse_level(child, &name, f)?;
@@ -358,21 +395,26 @@ impl Namespace {
             Ok(())
         }
 
-        if f(&AmlName::root(), &self.root)? {
-            traverse_level(&self.root, &AmlName::root(), &mut f)?;
+        let root = AmlName::root_in(self.alloc.clone());
+        if f(&root, &self.root)? {
+            traverse_level(&self.root, &root, &mut f)?;
         }
 
         Ok(())
     }
 }
 
-impl fmt::Display for Namespace {
+impl<A: Allocator + Clone> fmt::Display for Namespace<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         const STEM: &str = "│   ";
         const BRANCH: &str = "├── ";
         const END: &str = "└── ";
 
-        fn print_level(f: &mut fmt::Formatter<'_>, level: &NamespaceLevel, indent_stack: String) -> fmt::Result {
+        fn print_level<A: Allocator + Clone>(
+            f: &mut fmt::Formatter<'_>,
+            level: &NamespaceLevel<A>,
+            indent_stack: String,
+        ) -> fmt::Result {
             for (i, (name, (flags, object))) in level.values.iter().enumerate() {
                 let end = (i == level.values.len() - 1)
                     && level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).count() == 0;
@@ -396,7 +438,7 @@ impl fmt::Display for Namespace {
                 }
             }
 
-            let remaining_scopes: Vec<_> =
+            let remaining_scopes: alloc::vec::Vec<_> =
                 level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).collect();
             for (i, (name, sub_level)) in remaining_scopes.iter().enumerate() {
                 let end = i == remaining_scopes.len() - 1;
@@ -423,10 +465,10 @@ pub enum NamespaceLevelKind {
 }
 
 #[derive(Clone)]
-pub struct NamespaceLevel {
+pub struct NamespaceLevel<A: Allocator + Clone = Global> {
     pub kind: NamespaceLevelKind,
-    pub values: BTreeMap<NameSeg, (ObjectFlags, WrappedObject)>,
-    pub children: BTreeMap<NameSeg, NamespaceLevel>,
+    pub values: BTreeMap<NameSeg, (ObjectFlags, WrappedObject<A>), A>,
+    pub children: BTreeMap<NameSeg, NamespaceLevel<A>, A>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -444,14 +486,33 @@ impl ObjectFlags {
     }
 }
 
-impl NamespaceLevel {
-    pub fn new(kind: NamespaceLevelKind) -> NamespaceLevel {
-        NamespaceLevel { kind, values: BTreeMap::new(), children: BTreeMap::new() }
+impl<A: Allocator + Clone> NamespaceLevel<A> {
+    pub fn new_in(kind: NamespaceLevelKind, alloc: A) -> NamespaceLevel<A> {
+        NamespaceLevel { kind, values: BTreeMap::new_in(alloc.clone()), children: BTreeMap::new_in(alloc) }
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub struct AmlName(Vec<NameComponent>);
+// only Clone is derived. PartialEq/Debug get manual impls
+// below to avoid the derive macro's auto-added `A: PartialEq` / `A: Debug`
+// bounds - `&'static BumpArena<N>` satisfies neither, and the bounds aren't
+// needed because Vec<T, A>'s own impls don't require A: PartialEq/Debug.
+#[derive(Clone)]
+pub struct AmlName<A: Allocator + Clone = Global>(Vec<NameComponent, A>);
+
+impl<A: Allocator + Clone, A2: Allocator + Clone> PartialEq<AmlName<A2>> for AmlName<A> {
+    fn eq(&self, other: &AmlName<A2>) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<A: Allocator + Clone> Eq for AmlName<A> {}
+
+impl<A: Allocator + Clone> fmt::Debug for AmlName<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Use Display representation - that's what an AmlName "looks like".
+        write!(f, "AmlName({})", self)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum NameComponent {
@@ -460,29 +521,50 @@ pub enum NameComponent {
     Segment(NameSeg),
 }
 
-impl AmlName {
-    pub fn root() -> AmlName {
-        AmlName(vec![NameComponent::Root])
+impl<A: Allocator + Clone> AmlName<A> {
+    pub fn root_in(alloc: A) -> AmlName<A> {
+        let mut v = Vec::with_capacity_in(1, alloc);
+        v.push(NameComponent::Root);
+        AmlName(v)
     }
 
-    pub fn from_name_seg(seg: NameSeg) -> AmlName {
-        AmlName(vec![NameComponent::Segment(seg)])
+    pub fn from_name_seg_in(seg: NameSeg, alloc: A) -> AmlName<A> {
+        let mut v = Vec::with_capacity_in(1, alloc);
+        v.push(NameComponent::Segment(seg));
+        AmlName(v)
     }
 
-    pub fn from_components(components: Vec<NameComponent>) -> AmlName {
+    pub fn from_components(components: Vec<NameComponent, A>) -> AmlName<A> {
         AmlName(components)
     }
 
-    pub fn as_string(&self) -> String {
-        self.0
-            .iter()
-            .fold(String::new(), |name, component| match component {
-                NameComponent::Root => name + "\\",
-                NameComponent::Prefix => name + "^",
-                NameComponent::Segment(seg) => name + seg.as_str() + ".",
-            })
-            .trim_end_matches('.')
-            .to_string()
+    // Allocator-aware replacement for `FromStr::from_str`.
+    pub fn parse_in(mut string: &str, alloc: A) -> Result<AmlName<A>, AmlError<A>> {
+        if string.is_empty() {
+            return Err(AmlError::EmptyNamesAreInvalid);
+        }
+
+        let mut components = Vec::new_in(alloc);
+
+        // If it starts with a \, make it an absolute name
+        if string.starts_with('\\') {
+            components.push(NameComponent::Root);
+            string = &string[1..];
+        }
+
+        if !string.is_empty() {
+            for mut part in string.split('.') {
+                // Handle prefix chars
+                while part.starts_with('^') {
+                    components.push(NameComponent::Prefix);
+                    part = &part[1..];
+                }
+
+                components.push(NameComponent::Segment(NameSeg::from_str_inner(part)?));
+            }
+        }
+
+        Ok(AmlName(components))
     }
 
     /// An AML path is normal if it does not contain any prefix elements ("^" characters, when
@@ -507,7 +589,7 @@ impl AmlName {
 
     /// Normalize an AML path, resolving prefix chars. Returns `AmlError::InvalidNormalizedName` if the path
     /// normalizes to an invalid path (e.g. `\^_FOO`)
-    pub fn normalize(self) -> Result<AmlName, AmlError> {
+    pub fn normalize(self) -> Result<AmlName<A>, AmlError<A>> {
         /*
          * If the path is already normal, just return it as-is. This avoids an unneccessary heap allocation and
          * free.
@@ -516,7 +598,8 @@ impl AmlName {
             return Ok(self);
         }
 
-        Ok(AmlName(self.0.iter().try_fold(Vec::new(), |mut name, &component| match component {
+        let alloc = self.0.allocator().clone();
+        Ok(AmlName(self.0.iter().try_fold(Vec::new_in(alloc), |mut name, &component| match component {
             seg @ NameComponent::Segment(_) => {
                 name.push(seg);
                 Ok(name)
@@ -540,7 +623,7 @@ impl AmlName {
 
     /// Get the parent of this `AmlName`. For example, the parent of `\_SB.PCI0._PRT` is `\_SB.PCI0`. The root
     /// path has no parent, and so returns `None`.
-    pub fn parent(&self) -> Result<AmlName, AmlError> {
+    pub fn parent(&self) -> Result<AmlName<A>, AmlError<A>> {
         // Firstly, normalize the path so we don't have to deal with prefix chars
         let mut normalized_self = self.clone().normalize()?;
 
@@ -556,7 +639,7 @@ impl AmlName {
 
     /// Resolve this path against a given scope, making it absolute. If the path is absolute, it is
     /// returned directly. The path is also normalized.
-    pub fn resolve(&self, scope: &AmlName) -> Result<AmlName, AmlError> {
+    pub fn resolve(&self, scope: &AmlName<A>) -> Result<AmlName<A>, AmlError<A>> {
         assert!(scope.is_absolute());
 
         if self.is_absolute() {
@@ -569,42 +652,23 @@ impl AmlName {
     }
 }
 
-impl FromStr for AmlName {
-    type Err = AmlError;
-
-    fn from_str(mut string: &str) -> Result<Self, Self::Err> {
-        if string.is_empty() {
-            return Err(AmlError::EmptyNamesAreInvalid);
-        }
-
-        let mut components = Vec::new();
-
-        // If it starts with a \, make it an absolute name
-        if string.starts_with('\\') {
-            components.push(NameComponent::Root);
-            string = &string[1..];
-        }
-
-        if !string.is_empty() {
-            // Divide the rest of it into segments, and parse those
-            for mut part in string.split('.') {
-                // Handle prefix chars
-                while part.starts_with('^') {
-                    components.push(NameComponent::Prefix);
-                    part = &part[1..];
+impl<A: Allocator + Clone> fmt::Display for AmlName<A> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut iter = self.0.iter().peekable();
+        while let Some(component) = iter.next() {
+            match component {
+                NameComponent::Root => f.write_str("\\")?,
+                NameComponent::Prefix => f.write_str("^")?,
+                NameComponent::Segment(seg) => {
+                    f.write_str(seg.as_str())?;
+                    // Add separator if the next component is also a segment.
+                    if matches!(iter.peek(), Some(NameComponent::Segment(_))) {
+                        f.write_str(".")?;
+                    }
                 }
-
-                components.push(NameComponent::Segment(NameSeg::from_str(part)?));
             }
         }
-
-        Ok(Self(components))
-    }
-}
-
-impl fmt::Display for AmlName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_string())
+        Ok(())
     }
 }
 
@@ -612,7 +676,7 @@ impl fmt::Display for AmlName {
 pub struct NameSeg(pub(crate) [u8; 4]);
 
 impl NameSeg {
-    pub fn from_bytes(bytes: [u8; 4]) -> Result<NameSeg, AmlError> {
+    pub fn from_bytes<A: Allocator + Clone>(bytes: [u8; 4]) -> Result<NameSeg, AmlError<A>> {
         if !is_lead_name_char(bytes[0]) {
             return Err(AmlError::InvalidNameSeg(bytes));
         }
@@ -632,12 +696,8 @@ impl NameSeg {
         // We should only construct valid ASCII name segments
         unsafe { str::from_utf8_unchecked(&self.0) }
     }
-}
 
-impl FromStr for NameSeg {
-    type Err = AmlError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    pub fn from_str_inner<A: Allocator + Clone>(s: &str) -> Result<NameSeg, AmlError<A>> {
         // Each NameSeg can only have four chars, and must have at least one
         if s.is_empty() || s.len() > 4 {
             return Err(AmlError::InvalidNameSeg([0xff, 0xff, 0xff, 0xff]));

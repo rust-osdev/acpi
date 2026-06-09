@@ -36,7 +36,7 @@ pub struct AcpiPlatform<H: Handler, A: Allocator = Global> {
     /// interrupt model. That information is stored here, if present.
     pub processor_info: Option<ProcessorInfo<A>>,
     pub pm_timer: Option<PmTimer>,
-    pub registers: Arc<FixedRegisters<H>>,
+    pub registers: Arc<FixedRegisters<H>, A>,
 }
 
 unsafe impl<H, A> Send for AcpiPlatform<H, A>
@@ -63,9 +63,9 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
         let Some(fadt) = tables.find_table::<Fadt>() else { Err(AcpiError::TableNotFound(Signature::FADT))? };
         let power_profile = fadt.power_profile();
 
-        let (interrupt_model, processor_info) = InterruptModel::new_in(&tables, allocator)?;
+        let (interrupt_model, processor_info) = InterruptModel::new_in(&tables, allocator.clone())?;
         let pm_timer = PmTimer::new(&fadt)?;
-        let registers = Arc::new(FixedRegisters::new(&fadt, handler.clone())?);
+        let registers = Arc::new_in(FixedRegisters::new(&fadt, handler.clone())?, allocator);
 
         Ok(AcpiPlatform {
             handler: handler.clone(),
@@ -213,9 +213,20 @@ pub struct Processor {
     /// Corresponds to the `_UID` object of the processor's `Device`, or the `ProcessorId` field of the `Processor`
     /// object, in AML.
     pub processor_uid: u32,
-    /// The ID of the local APIC of the processor. Will be less than `256` if the APIC is being used, but can be
-    /// greater than this if the X2APIC is being used.
-    pub local_apic_id: u32,
+
+    /// The hardware identifier of the processor.  Per-arch semantics:
+    ///
+    /// - **x86 / x86_64**: the Local APIC ID.  ≤ `0xff` under
+    ///   xAPIC; up to 32 bits under x2APIC.
+    /// - **aarch64**: the `MPIDR_EL1` value from the GICC entry.
+    ///   Up to 64 bits (the full Aff{0,1,2,3} encoding).
+    /// - **riscv64** (future): the hartid from RINTC.
+    ///
+    /// Widened to `u64` to cover MPIDR cleanly.  Renamed from the
+    /// previous x86-specific `local_apic_id: u32` — the field always
+    /// represented "the processor's hardware identifier," and the
+    /// rename makes the per-arch generality explicit.
+    pub hw_id: u64,
 
     /// The state of this processor. Check that the processor is not `Disabled` before attempting to bring it up!
     pub state: ProcessorState,

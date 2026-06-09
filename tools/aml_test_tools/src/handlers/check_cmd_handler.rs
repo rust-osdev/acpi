@@ -258,7 +258,7 @@ where
         self.next_handler.create_mutex()
     }
 
-    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), AmlError> {
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), AmlError<std::alloc::Global>> {
         self.check_command(AcpiCommands::Acquire(mutex, timeout));
         self.next_handler.acquire(mutex, timeout)
     }
@@ -271,8 +271,8 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::handlers::null_handler::NullHandler;
     use super::*;
+    use crate::handlers::null_handler::NullHandler;
 
     #[test]
     fn handler_basic_functions() {

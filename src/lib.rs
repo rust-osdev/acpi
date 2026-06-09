@@ -44,6 +44,7 @@
 
 #![no_std]
 #![feature(allocator_api)]
+#![feature(btreemap_alloc)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -278,8 +279,8 @@ pub enum AcpiError {
 
     Timeout,
 
-    #[cfg(feature = "alloc")]
-    Aml(aml::AmlError),
+    #[cfg(feature = "aml")]
+    Aml(aml::AmlError<alloc::alloc::Global>),
 
     /// This is emitted to signal that the library does not support the requested behaviour. This
     /// should eventually never be emitted.
@@ -468,7 +469,7 @@ pub trait Handler: Clone {
     /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
     /// without causing a deadlock.
     #[cfg(feature = "aml")]
-    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError>;
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError<alloc::alloc::Global>>;
     #[cfg(feature = "aml")]
     fn release(&self, mutex: Handle);
 
@@ -476,7 +477,7 @@ pub trait Handler: Clone {
     fn breakpoint(&self) {}
 
     #[cfg(feature = "aml")]
-    fn handle_debug(&self, _object: &aml::object::Object) {}
+    fn handle_debug(&self, _object: &aml::object::Object<alloc::alloc::Global>) {}
 
     #[cfg(feature = "aml")]
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {

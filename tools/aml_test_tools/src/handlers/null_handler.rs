@@ -90,7 +90,7 @@ impl Handler for NullHandler {
         Handle(0)
     }
 
-    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> {
+    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError<std::alloc::Global>> {
         Ok(())
     }
 

@@ -1,50 +1,159 @@
 use crate::aml::{AmlError, Handle, IntegerSize, Operation, op_region::OpRegion};
-use alloc::{
-    borrow::Cow,
-    string::{String, ToString},
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{alloc::Global, sync::Arc, vec::Vec};
 use bit_field::BitField;
-use core::{cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::atomic::AtomicU64};
+use core::{alloc::Allocator, cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::atomic::AtomicU64};
 
-type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError>;
+// nightly's `String` is not allocator-parameterized (no
+// `String<A>` type, no `String::new_in`). `AmlString<A>` is a thin newtype
+// wrapping `Vec<u8, A>` with a UTF-8 invariant, providing the subset of
+// `String` operations the AML interpreter actually needs. Construction sites
+// always start from validated `&str` literals or copy from existing strings,
+// so the UTF-8 invariant is straightforward to maintain.
+pub struct AmlString<A: Allocator + Clone = Global>(Vec<u8, A>);
+
+impl<A: Allocator + Clone> AmlString<A> {
+    pub fn new_in(alloc: A) -> Self {
+        Self(Vec::new_in(alloc))
+    }
+
+    pub fn from_str_in(s: &str, alloc: A) -> Self {
+        let mut v = Vec::with_capacity_in(s.len(), alloc);
+        v.extend_from_slice(s.as_bytes());
+        Self(v)
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        // SAFETY: every construction path either takes a `&str` (already valid
+        // UTF-8) or pushes via `push_str`/`push(char)` (also guaranteed valid).
+        // `as_bytes_mut` is the only way to break this and is `unsafe`.
+        unsafe { core::str::from_utf8_unchecked(&self.0) }
+    }
+
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// # Safety
+    /// Caller must preserve UTF-8 validity in the returned slice. Breaking
+    /// this invariant makes [`as_str`] unsound on subsequent reads.
+    #[inline]
+    pub unsafe fn as_bytes_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+
+    pub fn push_str(&mut self, s: &str) {
+        self.0.extend_from_slice(s.as_bytes());
+    }
+
+    pub fn push(&mut self, c: char) {
+        let mut buf = [0u8; 4];
+        let s = c.encode_utf8(&mut buf);
+        self.0.extend_from_slice(s.as_bytes());
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn parse<F: core::str::FromStr>(&self) -> Result<F, F::Err> {
+        self.as_str().parse::<F>()
+    }
+}
+
+impl<A: Allocator + Clone> Clone for AmlString<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+// Manual PartialEq impls - derive would bound `A: PartialEq`, but Vec's
+// PartialEq impl works for any allocator (compares element-wise).
+impl<A: Allocator + Clone, A2: Allocator + Clone> PartialEq<AmlString<A2>> for AmlString<A> {
+    fn eq(&self, other: &AmlString<A2>) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl<A: Allocator + Clone> Eq for AmlString<A> {}
+
+impl<A: Allocator + Clone> fmt::Display for AmlString<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl<A: Allocator + Clone> fmt::Debug for AmlString<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
+    }
+}
+
+// Lets `write!(amlstring, "...")` work without going through Global.
+impl<A: Allocator + Clone> fmt::Write for AmlString<A> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.push_str(s);
+        Ok(())
+    }
+}
+
+// NativeMethod is parameterized over `A` because the closure
+// produces and consumes WrappedObject<A>. The 'static bound stays on the
+// constructor (`Object::native_method` below).
+type NativeMethod<A> = dyn Fn(&[WrappedObject<A>]) -> Result<WrappedObject<A>, AmlError<A>>;
 
 #[derive(Clone)]
-pub enum Object {
+pub enum Object<A: Allocator + Clone = Global> {
     Uninitialized,
-    Buffer(Vec<u8>),
-    BufferField { buffer: WrappedObject, offset: usize, length: usize },
+    Buffer(Vec<u8, A>),
+    BufferField { buffer: WrappedObject<A>, offset: usize, length: usize },
     Device,
-    Event(Arc<AtomicU64>),
-    FieldUnit(FieldUnit),
+    // Event's Arc is also allocator-parameterized. We could
+    // keep this Arc<AtomicU64, Global> as a "small exception" for shared
+    // synchronization primitives, but consistency wins - every allocation
+    // goes through the same arena.
+    Event(Arc<AtomicU64, A>),
+    FieldUnit(FieldUnit<A>),
     Integer(u64),
-    Method { code: Vec<u8>, flags: MethodFlags },
-    NativeMethod { f: Arc<NativeMethod>, flags: MethodFlags },
+    Method { code: Vec<u8, A>, flags: MethodFlags },
+    NativeMethod { f: Arc<NativeMethod<A>, A>, flags: MethodFlags },
     Mutex { mutex: Handle, sync_level: u8 },
-    Reference { kind: ReferenceKind, inner: WrappedObject },
-    OpRegion(OpRegion),
-    Package(Vec<WrappedObject>),
+    Reference { kind: ReferenceKind, inner: WrappedObject<A> },
+    OpRegion(OpRegion<A>),
+    Package(Vec<WrappedObject<A>, A>),
     PowerResource { system_level: u8, resource_order: u16 },
     Processor { proc_id: u8, pblk_address: u32, pblk_length: u8 },
     RawDataBuffer,
-    String(String),
+    String(AmlString<A>),
     ThermalZone,
     Debug,
 }
 
-impl Object {
-    pub fn native_method<F>(num_args: u8, f: F) -> Object
+impl<A: Allocator + Clone> Object<A> {
+    pub fn native_method<F>(num_args: u8, f: F, alloc: A) -> Object<A>
     where
-        F: Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError> + 'static,
+        A: 'static,
+        F: Fn(&[WrappedObject<A>]) -> Result<WrappedObject<A>, AmlError<A>> + 'static,
     {
         let mut flags = 0;
         flags.set_bits(0..3, num_args);
-        Object::NativeMethod { f: Arc::new(f), flags: MethodFlags(flags) }
+        // Arc<F, A> coerces to Arc<dyn Fn..., A> at the field assignment.
+        Object::NativeMethod { f: Arc::new_in(f, alloc), flags: MethodFlags(flags) }
     }
 }
 
-impl fmt::Display for Object {
+impl<A: Allocator + Clone> fmt::Display for Object<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Object::Uninitialized => write!(f, "[Uninitialized]"),
@@ -102,13 +211,20 @@ impl ObjectToken {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct WrappedObject(Arc<UnsafeCell<Object>>);
+#[derive(Clone)]
+pub struct WrappedObject<A: Allocator + Clone = Global>(Arc<UnsafeCell<Object<A>>, A>);
 
-impl WrappedObject {
-    pub fn new(object: Object) -> WrappedObject {
+// Manual Debug impl - derive auto-bounds `A: Debug`.
+impl<A: Allocator + Clone> fmt::Debug for WrappedObject<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("WrappedObject").finish_non_exhaustive()
+    }
+}
+
+impl<A: Allocator + Clone> WrappedObject<A> {
+    pub fn new(object: Object<A>, alloc: A) -> WrappedObject<A> {
         #[allow(clippy::arc_with_non_send_sync)]
-        WrappedObject(Arc::new(UnsafeCell::new(object)))
+        WrappedObject(Arc::new_in(UnsafeCell::new(object), alloc))
     }
 
     /// Gain a mutable reference to an [`Object`] from this [`WrappedObject`].
@@ -119,7 +235,7 @@ impl WrappedObject {
     /// prevent the same object, referenced from multiple [`WrappedObject`]s, having multiple
     /// mutable (and therefore aliasing) references being made to it, and therefore care must be
     /// taken in the interpreter to prevent this.
-    pub unsafe fn gain_mut<'r, 'a, 't>(&'a self, _token: &'t ObjectToken) -> &'r mut Object
+    pub unsafe fn gain_mut<'r, 'a, 't>(&'a self, _token: &'t ObjectToken) -> &'r mut Object<A>
     where
         't: 'r,
         'a: 'r,
@@ -127,7 +243,7 @@ impl WrappedObject {
         unsafe { &mut *(self.0.get()) }
     }
 
-    pub fn unwrap_reference(self) -> WrappedObject {
+    pub fn unwrap_reference(self) -> WrappedObject<A> {
         let mut object = self;
         loop {
             if let Object::Reference { ref inner, .. } = *object {
@@ -140,7 +256,7 @@ impl WrappedObject {
 
     /// Unwraps 'transparent' references (e.g. locals, arguments, and internal usage of reference-type objects), but maintain 'real'
     /// references deliberately created by AML.
-    pub fn unwrap_transparent_reference(self) -> WrappedObject {
+    pub fn unwrap_transparent_reference(self) -> WrappedObject<A> {
         let mut object = self;
         loop {
             if let Object::Reference { kind, ref inner } = *object
@@ -154,8 +270,8 @@ impl WrappedObject {
     }
 }
 
-impl ops::Deref for WrappedObject {
-    type Target = Object;
+impl<A: Allocator + Clone> ops::Deref for WrappedObject<A> {
+    type Target = Object<A>;
 
     fn deref(&self) -> &Self::Target {
         /*
@@ -168,21 +284,21 @@ impl ops::Deref for WrappedObject {
     }
 }
 
-impl fmt::Display for WrappedObject {
+impl<A: Allocator + Clone> fmt::Display for WrappedObject<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Wrapped({})", unsafe { &*self.0.get() })
     }
 }
 
-impl Object {
-    pub fn wrap(self) -> WrappedObject {
-        WrappedObject::new(self)
+impl<A: Allocator + Clone> Object<A> {
+    pub fn wrap(self, alloc: A) -> WrappedObject<A> {
+        WrappedObject::new(self, alloc)
     }
 
     /// Unwraps an integer object. Errors if not already an integer.
     ///
     /// For casting to integer, use [`Object::to_integer`] instead.
-    pub fn as_integer(&self) -> Result<u64, AmlError> {
+    pub fn as_integer(&self) -> Result<u64, AmlError<A>> {
         if let Object::Integer(value) = self {
             Ok(*value)
         } else {
@@ -190,15 +306,16 @@ impl Object {
         }
     }
 
-    pub fn as_string(&self) -> Result<Cow<'_, str>, AmlError> {
+    /// Unwraps a string object as a borrowed string slice.
+    pub fn as_string(&self) -> Result<&str, AmlError<A>> {
         if let Object::String(value) = self {
-            Ok(Cow::from(value))
+            Ok(value.as_str())
         } else {
             Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::String, got: self.typ() })
         }
     }
 
-    pub fn as_buffer(&self) -> Result<&[u8], AmlError> {
+    pub fn as_buffer(&self) -> Result<&[u8], AmlError<A>> {
         if let Object::Buffer(bytes) = self {
             Ok(bytes)
         } else {
@@ -209,7 +326,7 @@ impl Object {
     /// Converts the object to an integer. Used for both implicit and explicit conversions.
     ///
     /// To avoid the cast, use [`Object::as_integer`] instead.
-    pub fn to_integer(&self, integer_size: IntegerSize) -> Result<u64, AmlError> {
+    pub fn to_integer(&self, integer_size: IntegerSize, alloc: A) -> Result<u64, AmlError<A>> {
         match self {
             Object::Integer(value) => Ok(*value),
             Object::Buffer(bytes) => {
@@ -229,12 +346,13 @@ impl Object {
                  * that won't fit in a `u64` etc. We probably need to write a more robust parser
                  * 'real' parser to handle those cases.
                  */
-                let value = value.trim();
-                let value = value.to_ascii_lowercase();
-                let (value, radix): (&str, u32) = match value.strip_prefix("0x") {
-                    Some(value) => (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16),
-                    None => (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10),
-                };
+                let value = value.as_str().trim();
+                let (value, radix): (&str, u32) =
+                    if let Some(value) = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")) {
+                        (value.split(|c: char| !c.is_ascii_hexdigit()).next().unwrap_or(""), 16)
+                    } else {
+                        (value.split(|c: char| !c.is_ascii_digit()).next().unwrap_or(""), 10)
+                    };
                 match value.len() {
                     0 => Ok(0),
                     _ => Ok(u64::from_str_radix(value, radix).map_err(|_| {
@@ -242,24 +360,41 @@ impl Object {
                     })?),
                 }
             }
-            Object::BufferField { .. } => self.read_buffer_field(integer_size)?.to_integer(integer_size),
+            Object::BufferField { .. } => {
+                self.read_buffer_field(integer_size, alloc.clone())?.to_integer(integer_size, alloc)
+            }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ToInteger, typ: self.typ() })?,
         }
     }
 
-    pub fn to_buffer(&self, integer_size: IntegerSize) -> Result<Vec<u8>, AmlError> {
+    pub fn to_buffer(&self, integer_size: IntegerSize, alloc: A) -> Result<Vec<u8, A>, AmlError<A>> {
         match self {
             Object::Buffer(bytes) => Ok(bytes.clone()),
             Object::Integer(value) => match integer_size {
-                IntegerSize::FourBytes => Ok((*value as u32).to_le_bytes().to_vec()),
-                IntegerSize::EightBytes => Ok(value.to_le_bytes().to_vec()),
+                IntegerSize::FourBytes => {
+                    let bytes = (*value as u32).to_le_bytes();
+                    let mut out = Vec::with_capacity_in(bytes.len(), alloc);
+                    out.extend_from_slice(&bytes);
+                    Ok(out)
+                }
+                IntegerSize::EightBytes => {
+                    let bytes = value.to_le_bytes();
+                    let mut out = Vec::with_capacity_in(bytes.len(), alloc);
+                    out.extend_from_slice(&bytes);
+                    Ok(out)
+                }
             },
-            Object::String(value) => Ok(value.as_bytes().to_vec()),
+            Object::String(value) => {
+                let src = value.as_bytes();
+                let mut out = Vec::with_capacity_in(src.len(), alloc);
+                out.extend_from_slice(src);
+                Ok(out)
+            }
             _ => Err(AmlError::InvalidOperationOnObject { op: Operation::ConvertToBuffer, typ: self.typ() }),
         }
     }
 
-    pub fn read_buffer_field(&self, integer_size: IntegerSize) -> Result<Object, AmlError> {
+    pub fn read_buffer_field(&self, integer_size: IntegerSize, alloc: A) -> Result<Object<A>, AmlError<A>> {
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match **buffer {
                 Object::Buffer(ref buffer) => buffer.as_slice(),
@@ -271,7 +406,9 @@ impl Object {
                 copy_bits(buffer, *offset, &mut dst, 0, *length);
                 Ok(Object::Integer(u64::from_le_bytes(dst)))
             } else {
-                let mut dst = alloc::vec![0u8; length.div_ceil(8)];
+                let size = length.div_ceil(8);
+                let mut dst = Vec::with_capacity_in(size, alloc);
+                dst.resize(size, 0u8);
                 copy_bits(buffer, *offset, &mut dst, 0, *length);
                 Ok(Object::Buffer(dst))
             }
@@ -280,7 +417,7 @@ impl Object {
         }
     }
 
-    pub fn write_buffer_field(&mut self, value: &[u8], token: &ObjectToken) -> Result<(), AmlError> {
+    pub fn write_buffer_field(&mut self, value: &[u8], token: &ObjectToken) -> Result<(), AmlError<A>> {
         // TODO: bounds check the buffer first to avoid panicking
         if let Self::BufferField { buffer, offset, length } = self {
             let buffer = match unsafe { buffer.gain_mut(token) } {
@@ -300,31 +437,79 @@ impl Object {
     /// Replace this object's contents with that of a `new` object, applying implicit casting rules
     /// as needed. This follows the NT interpreter's creative interpretation of implicit casts, which is
     /// effectively a byte-wise transmutation.
-    pub fn replace_with_implicit_casting(&mut self, new: Object) -> Result<(), AmlError> {
-        let new_bytes = match new {
-            Object::Integer(value) => &value.to_le_bytes(),
+    pub fn replace_with_implicit_casting(&mut self, new: Object<A>) -> Result<(), AmlError<A>> {
+        // Extract a &[u8] view of `new` without taking ownership (so we can keep
+        // its allocator A live for the lifetime of the borrow).
+        let new_bytes: &[u8] = match new {
+            Object::Integer(value) => {
+                // Convert to a fixed-size byte buffer first; the borrow below
+                // must outlive the match arm, so we stash it in a local.
+                let bytes = value.to_le_bytes();
+                return apply_cast_bytes_owned(self, &bytes);
+            }
             Object::String(ref value) => value.as_bytes(),
-            Object::Buffer(ref value) => &value.clone(),
+            Object::Buffer(ref value) => value.as_slice(),
             _ => return Err(AmlError::InvalidImplicitCast { from: self.typ(), to: new.typ() }),
         };
+        apply_cast_bytes(self, new_bytes)?;
+        return Ok(());
 
-        match self {
-            Object::Integer(value) => {
-                let bytes_to_copy = core::cmp::min(new_bytes.len(), 8);
-                let mut bytes = [0u8; 8];
-                bytes[0..bytes_to_copy].copy_from_slice(&new_bytes[0..bytes_to_copy]);
-                *value = u64::from_le_bytes(bytes);
-            }
-            Object::String(value) => {
-                *value = String::from_utf8_lossy(&new_bytes).split('\0').next().unwrap().to_string();
-            }
-            Object::Buffer(value) => {
-                *value = new_bytes.to_vec();
-            }
-            _ => return Err(AmlError::InvalidImplicitCast { from: self.typ(), to: new.typ() }),
+        fn apply_cast_bytes_owned<A2: Allocator + Clone>(
+            target: &mut Object<A2>,
+            bytes: &[u8],
+        ) -> Result<(), AmlError<A2>> {
+            apply_cast_bytes(target, bytes)
         }
 
-        Ok(())
+        fn apply_cast_bytes<A2: Allocator + Clone>(
+            target: &mut Object<A2>,
+            new_bytes: &[u8],
+        ) -> Result<(), AmlError<A2>> {
+            match target {
+                Object::Integer(value) => {
+                    let bytes_to_copy = core::cmp::min(new_bytes.len(), 8);
+                    let mut bytes = [0u8; 8];
+                    bytes[0..bytes_to_copy].copy_from_slice(&new_bytes[0..bytes_to_copy]);
+                    *value = u64::from_le_bytes(bytes);
+                }
+                Object::String(value) => {
+                    value.clear();
+                    push_utf8_lossy_until_nul(value, new_bytes);
+                }
+                Object::Buffer(value) => {
+                    value.clear();
+                    value.extend_from_slice(new_bytes);
+                }
+                _ => return Err(AmlError::InvalidImplicitCast { from: target.typ(), to: ObjectType::Buffer }),
+            }
+            Ok(())
+        }
+
+        fn push_utf8_lossy_until_nul<A2: Allocator + Clone>(target: &mut AmlString<A2>, bytes: &[u8]) {
+            let mut remaining = bytes.split(|byte| *byte == b'\0').next().unwrap_or_default();
+
+            loop {
+                match core::str::from_utf8(remaining) {
+                    Ok(valid) => {
+                        target.push_str(valid);
+                        return;
+                    }
+                    Err(error) => {
+                        let valid_up_to = error.valid_up_to();
+                        if valid_up_to > 0 {
+                            // SAFETY: `valid_up_to` is the UTF-8-valid prefix reported by `from_utf8`.
+                            target.push_str(unsafe { core::str::from_utf8_unchecked(&remaining[..valid_up_to]) });
+                        }
+
+                        target.push(char::REPLACEMENT_CHARACTER);
+                        let Some(error_len) = error.error_len() else {
+                            return;
+                        };
+                        remaining = &remaining[(valid_up_to + error_len)..];
+                    }
+                }
+            }
+        }
     }
 
     /// Returns the `ObjectType` of this object. Returns the type of the referenced object in the
@@ -360,10 +545,10 @@ impl Object {
     ///
     /// This function is not intended to be used for `impl PartialOrd` because we don't want to tie
     /// the meaning of `object_a.cmp(object_b)` to those AML rules - we may want more flexibility.
-    pub fn aml_cmp(&self, other: &Object) -> Result<Ordering, AmlError> {
+    pub fn aml_cmp(&self, other: &Object<A>) -> Result<Ordering, AmlError<A>> {
         match (self, &other) {
             (Object::Integer(a), Object::Integer(b)) => Ok(a.cmp(b)),
-            (Object::String(a), Object::String(b)) => Ok(a.cmp(b)),
+            (Object::String(a), Object::String(b)) => Ok(a.as_str().cmp(b.as_str())),
             (Object::Buffer(a), Object::Buffer(b)) => {
                 let size_cmp = a.len().cmp(&b.len());
                 if size_cmp != Ordering::Equal {
@@ -376,19 +561,38 @@ impl Object {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct FieldUnit {
-    pub kind: FieldUnitKind,
+#[derive(Clone)]
+pub struct FieldUnit<A: Allocator + Clone = Global> {
+    pub kind: FieldUnitKind<A>,
     pub flags: FieldFlags,
     pub bit_index: usize,
     pub bit_length: usize,
 }
 
-#[derive(Clone, Debug)]
-pub enum FieldUnitKind {
-    Normal { region: WrappedObject },
-    Bank { region: WrappedObject, bank: WrappedObject, bank_value: u64 },
-    Index { index: WrappedObject, data: WrappedObject },
+impl<A: Allocator + Clone> fmt::Debug for FieldUnit<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FieldUnit")
+            .field("flags", &self.flags)
+            .field("bit_length", &self.bit_length)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone)]
+pub enum FieldUnitKind<A: Allocator + Clone = Global> {
+    Normal { region: WrappedObject<A> },
+    Bank { region: WrappedObject<A>, bank: WrappedObject<A>, bank_value: u64 },
+    Index { index: WrappedObject<A>, data: WrappedObject<A> },
+}
+
+impl<A: Allocator + Clone> fmt::Debug for FieldUnitKind<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Normal { .. } => f.write_str("Normal { .. }"),
+            Self::Bank { .. } => f.write_str("Bank { .. }"),
+            Self::Index { .. } => f.write_str("Index { .. }"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -412,7 +616,7 @@ pub enum FieldUpdateRule {
 }
 
 impl FieldFlags {
-    pub fn access_type(&self) -> Result<FieldAccessType, AmlError> {
+    pub fn access_type<A: Allocator + Clone>(&self) -> Result<FieldAccessType, AmlError<A>> {
         match self.0.get_bits(0..4) {
             0 => Ok(FieldAccessType::Any),
             1 => Ok(FieldAccessType::Byte),
@@ -424,7 +628,7 @@ impl FieldFlags {
         }
     }
 
-    pub fn access_type_bytes(&self) -> Result<usize, AmlError> {
+    pub fn access_type_bytes<A: Allocator + Clone>(&self) -> Result<usize, AmlError<A>> {
         match self.access_type()? {
             FieldAccessType::Any => {
                 // TODO: given more info about the field, we might be able to make a more efficient
@@ -593,6 +797,7 @@ pub(crate) fn align_down(value: usize, align: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::alloc::Global;
 
     #[test]
     fn test_copy_bits() {
@@ -606,37 +811,37 @@ mod tests {
     #[test]
     fn buffer_to_integer() {
         let buffer = Object::Buffer(Vec::from([0xab, 0xcd, 0xef, 0x01, 0xff]));
-        assert_eq!(buffer.to_integer(IntegerSize::FourBytes).unwrap(), 0x01efcdab);
+        assert_eq!(buffer.to_integer(IntegerSize::FourBytes, Global).unwrap(), 0x01efcdab);
     }
     #[test]
     fn buffer_field_to_integer() {
         const BUFFER: [u8; 5] = [0xffu8; 5];
-        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap(Global);
         let buffer_field = Object::BufferField { buffer, offset: 5, length: 9 };
 
-        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes).unwrap(), 0x1ff);
+        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes, Global).unwrap(), 0x1ff);
     }
 
     #[test]
     fn buffer_field_to_4_byte_integer() {
         // The ones in this buffer are strategically chosen to not make it to the final integer.
         const BUFFER: [u8; 5] = [0x0f, 0x00, 0x00, 0x00, 0xf0];
-        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap(Global);
         let buffer_field = Object::BufferField {
             buffer,
             offset: 4,
             length: 36, // This should be truncated to 32 bits in the conversion
         };
 
-        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes).unwrap(), 0);
+        assert_eq!(buffer_field.to_integer(IntegerSize::FourBytes, Global).unwrap(), 0);
     }
 
     #[test]
     fn buffer_field_to_8_byte_integer() {
         const BUFFER: [u8; 6] = [0x0f, 0x00, 0x00, 0x00, 0xf0, 0xff];
-        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap();
+        let buffer = Object::Buffer(Vec::from(BUFFER)).wrap(Global);
         let buffer_field = Object::BufferField { buffer, offset: 4, length: 36 };
 
-        assert_eq!(buffer_field.to_integer(IntegerSize::EightBytes).unwrap(), 0x0000000f_00000000);
+        assert_eq!(buffer_field.to_integer(IntegerSize::EightBytes, Global).unwrap(), 0x0000000f_00000000);
     }
 }

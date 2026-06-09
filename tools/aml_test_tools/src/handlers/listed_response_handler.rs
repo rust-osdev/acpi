@@ -189,7 +189,7 @@ impl Handler for ListedResponseHandler {
         Handle(1)
     }
 
-    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> {
+    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError<std::alloc::Global>> {
         check_is_skipped!(self);
         Ok(())
     }

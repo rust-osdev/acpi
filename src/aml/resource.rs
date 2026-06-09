@@ -1,9 +1,11 @@
-use super::object::WrappedObject;
-use crate::aml::{AmlError, Operation, object::Object};
-use alloc::vec::Vec;
+use crate::aml::{
+    AmlError,
+    Operation,
+    object::{Object, WrappedObject},
+};
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
-use core::mem;
+use core::{alloc::Allocator, mem};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Resource {
@@ -15,9 +17,11 @@ pub enum Resource {
 }
 
 /// Parse a `ResourceDescriptor` buffer into a list of resources.
-pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resource>, AmlError> {
+pub fn resource_descriptor_list<A: Allocator + Clone>(
+    descriptor: WrappedObject<A>,
+) -> Result<alloc::vec::Vec<Resource>, AmlError<A>> {
     if let Object::Buffer(ref bytes) = *descriptor {
-        let mut descriptors = Vec::new();
+        let mut descriptors = alloc::vec::Vec::new();
         let mut bytes = bytes.as_slice();
 
         while !bytes.is_empty() {
@@ -37,7 +41,7 @@ pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resourc
     }
 }
 
-fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlError> {
+fn resource_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlError<A>> {
     /*
      * If bit 7 of Byte 0 is set, it's a large descriptor. If not, it's a small descriptor.
      */
@@ -79,10 +83,10 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
             0x04 => unimplemented!("Vendor-defined Descriptor"),
             0x05 => unimplemented!("32-bit Memory Range Descriptor"),
             0x06 => fixed_memory_descriptor(descriptor_bytes),
-            0x07 => address_space_descriptor::<u32>(descriptor_bytes),
-            0x08 => address_space_descriptor::<u16>(descriptor_bytes),
+            0x07 => address_space_descriptor::<u32, A>(descriptor_bytes),
+            0x08 => address_space_descriptor::<u16, A>(descriptor_bytes),
             0x09 => extended_interrupt_descriptor(descriptor_bytes),
-            0x0a => address_space_descriptor::<u64>(descriptor_bytes),
+            0x0a => address_space_descriptor::<u64, A>(descriptor_bytes),
             0x0b => unimplemented!("Extended Address Space Descriptor"),
             0x0c => unimplemented!("GPIO Connection Descriptor"),
             0x0d => unimplemented!("Pin Function Descriptor"),
@@ -185,7 +189,7 @@ pub enum MemoryRangeDescriptor {
     FixedLocation { is_writable: bool, base_address: u32, range_length: u32 },
 }
 
-fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+fn fixed_memory_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource, AmlError<A>> {
     /*
      * -- 32-bit Fixed Memory Descriptor ---
      * Offset     Field Name                              Definition
@@ -219,7 +223,7 @@ fn fixed_memory_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     Ok(Resource::MemoryRange(MemoryRangeDescriptor::FixedLocation { is_writable, base_address, range_length }))
 }
 
-fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
+fn address_space_descriptor<T, A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource, AmlError<A>> {
     /*
      * WORD Address Space Descriptor Definition
      * Note: The definitions for DWORD and QWORD are the same other than the width of the address fields.
@@ -320,7 +324,7 @@ pub struct IrqDescriptor {
     pub irq: u32,
 }
 
-fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+fn irq_format_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource, AmlError<A>> {
     /*
      * IRQ Descriptor Definition
      *
@@ -331,7 +335,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
      * Byte 2   IRQ mask bits[15:8], _INT
      *          Bit [0] represents IRQ8, bit[1] is IRQ9, and so on.
      * Byte 3   IRQ Information. Each bit, when set, indicates this device is capable of driving a certain type of interrupt.
-     *          (Optional—if not included then assume edge sensitive, high true interrupts.)
+     *          (Optional: if not included then assume edge sensitive, high true interrupts.)
      *          These bits can be used both for reporting and setting IRQ resources.
      *          Note: This descriptor is meant for describing interrupts that are connected to PIC-compatible interrupt
      *                controllers, which can only be programmed for Active-High-Edge-Triggered or Active-Low-Level-Triggered
@@ -423,7 +427,7 @@ pub struct DMADescriptor {
     pub transfer_type_preference: DMATransferTypePreference,
 }
 
-pub fn dma_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+pub fn dma_format_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource, AmlError<A>> {
     /*
      * DMA Descriptor Definition
      * Offset  Field Name
@@ -479,7 +483,7 @@ pub struct IOPortDescriptor {
     pub range_length: u8,
 }
 
-fn io_port_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+fn io_port_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource, AmlError<A>> {
     /*
      * I/O Port Descriptor Definition
      * Offset   Field Name                                  Definition
@@ -513,7 +517,7 @@ fn io_port_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     Ok(Resource::IOPort(IOPortDescriptor { decodes_full_address, memory_range, base_alignment, range_length }))
 }
 
-fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
+fn extended_interrupt_descriptor<A: Allocator + Clone>(bytes: &[u8]) -> Result<Resource, AmlError<A>> {
     /*
      * --- Extended Interrupt Descriptor ---
      * Byte 3 contains the Interrupt Vector Flags:
@@ -551,6 +555,7 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{alloc::Global, vec::Vec};
 
     #[test]
     fn test_parses_keyboard_crs() {
@@ -584,7 +589,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value = Object::Buffer(bytes).wrap();
+        let value = Object::Buffer(bytes).wrap(Global);
         let resources = resource_descriptor_list(value).unwrap();
 
         assert_eq!(
@@ -694,7 +699,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value = Object::Buffer(bytes).wrap();
+        let value = Object::Buffer(bytes).wrap(Global);
         let resources = resource_descriptor_list(value).unwrap();
 
         assert_eq!(
@@ -795,7 +800,7 @@ mod tests {
         ]
         .to_vec();
 
-        let value = Object::Buffer(bytes).wrap();
+        let value = Object::Buffer(bytes).wrap(Global);
         let resources = resource_descriptor_list(value).unwrap();
 
         assert_eq!(

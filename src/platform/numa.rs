@@ -20,13 +20,13 @@ pub struct NumaInfo<A: Allocator = Global> {
 }
 
 impl NumaInfo<Global> {
-    pub fn new(tables: AcpiTables<impl Handler>) -> NumaInfo<Global> {
+    pub fn new(tables: &AcpiTables<impl Handler>) -> NumaInfo<Global> {
         Self::new_in(tables, Global)
     }
 }
 
 impl<A: Allocator + Clone> NumaInfo<A> {
-    pub fn new_in(tables: AcpiTables<impl Handler>, allocator: A) -> NumaInfo<A> {
+    pub fn new_in(tables: &AcpiTables<impl Handler>, allocator: A) -> NumaInfo<A> {
         let mut processor_affinity = Vec::new_in(allocator.clone());
         let mut memory_affinity = Vec::new_in(allocator.clone());
 
@@ -34,14 +34,27 @@ impl<A: Allocator + Clone> NumaInfo<A> {
             for entry in srat.get().entries() {
                 match entry {
                     SratEntry::LocalApicAffinity(entry) => processor_affinity.push(ProcessorAffinity {
-                        local_apic_id: entry.apic_id as u32,
+                        hw_id: entry.apic_id as u64,
                         proximity_domain: entry.proximity_domain(),
                         is_enabled: { entry.flags }.contains(LocalApicAffinityFlags::ENABLED),
                     }),
                     SratEntry::LocalApicX2Affinity(entry) => processor_affinity.push(ProcessorAffinity {
-                        local_apic_id: entry.x2apic_id,
+                        hw_id: entry.x2apic_id as u64,
                         proximity_domain: entry.proximity_domain,
                         is_enabled: { entry.flags }.contains(LocalApicAffinityFlags::ENABLED),
+                    }),
+                    SratEntry::GiccAffinity(entry) => processor_affinity.push(ProcessorAffinity {
+                        // SRAT spec: GICC affinity identifies the CPU by
+                        // its ACPI processor UID (matches
+                        // `MadtEntry::Gicc::processor_uid`), *not* MPIDR.
+                        // Cross-arch consumers join against the SRAT-side
+                        // identifier appropriate for their arch — see
+                        // [`ProcessorAffinity::hw_id`] docs.
+                        hw_id: entry.acpi_processor_uid as u64,
+                        proximity_domain: entry.proximity_domain,
+                        // GICC affinity flags bit 0 = ENABLED, identical
+                        // layout to the APIC affinity flags.
+                        is_enabled: entry.flags & 1 != 0,
                     }),
                     SratEntry::MemoryAffinity(entry) => memory_affinity.push(MemoryAffinity {
                         base_address: entry.base_address(),
@@ -72,7 +85,26 @@ impl<A: Allocator + Clone> NumaInfo<A> {
 
 #[derive(Clone, Debug)]
 pub struct ProcessorAffinity {
-    pub local_apic_id: u32,
+    /// The SRAT-side processor identifier — i.e., the value the
+    /// firmware put into the SRAT entry to identify the CPU.
+    /// Per-arch semantics (these mirror the SRAT subtable kinds the
+    /// spec defines):
+    ///
+    /// - **x86 / x86_64** (Local APIC / X2APIC affinity, SRAT types
+    ///   0 and 2): the APIC ID.  This matches the MADT
+    ///   [`Processor::hw_id`](super::Processor::hw_id) directly, so
+    ///   the SRAT→MADT join is by equal `hw_id`.
+    /// - **aarch64** (GICC affinity, SRAT type 3): the ACPI
+    ///   processor UID — *not* MPIDR.  This matches the MADT
+    ///   [`Processor::processor_uid`](super::Processor::processor_uid),
+    ///   not its `hw_id`.  Consumers joining cross-table on
+    ///   aarch64 must use `processor_uid`.
+    /// - **riscv64** (RINTC affinity, SRAT type 7, future): the
+    ///   hartid.
+    ///
+    /// Widened to `u64` to cover MPIDR / hartid cleanly even though
+    /// every SRAT subtable currently defined uses 32 bits or fewer.
+    pub hw_id: u64,
     pub proximity_domain: u32,
     pub is_enabled: bool,
 }

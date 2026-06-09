@@ -187,7 +187,7 @@ where
         self.next_handler.create_mutex()
     }
 
-    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), acpi::aml::AmlError> {
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), acpi::aml::AmlError<std::alloc::Global>> {
         info!("acquire(mutex={:?}, timeout={})", mutex, timeout);
         self.next_handler.acquire(mutex, timeout)
     }
@@ -197,7 +197,7 @@ where
         self.next_handler.release(mutex);
     }
 
-    fn handle_debug(&self, object: &Object) {
+    fn handle_debug(&self, object: &Object<std::alloc::Global>) {
         info!("Debug store: {}", object);
         self.next_handler.handle_debug(object);
     }
