@@ -1,8 +1,9 @@
 use crate::aml::{AmlError, namespace::AmlName};
+use alloc::alloc::Global;
 use core::alloc::Allocator;
 
 #[derive(Clone)]
-pub struct OpRegion<A: core::alloc::Allocator + Clone> {
+pub struct OpRegion<A: core::alloc::Allocator + Clone = Global> {
     pub space: RegionSpace,
     pub base: u64,
     pub length: u64,
@@ -20,7 +21,7 @@ impl<A: core::alloc::Allocator + Clone> core::fmt::Debug for OpRegion<A> {
     }
 }
 
-pub trait RegionHandler<A: Allocator + Clone> {
+pub trait RegionHandler<A: Allocator + Clone = Global> {
     fn read_u8(&self, region: &OpRegion<A>) -> Result<u8, AmlError<A>>;
     fn read_u16(&self, region: &OpRegion<A>) -> Result<u16, AmlError<A>>;
     fn read_u32(&self, region: &OpRegion<A>) -> Result<u32, AmlError<A>>;

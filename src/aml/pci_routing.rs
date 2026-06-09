@@ -7,7 +7,7 @@ use crate::aml::{
     object::Object,
     resource::{self, InterruptPolarity, InterruptTrigger, Resource},
 };
-use alloc::vec::Vec;
+use alloc::{alloc::Global, vec::Vec};
 use bit_field::BitField;
 use core::alloc::Allocator;
 
@@ -22,7 +22,7 @@ pub enum Pin {
 }
 
 #[derive(Debug)]
-pub enum PciRouteType<A: Allocator + Clone> {
+pub enum PciRouteType<A: Allocator + Clone = Global> {
     /// The interrupt is hard-coded to a specific GSI
     Gsi(u32),
 
@@ -37,7 +37,7 @@ pub enum PciRouteType<A: Allocator + Clone> {
 }
 
 #[derive(Debug)]
-pub struct PciRoute<A: Allocator + Clone> {
+pub struct PciRoute<A: Allocator + Clone = Global> {
     device: u16,
     function: u16,
     pin: Pin,
@@ -49,7 +49,7 @@ pub struct PciRoute<A: Allocator + Clone> {
 /// present under each PCI root bridge, and consists of a package of packages, each of which describes the
 /// mapping of a single PCI interrupt pin.
 #[derive(Debug)]
-pub struct PciRoutingTable<A: Allocator + Clone + 'static> {
+pub struct PciRoutingTable<A: Allocator + Clone + 'static = Global> {
     entries: Vec<PciRoute<A>, A>,
 }
 

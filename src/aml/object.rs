@@ -1,5 +1,5 @@
 use crate::aml::{AmlError, Handle, IntegerSize, Operation, op_region::OpRegion};
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{alloc::Global, sync::Arc, vec::Vec};
 use bit_field::BitField;
 use core::{alloc::Allocator, cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::atomic::AtomicU64};
 
@@ -9,7 +9,7 @@ use core::{alloc::Allocator, cell::UnsafeCell, cmp::Ordering, fmt, ops, sync::at
 // `String` operations the AML interpreter actually needs. Construction sites
 // always start from validated `&str` literals or copy from existing strings,
 // so the UTF-8 invariant is straightforward to maintain.
-pub struct AmlString<A: Allocator + Clone>(Vec<u8, A>);
+pub struct AmlString<A: Allocator + Clone = Global>(Vec<u8, A>);
 
 impl<A: Allocator + Clone> AmlString<A> {
     pub fn new_in(alloc: A) -> Self {
@@ -114,7 +114,7 @@ impl<A: Allocator + Clone> fmt::Write for AmlString<A> {
 type NativeMethod<A> = dyn Fn(&[WrappedObject<A>]) -> Result<WrappedObject<A>, AmlError<A>>;
 
 #[derive(Clone)]
-pub enum Object<A: Allocator + Clone> {
+pub enum Object<A: Allocator + Clone = Global> {
     Uninitialized,
     Buffer(Vec<u8, A>),
     BufferField { buffer: WrappedObject<A>, offset: usize, length: usize },
@@ -212,7 +212,7 @@ impl ObjectToken {
 }
 
 #[derive(Clone)]
-pub struct WrappedObject<A: Allocator + Clone>(Arc<UnsafeCell<Object<A>>, A>);
+pub struct WrappedObject<A: Allocator + Clone = Global>(Arc<UnsafeCell<Object<A>>, A>);
 
 // Manual Debug impl - derive auto-bounds `A: Debug`.
 impl<A: Allocator + Clone> fmt::Debug for WrappedObject<A> {
@@ -562,7 +562,7 @@ impl<A: Allocator + Clone> Object<A> {
 }
 
 #[derive(Clone)]
-pub struct FieldUnit<A: Allocator + Clone> {
+pub struct FieldUnit<A: Allocator + Clone = Global> {
     pub kind: FieldUnitKind<A>,
     pub flags: FieldFlags,
     pub bit_index: usize,
@@ -579,7 +579,7 @@ impl<A: Allocator + Clone> fmt::Debug for FieldUnit<A> {
 }
 
 #[derive(Clone)]
-pub enum FieldUnitKind<A: Allocator + Clone> {
+pub enum FieldUnitKind<A: Allocator + Clone = Global> {
     Normal { region: WrappedObject<A> },
     Bank { region: WrappedObject<A>, bank: WrappedObject<A>, bank_value: u64 },
     Index { index: WrappedObject<A>, data: WrappedObject<A> },

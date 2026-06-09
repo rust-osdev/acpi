@@ -32,7 +32,7 @@ use crate::{
     registers::{FixedRegisters, Pm1ControlBit},
     sdt::{SdtHeader, facs::Facs, fadt::Fadt},
 };
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{alloc::Global, boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use bit_field::BitField;
 use core::{
     alloc::Allocator,
@@ -102,7 +102,7 @@ macro_rules! vec_in {
 /// `Interpreter` implements a virtual machine for the dynamic AML bytecode. It can be used by a
 /// host operating system to load tables containing AML bytecode (generally the DSDT and SSDTs) and
 /// will then manage the AML namespace and all objects created during the life of the system.
-pub struct Interpreter<H, A: Allocator + Clone + 'static>
+pub struct Interpreter<H, A: Allocator + Clone + 'static = Global>
 where
     H: Handler,
 {
@@ -124,13 +124,30 @@ unsafe impl<H, A: Allocator + Clone + 'static> Sync for Interpreter<H, A> where 
 /// The value returned by the `Revision` opcode.
 const INTERPRETER_REVISION: u64 = 1;
 
+impl<H> Interpreter<H>
+where
+    H: Handler,
+{
+    /// Construct a new [`Interpreter`] using the global allocator. This does not load any tables - if you have an
+    /// [`crate::AcpiTables`] already, construct an [`AcpiPlatform`] first and then use
+    /// [`Interpreter::new_from_platform`].
+    pub fn new(
+        handler: H,
+        dsdt_revision: u8,
+        registers: Arc<FixedRegisters<H>>,
+        facs: Option<PhysicalMapping<H, Facs>>,
+    ) -> Interpreter<H> {
+        Interpreter::new_in(handler, dsdt_revision, registers, facs, Global)
+    }
+}
+
 impl<H, A: Allocator + Clone + 'static> Interpreter<H, A>
 where
     H: Handler,
 {
-    /// Construct a new [`Interpreter`]. This does not load any tables - if you have an
+    /// Construct a new [`Interpreter`] using the supplied allocator. This does not load any tables - if you have an
     /// [`crate::AcpiTables`] already, construct an [`AcpiPlatform`] first and then use
-    /// [`Interpreter::new_from_platform`]
+    /// [`Interpreter::new_from_platform`].
     pub fn new_in(
         handler: H,
         dsdt_revision: u8,
@@ -3613,7 +3630,7 @@ pub enum Operation {
 
 #[derive(Clone)]
 #[non_exhaustive]
-pub enum AmlError<A: Allocator + Clone> {
+pub enum AmlError<A: Allocator + Clone = Global> {
     RunOutOfStream,
     IllegalOpcode(u16),
     InvalidFieldFlags,

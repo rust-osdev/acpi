@@ -3,13 +3,13 @@ use super::{
     Handle,
     object::{AmlString, Object, ObjectType, WrappedObject},
 };
-use alloc::{collections::btree_map::BTreeMap, string::String, vec::Vec};
+use alloc::{alloc::Global, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use bit_field::BitField;
 use core::{alloc::Allocator, fmt, str};
 use log::{trace, warn};
 
 #[derive(Clone)]
-pub struct Namespace<A: Allocator + Clone> {
+pub struct Namespace<A: Allocator + Clone = Global> {
     alloc: A,
     root: NamespaceLevel<A>,
 }
@@ -465,7 +465,7 @@ pub enum NamespaceLevelKind {
 }
 
 #[derive(Clone)]
-pub struct NamespaceLevel<A: Allocator + Clone> {
+pub struct NamespaceLevel<A: Allocator + Clone = Global> {
     pub kind: NamespaceLevelKind,
     pub values: BTreeMap<NameSeg, (ObjectFlags, WrappedObject<A>), A>,
     pub children: BTreeMap<NameSeg, NamespaceLevel<A>, A>,
@@ -497,7 +497,7 @@ impl<A: Allocator + Clone> NamespaceLevel<A> {
 // bounds - `&'static BumpArena<N>` satisfies neither, and the bounds aren't
 // needed because Vec<T, A>'s own impls don't require A: PartialEq/Debug.
 #[derive(Clone)]
-pub struct AmlName<A: Allocator + Clone>(Vec<NameComponent, A>);
+pub struct AmlName<A: Allocator + Clone = Global>(Vec<NameComponent, A>);
 
 impl<A: Allocator + Clone, A2: Allocator + Clone> PartialEq<AmlName<A2>> for AmlName<A> {
     fn eq(&self, other: &AmlName<A2>) -> bool {
