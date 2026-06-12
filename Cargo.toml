@@ -21,6 +21,7 @@ pci_types = { version = "0.10.0", public = true }
 byteorder = { version = "1.5.0", default-features = false }
 
 [dev-dependencies]
+static_assertions = "1.1.0"
 aml_test_tools = { path = "tools/aml_test_tools" }
 pretty_env_logger = "0.5.0"
 

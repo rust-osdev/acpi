@@ -448,10 +448,11 @@ where
 
         if let Some(result) = interpreter.evaluate_if_present(AmlName::from_str("\\MAIN").unwrap(), vec![])? {
             let expected_result = expected_result.as_ref().unwrap_or(&ExpectedResult::Integer(0));
-            if result_matches(expected_result, &result) {
+            let result_read = result.read();
+            if result_matches(expected_result, &*result_read) {
                 Ok(())
             } else {
-                let e = format!("Unexpected MAIN result: {}, expected: {:?}", *result, expected_result);
+                let e = format!("Unexpected MAIN result: {}, expected: {:?}", *result_read, expected_result);
                 error!("{}", e);
                 Err(AmlError::HostError(e))
             }
