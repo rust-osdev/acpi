@@ -1568,6 +1568,18 @@ where
                                         Object::Reference { kind: ReferenceKind::Named, inner: object }.wrap(),
                                     ));
                                 }
+                                Err(AmlError::ObjectDoesNotExist(name)) => {
+                                    // For some real machine, it might use the same template, so it
+                                    // cant be fully deleted.
+                                    // So here, we shall give a warn and continue...
+                                    warn!("An AML path named {} does not found, skipping...", name);
+
+                                    let reference = Object::Reference {
+                                        kind: ReferenceKind::Unresolved,
+                                        inner: Object::String(name.to_string()).wrap(),
+                                    };
+                                    context.contribute_arg(Argument::Object(reference.wrap()));
+                                }
                                 Err(err) => Err(err)?,
                             }
                         }
