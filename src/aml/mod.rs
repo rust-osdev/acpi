@@ -1568,11 +1568,13 @@ where
                                         Object::Reference { kind: ReferenceKind::Named, inner: object }.wrap(),
                                     ));
                                 }
+
+                                #[cfg(feature = "aml_nonstrict")]
                                 Err(AmlError::ObjectDoesNotExist(name)) => {
-                                    // For some real machine, it might use the same template, so it
-                                    // cant be fully deleted.
-                                    // So here, we shall give a warn and continue...
-                                    warn!("An AML path named {} does not found, skipping...", name);
+                                    // XXX: For some machines, it might forget to remove wrong things from the namespace, and then later on refer to them again. 
+                                    // In this case, we should just ignore the missing object and continue, rather than erroring out. 
+                                    // See https://github.com/rust-osdev/acpi/issues/308 for more details.
+                                    warn!("An AML path which is named \"{}\" does not found, skipping...", name);
 
                                     let reference = Object::Reference {
                                         kind: ReferenceKind::Unresolved,
@@ -1580,6 +1582,7 @@ where
                                     };
                                     context.contribute_arg(Argument::Object(reference.wrap()));
                                 }
+
                                 Err(err) => Err(err)?,
                             }
                         }
