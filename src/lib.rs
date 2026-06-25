@@ -200,6 +200,29 @@ where
     }
 
     /// Find the first table with the signature `T::SIGNATURE`.
+    ///
+    /// This returns a `Option<PhysicalMapping<H, T>>`. If `T` is `!Unpin` use the [`PhysicalMapping::get`] to dereference the inner `T`.
+    ///
+    /// ## Example
+    /// ```rust
+    /// use acpi::AcpiTables;
+    /// use acpi::sdt::madt::{Madt, MadtEntry};
+    ///
+    /// let tables = unsafe { AcpiTables::from_rsdp(AcpiHandler, rsdp.as_ptr().addr()) }
+    ///     .unwrap_or_else(|x| panic!("Failed to parse RSDP table: {:?}", x));
+    ///
+    /// let mut madt = tables.find_table::<Madt>().expect("Failed to find MADT");
+    ///
+    /// madt.get().entries().for_each(|entry| {
+    ///      match entry {
+    ///         MadtEntry::LocalApic(apic) => {
+    ///             apic.apic_id...
+    ///         }
+    ///         _ => {
+    ///         }
+    ///     }
+    /// });
+    /// ```
     pub fn find_table<T>(&self) -> Option<PhysicalMapping<H, T>>
     where
         T: AcpiTable,
