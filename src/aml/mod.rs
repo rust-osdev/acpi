@@ -502,7 +502,7 @@ where
                     }
                     Opcode::Increment | Opcode::Decrement => {
                         let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
-                        let operand = operand.clone().unwrap_transparent_reference();
+                        let operand = operand.clone().unwrap_reference();
                         let token = self.object_token.lock();
 
                         let Object::Integer(operand) = (unsafe { operand.gain_mut(&token) }) else {
@@ -2397,40 +2397,32 @@ where
 
     /// Perform a store of `object` into `target`, matching the expected behaviour of `DefStore`,
     /// which depends on the target:
-    ///    - Locals are overwritten, unless they contain a reference, in which case a store is
-    ///      performed to the referenced object with implicit casting
+    ///    - Locals and Index references are overwritten, unless the Local contains a reference
+    ///      (e.g. obtained via `RefOf`), in which case a store is performed to the referenced
+    ///      object with implicit casting.
     ///    - Args are overwritten, unless they contain a reference, in which case the referenced
-    ///      object is overwritten
-    ///    - Index references behave the same as locals
+    ///      object is *usually* overwritten. References from Arg to Local without an intermediate
+    ///      `RefOf` cause the Arg to be overwritten instead of the Local (see
+    ///      [issue #313](https://github.com/rust-osdev/acpi/issues/313)).
+    ///    - There is an exception to this, needed to match the Windows NT interpreter: if an Arg
+    ///      referencing a Local is found whilst unwrapping a real reference (e.g. a Local holding
+    ///      `RefOf(Arg0)`, where `Arg0` was itself passed a `Local` directly) and the final result
+    ///      of unwrapping is a string, the string is modified instead of the Arg. This does not
+    ///      apply if the Arg is the direct target of the store and only applies to Strings. (This
+    ///      sounds odd, but is the Windows way)
     ///    - Named objects are stored into, with implicit casting
+    ///
+    /// This is complex so may be explained better by `tests/store.asl` and
+    /// [`Object::unwrap_ref_for_store`]!
     fn do_store(&self, target: WrappedObject, object: WrappedObject) -> Result<WrappedObject, AmlError> {
         let object = object.unwrap_transparent_reference();
         let token = self.object_token.lock();
 
         match unsafe { target.gain_mut(&token) } {
-            Object::Reference { kind, inner } => {
-                let (target_object, overwrite) = match kind {
-                    ReferenceKind::Named => (inner.clone().unwrap_reference(), false),
-                    ReferenceKind::Local | ReferenceKind::Index => {
-                        if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
-                            (inner_inner.clone(), false)
-                        } else {
-                            (inner.clone().unwrap_transparent_reference(), true)
-                        }
-                    }
-                    ReferenceKind::Arg => {
-                        if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
-                            (inner_inner.clone(), true)
-                        } else {
-                            (inner.clone().unwrap_transparent_reference(), true)
-                        }
-                    }
-                    ReferenceKind::RefOf | ReferenceKind::Unresolved => {
-                        return Err(AmlError::StoreToInvalidReferenceType);
-                    }
-                };
+            Object::Reference { .. } => {
+                let (target_object, implicit_cast_reqd) = target.unwrap_ref_for_store()?;
 
-                if overwrite {
+                if !implicit_cast_reqd {
                     unsafe {
                         *target_object.gain_mut(&token) = (*object).clone();
                     }

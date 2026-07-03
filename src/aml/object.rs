@@ -154,6 +154,61 @@ impl WrappedObject {
             }
         }
     }
+
+    /// Unwrap a reference that is about to be stored to - find the target object.
+    ///
+    /// Take into account the store rules as enumerated by `Interpreter::do_store`
+    ///
+    /// Returns a tuple containing:
+    /// - The object that should be modified
+    /// - A boolean indicating whether an implicit cast should occur before the store
+    pub(crate) fn unwrap_ref_for_store(self) -> Result<(WrappedObject, bool), AmlError> {
+        let Object::Reference { kind: outer_kind, .. } = *self else {
+            return Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Reference, got: self.typ() });
+        };
+
+        // If we're storing directly to an Arg then the strange Windows NT behaviour for strings
+        // doesn't apply. (see the comments in `Interpreter<H>::do_store` for more)
+        let store_to_arg = outer_kind == ReferenceKind::Arg;
+
+        // Set once we've unwrapped through a true reference. This helps decide whether the target
+        // should be overwritten in full, or if an implicit cast to the target type is needed.
+        let mut crossed_true_reference = false;
+
+        // If we reach an Arg that directly references a Local, we should store in the Arg instead
+        // of the Local (see [issue #313](https://github.com/rust-osdev/acpi/issues/313)). Except
+        // for the strange Windows NT behaviour handled in the `match arg_to_local` statement below.
+        let mut arg_to_local: Option<WrappedObject> = None;
+
+        let mut target = self;
+
+        loop {
+            let Object::Reference { kind, ref inner } = *target else {
+                return Ok(match arg_to_local {
+                    Some(_) if !store_to_arg && target.typ() == ObjectType::String => (target.clone(), true),
+                    Some(arg) => (arg, false),
+                    None => (target.clone(), !store_to_arg && crossed_true_reference),
+                });
+            };
+
+            match kind {
+                ReferenceKind::Named | ReferenceKind::RefOf | ReferenceKind::Index => {
+                    crossed_true_reference = true
+                }
+                ReferenceKind::Local => {}
+                ReferenceKind::Arg => {
+                    if arg_to_local.is_none()
+                        && matches!(**inner, Object::Reference { kind: ReferenceKind::Local, .. })
+                    {
+                        arg_to_local = Some(inner.clone());
+                    }
+                }
+                ReferenceKind::Unresolved => return Err(AmlError::StoreToInvalidReferenceType),
+            }
+
+            target = inner.clone();
+        }
+    }
 }
 
 impl ops::Deref for WrappedObject {
@@ -652,5 +707,77 @@ mod tests {
         let buffer_field = Object::BufferField { buffer, offset: 4, length: 36 };
 
         assert_eq!(buffer_field.to_integer(IntegerSize::EightBytes).unwrap(), 0x0000000f_00000000);
+    }
+
+    #[test]
+    fn store_local_ref_to_local() {
+        // As may be encountered in the last line of:
+        // Local1 = RefOf(Local0)
+        // Local1 = 2 (the actual store is omitted)
+        let local0 = Object::Reference { kind: ReferenceKind::Local, inner: Object::Integer(1).wrap() }.wrap();
+        let ref_of = Object::Reference { kind: ReferenceKind::RefOf, inner: local0 }.wrap();
+        let local1 = Object::Reference { kind: ReferenceKind::Local, inner: ref_of }.wrap();
+
+        let target = local1.unwrap_ref_for_store();
+        let target = target.unwrap();
+
+        let target_obj = &*target.0;
+        let Object::Integer(x) = target_obj else {
+            panic!("Incorrect type");
+        };
+        assert_eq!(*x, 1);
+    }
+
+    #[test]
+    fn store_arg_ref_to_local() {
+        // As if a Local was passed as an argument to a method, and then Arg0 were stored to e.g.:
+        // Local0 = 1
+        // MEFD(Local0)
+        // ... and inside MEFD: Arg0 = 2 (the actual store is omitted)
+        let local0 = Object::Reference { kind: ReferenceKind::Local, inner: Object::Integer(1).wrap() }.wrap();
+        let arg0 = Object::Reference { kind: ReferenceKind::Arg, inner: local0.clone() }.wrap();
+
+        let target = arg0.unwrap_ref_for_store();
+        let (target, implicit_cast_reqd) = target.unwrap();
+
+        assert!(Arc::ptr_eq(&target.0, &local0.0));
+        assert!(!implicit_cast_reqd);
+    }
+
+    #[test]
+    fn store_arg_ref_of_local() {
+        // As may be encountered in the last line of:
+        // Local0 = 1
+        // Arg0 = RefOf(Local0)
+        // Arg0 = 2 (the actual store is omitted)
+        let local0 = Object::Reference { kind: ReferenceKind::Local, inner: Object::Integer(1).wrap() }.wrap();
+        let ref_of = Object::Reference { kind: ReferenceKind::RefOf, inner: local0 }.wrap();
+        let arg0 = Object::Reference { kind: ReferenceKind::Arg, inner: ref_of }.wrap();
+
+        let target = arg0.unwrap_ref_for_store();
+        let (target, implicit_cast_reqd) = target.unwrap();
+
+        let target_obj = &*target;
+        let Object::Integer(x) = target_obj else {
+            panic!("Incorrect type");
+        };
+        assert_eq!(*x, 1);
+        assert!(!implicit_cast_reqd);
+    }
+
+    #[test]
+    fn store_local_refof_arg_to_local_string() {
+        // This covers the weird Windows NT handling of references that ultimately end up as Strings
+        let string = Object::String("string".to_string()).wrap();
+        let outer_local = Object::Reference { kind: ReferenceKind::Local, inner: string.clone() }.wrap();
+        let arg0 = Object::Reference { kind: ReferenceKind::Arg, inner: outer_local }.wrap();
+        let ref_of = Object::Reference { kind: ReferenceKind::RefOf, inner: arg0 }.wrap();
+        let inner_local = Object::Reference { kind: ReferenceKind::Local, inner: ref_of }.wrap();
+
+        let target = inner_local.unwrap_ref_for_store();
+        let (target, implicit_cast_reqd) = target.unwrap();
+
+        assert!(Arc::ptr_eq(&target.0, &string.0));
+        assert!(implicit_cast_reqd);
     }
 }

@@ -72,7 +72,6 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 }
 
 #[test]
-#[ignore] // ParseFail(ObjectNotOfExpectedType { expected: Integer, got: Integer } (a referencing failure)
 fn increment_decrement() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
