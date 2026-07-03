@@ -1,0 +1,15 @@
+[package]
+name = "no_alloc_check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[dependencies]
+acpi = { path = "../..", default-features = false }
+pci_types = "0.10.1"
