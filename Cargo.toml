@@ -1,5 +1,7 @@
 [workspace]
 members = ["tools/aml_tester", "tools/acpi_dumper", "tools/aml_test_tools", "tools/uacpi_test_adapter"]
+# See the note in the no_alloc_check README.md to see why this is excluded.
+exclude = ["tools/no_alloc_check"]
 resolver = "2"
 
 [package]
