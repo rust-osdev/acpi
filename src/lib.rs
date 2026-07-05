@@ -148,7 +148,8 @@ where
         let entry_size = if self.rsdp_revision == 0 { 4 } else { 8 };
         let mut table_entries_ptr =
             unsafe { self.rsdt_mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }.cast::<u8>();
-        let mut num_entries = (self.rsdt_mapping.region_length - mem::size_of::<SdtHeader>()) / entry_size;
+        let mut num_entries =
+            (self.rsdt_mapping.region_length.saturating_sub(mem::size_of::<SdtHeader>())) / entry_size;
 
         core::iter::from_fn(move || {
             if num_entries > 0 {
