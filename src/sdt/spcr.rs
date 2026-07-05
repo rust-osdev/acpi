@@ -156,14 +156,28 @@ impl Spcr {
     /// of a fully qualified reference to the object that represents this
     /// device in the ACPI namespace. If no namespace device exists,
     /// the namespace string must only contain a single '.'.
-    pub fn namespace_string(&self) -> Result<&str, Utf8Error> {
+    pub fn namespace_string(&self) -> Result<&str, SprcNamespaceStringError> {
+        /*
+         * Bounds-check the offset and length to ensure we cannot access data past the end of the
+         * table.
+         */
+        if (self.namespace_string_offset as u32 + self.namespace_string_length as u32) > self.header.length {
+            return Err(SprcNamespaceStringError::InvalidBounds);
+        }
+
         let start = ptr::from_ref(self).cast::<u8>();
         let bytes = unsafe {
             let str_start = start.add(self.namespace_string_offset as usize);
             slice::from_raw_parts(str_start, self.namespace_string_length as usize)
         };
-        str::from_utf8(bytes)
+        str::from_utf8(bytes).map_err(SprcNamespaceStringError::Utf8)
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SprcNamespaceStringError {
+    InvalidBounds,
+    Utf8(Utf8Error),
 }
 
 bitflags::bitflags! {
