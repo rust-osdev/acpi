@@ -24,7 +24,7 @@ impl Mcfg {
     /// Returns a slice containing each of the entries in the MCFG table. Where possible, `PlatformInfo.interrupt_model` should
     /// be enumerated instead.
     pub fn entries(&self) -> &[McfgEntry] {
-        let length = self.header.length as usize - mem::size_of::<Mcfg>();
+        let length = (self.header.length as usize).saturating_sub(mem::size_of::<Mcfg>());
 
         // Intentionally round down in case length isn't an exact multiple of McfgEntry size - this
         // has been observed on real hardware (see rust-osdev/acpi#58)

@@ -56,7 +56,7 @@ impl Madt {
         let ptr = unsafe { Pin::into_inner_unchecked(self) as *const Madt as *const u8 };
         MadtEntryIter {
             pointer: unsafe { ptr.add(mem::size_of::<Madt>()) },
-            remaining_length: self.header.length - mem::size_of::<Madt>() as u32,
+            remaining_length: self.header.length.saturating_sub(mem::size_of::<Madt>() as u32),
             _phantom: PhantomData,
         }
     }

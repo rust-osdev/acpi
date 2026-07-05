@@ -35,7 +35,7 @@ impl Srat {
         let ptr = unsafe { Pin::into_inner_unchecked(self) as *const Srat as *const u8 };
         SratEntryIter {
             pointer: unsafe { ptr.add(mem::size_of::<Srat>()) },
-            remaining_length: self.header.length - mem::size_of::<Srat>() as u32,
+            remaining_length: self.header.length.saturating_sub(mem::size_of::<Srat>() as u32),
             _phantom: PhantomData,
         }
     }
