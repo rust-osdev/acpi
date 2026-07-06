@@ -181,7 +181,6 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {
 }
 
 #[test]
-#[ignore] // See issue #300
 fn copy_object_to_self() {
     const ASL: &str = r#"
 DefinitionBlock("", "DSDT", 1, "RSACPI", "UACPI", 1) {

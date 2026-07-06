@@ -2785,14 +2785,14 @@ struct MethodContext {
 }
 
 struct Block {
-    stream: *const [u8],
+    stream: Vec<u8>,
     pc: usize,
     kind: BlockKind,
 }
 
 impl Block {
     fn stream(&self) -> &[u8] {
-        unsafe { &*self.stream }
+        &self.stream
     }
 }
 
@@ -2918,7 +2918,7 @@ impl OpInFlight {
 
 impl MethodContext {
     unsafe fn new_from_table(stream: &[u8]) -> MethodContext {
-        let block = Block { stream: stream as *const [u8], pc: 0, kind: BlockKind::Table };
+        let block = Block { stream: Vec::from(stream), pc: 0, kind: BlockKind::Table };
         MethodContext {
             current_block: block,
             block_stack: Vec::new(),
@@ -2940,7 +2940,7 @@ impl MethodContext {
                 return Err(AmlError::MethodArgCountIncorrect);
             }
             let block = Block {
-                stream: code as &[u8] as *const [u8],
+                stream: code.clone(),
                 pc: 0,
                 kind: BlockKind::Method { method_scope: scope.clone() },
             };
@@ -2988,7 +2988,7 @@ impl MethodContext {
 
     fn start_new_block(&mut self, kind: BlockKind, length: usize) {
         let block = Block {
-            stream: &self.current_block.stream()[..(self.current_block.pc + length)] as *const [u8],
+            stream: self.current_block.stream()[..(self.current_block.pc + length)].into(),
             pc: self.current_block.pc,
             kind,
         };
