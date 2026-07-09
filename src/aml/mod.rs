@@ -3410,6 +3410,8 @@ pub enum AmlError {
 
     InvalidNameSeg([u8; 4]),
     InvalidNormalizedName(AmlName),
+    /// An absolute name was required, but a relative one was supplied.
+    NameNotAbsolute(AmlName),
     RootHasNoParent,
     EmptyNamesAreInvalid,
     LevelDoesNotExist(AmlName),

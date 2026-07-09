@@ -137,8 +137,7 @@ impl Namespace {
     }
 
     pub fn add_level(&mut self, path: AmlName, kind: NamespaceLevelKind) -> Result<(), AmlError> {
-        assert!(path.is_absolute());
-        let path = path.normalize()?;
+        let path = path.normalize_absolute()?;
 
         // Don't try to recreate the root scope
         if path != AmlName::root() {
@@ -155,8 +154,7 @@ impl Namespace {
     }
 
     pub fn remove_level(&mut self, path: AmlName) -> Result<(), AmlError> {
-        assert!(path.is_absolute());
-        let path = path.normalize()?;
+        let path = path.normalize_absolute()?;
 
         // Don't try to remove the root scope
         // TODO: we probably shouldn't be able to remove the pre-defined scopes either?
@@ -169,8 +167,7 @@ impl Namespace {
     }
 
     pub fn insert(&mut self, path: AmlName, object: WrappedObject) -> Result<(), AmlError> {
-        assert!(path.is_absolute());
-        let path = path.normalize()?;
+        let path = path.normalize_absolute()?;
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
         match level.values.insert(last_seg, (ObjectFlags::new(false), object)) {
@@ -187,8 +184,7 @@ impl Namespace {
     }
 
     pub fn create_alias(&mut self, path: AmlName, object: WrappedObject) -> Result<(), AmlError> {
-        assert!(path.is_absolute());
-        let path = path.normalize()?;
+        let path = path.normalize_absolute()?;
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
         match level.values.insert(last_seg, (ObjectFlags::new(true), object)) {
@@ -198,8 +194,7 @@ impl Namespace {
     }
 
     pub fn get(&mut self, path: AmlName) -> Result<WrappedObject, AmlError> {
-        assert!(path.is_absolute());
-        let path = path.normalize()?;
+        let path = path.normalize_absolute()?;
 
         let (level, last_seg) = self.get_level_for_path_mut(&path)?;
         match level.values.get(&last_seg) {
@@ -210,8 +205,10 @@ impl Namespace {
 
     /// Search for an object at the given path of the namespace, applying the search rules described in §5.3 of the
     /// ACPI specification, if they are applicable. Returns the resolved name, and the handle of the first valid
-    /// object, if found.
+    /// object, if found. Errors if `starting_scope` is not absolute.
     pub fn search(&self, path: &AmlName, starting_scope: &AmlName) -> Result<(AmlName, WrappedObject), AmlError> {
+        starting_scope.require_absolute()?;
+
         if path.search_rules_apply() {
             /*
              * If search rules apply, we need to recursively look through the namespace. If the
@@ -219,7 +216,6 @@ impl Namespace {
              * we either find the name, or reach the root of the namespace.
              */
             let mut scope = starting_scope.clone();
-            assert!(scope.is_absolute());
             loop {
                 // Search for the name at this namespace level. If we find it, we're done.
                 let name = path.resolve(&scope)?;
@@ -254,9 +250,10 @@ impl Namespace {
     }
 
     pub fn search_for_level(&self, level_name: &AmlName, starting_scope: &AmlName) -> Result<AmlName, AmlError> {
+        starting_scope.require_absolute()?;
+
         if level_name.search_rules_apply() {
             let mut scope = starting_scope.clone().normalize()?;
-            assert!(scope.is_absolute());
 
             loop {
                 let name = level_name.resolve(&scope)?;
@@ -554,10 +551,24 @@ impl AmlName {
         }
     }
 
+    /// Returns `AmlError::NameNotAbsolute` if this path is not absolute. Relative paths can reach
+    /// entry points that require absolute ones from firmware input, so this is a normal error
+    /// rather than a panic.
+    pub fn require_absolute(&self) -> Result<(), AmlError> {
+        if self.is_absolute() { Ok(()) } else { Err(AmlError::NameNotAbsolute(self.clone())) }
+    }
+
+    /// Normalize an AML path that is required to be absolute. Prefer this over `normalize` where
+    /// an absolute path is required.
+    pub fn normalize_absolute(self) -> Result<AmlName, AmlError> {
+        self.require_absolute()?;
+        self.normalize()
+    }
+
     /// Resolve this path against a given scope, making it absolute. If the path is absolute, it is
-    /// returned directly. The path is also normalized.
+    /// returned directly. The path is also normalized. Errors if `scope` is not absolute.
     pub fn resolve(&self, scope: &AmlName) -> Result<AmlName, AmlError> {
-        assert!(scope.is_absolute());
+        scope.require_absolute()?;
 
         if self.is_absolute() {
             return Ok(self.clone());
