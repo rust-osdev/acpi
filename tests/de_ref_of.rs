@@ -26,3 +26,72 @@ DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
     let handler = NullHandler {};
     test_infra::run_aml_test(AML, handler);
 }
+
+#[test]
+fn test_deref_of_direct_buffer_field() {
+    const AML: &str = r#"
+DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
+    Name (ADAT, Buffer (0x01) { 0xaa })
+    CreateByteField (ADAT, 0x00, BF00)
+
+    Method(MAIN, 0, NotSerialized) {
+        Return (DerefOf(BF00) - 0xaa)
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}
+
+#[test]
+fn test_deref_of_local_buffer_field_after_store() {
+    const AML: &str = r#"
+DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
+    Method(MAIN, 0, NotSerialized) {
+        Local0 = Buffer (0x01) { 0x00 }
+        CreateByteField (Local0, 0x00, BF00)
+        BF00 = 0xaa
+        Return (DerefOf(BF00) - 0xaa)
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}
+
+#[test]
+fn test_deref_of_named_buffer_field_stores_value() {
+    const AML: &str = r#"
+DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
+    Name (ADAT, Buffer (0x01) { 0xaa })
+    CreateByteField (ADAT, 0x00, BF00)
+
+    Method(MAIN, 0, NotSerialized) {
+        Local0 = DerefOf(BF00)
+        Return (Local0 - 0xaa)
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}
+
+#[test]
+fn test_deref_of_named_string_path() {
+    const AML: &str = r#"
+DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
+    Name (TGT, 0xaa)
+    Name (STR, "\\TGT")
+
+    Method(MAIN, 0, NotSerialized) {
+        Return (DerefOf(STR) - 0xaa)
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}
