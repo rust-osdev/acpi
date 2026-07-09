@@ -14,6 +14,30 @@ pub enum Resource {
     Dma(DMADescriptor),
 }
 
+const UNSUPPORTED_LARGE_RESOURCE_DESCRIPTORS: &[(u8, &str)] = &[
+    (0x01, "24-bit Memory Range Descriptor"),
+    (0x02, "Generic Register Descriptor"),
+    (0x03, "0x03 Reserved"),
+    (0x04, "Vendor-defined Descriptor"),
+    (0x05, "32-bit Memory Range Descriptor"),
+    (0x0b, "Extended Address Space Descriptor"),
+    (0x0c, "GPIO Connection Descriptor"),
+    (0x0d, "Pin Function Descriptor"),
+    (0x0e, "GenericSerialBus Connection Descriptor"),
+    (0x0f, "Pin Configuration Descriptor"),
+    (0x10, "Pin Group Descriptor"),
+    (0x11, "Pin Group Function Descriptor"),
+    (0x12, "Pin Group Configuration Descriptor"),
+];
+
+const UNSUPPORTED_SMALL_RESOURCE_DESCRIPTORS: &[(u8, &str)] = &[
+    (0x06, "Start Dependent Functions Descriptor"),
+    (0x07, "End Dependent Functions Descriptor"),
+    (0x09, "Fixed Location IO Port Descriptor"),
+    (0x0a, "Fixed DMA Descriptor"),
+    (0x0e, "Vendor Defined Descriptor"),
+];
+
 /// Parse a `ResourceDescriptor` buffer into a list of resources.
 pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resource>, AmlError> {
     if let Object::Buffer(ref bytes) = *descriptor {
@@ -25,16 +49,28 @@ pub fn resource_descriptor_list(descriptor: WrappedObject) -> Result<Vec<Resourc
 
             if let Some(descriptor) = descriptor {
                 descriptors.push(descriptor);
-                bytes = remaining_bytes;
-            } else {
-                break;
             }
+            bytes = remaining_bytes;
         }
 
         Ok(descriptors)
     } else {
         Err(AmlError::InvalidOperationOnObject { op: Operation::ParseResource, typ: descriptor.typ() })
     }
+}
+
+fn unsupported_resource_descriptor_name(descriptors: &[(u8, &'static str)], descriptor_type: u8) -> Option<&'static str> {
+    descriptors.iter().find_map(|(typ, name)| (*typ == descriptor_type).then_some(*name))
+}
+
+fn skip_unsupported_resource<'a>(
+    size: &str,
+    descriptor_type: u8,
+    descriptor_name: &str,
+    remaining_bytes: &'a [u8],
+) -> Result<(Option<Resource>, &'a [u8]), AmlError> {
+    log::warn!("skipping unsupported {size} resource descriptor type {descriptor_type:#x}: {descriptor_name}");
+    Ok((None, remaining_bytes))
 }
 
 fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlError> {
@@ -73,27 +109,19 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
         let (descriptor_bytes, remaining_bytes) = bytes.split_at(length + 3);
 
         let descriptor = match descriptor_type {
-            0x01 => unimplemented!("24-bit Memory Range Descriptor"),
-            0x02 => unimplemented!("Generic Register Descriptor"),
-            0x03 => unimplemented!("0x03 Reserved"),
-            0x04 => unimplemented!("Vendor-defined Descriptor"),
-            0x05 => unimplemented!("32-bit Memory Range Descriptor"),
             0x06 => fixed_memory_descriptor(descriptor_bytes),
             0x07 => address_space_descriptor::<u32>(descriptor_bytes),
             0x08 => address_space_descriptor::<u16>(descriptor_bytes),
             0x09 => extended_interrupt_descriptor(descriptor_bytes),
             0x0a => address_space_descriptor::<u64>(descriptor_bytes),
-            0x0b => unimplemented!("Extended Address Space Descriptor"),
-            0x0c => unimplemented!("GPIO Connection Descriptor"),
-            0x0d => unimplemented!("Pin Function Descriptor"),
-            0x0e => unimplemented!("GenericSerialBus Connection Descriptor"),
-            0x0f => unimplemented!("Pin Configuration Descriptor"),
-            0x10 => unimplemented!("Pin Group Descriptor"),
-            0x11 => unimplemented!("Pin Group Function Descriptor"),
-            0x12 => unimplemented!("Pin Group Configuration Descriptor"),
 
             0x00 | 0x13..=0x7f => Err(AmlError::InvalidResourceDescriptor),
             0x80..=0xff => unreachable!(),
+            _ => {
+                let descriptor_name =
+                    unsupported_resource_descriptor_name(UNSUPPORTED_LARGE_RESOURCE_DESCRIPTORS, descriptor_type).unwrap();
+                return skip_unsupported_resource("large", descriptor_type, descriptor_name, remaining_bytes);
+            }
         }?;
 
         Ok((Some(descriptor), remaining_bytes))
@@ -127,15 +155,15 @@ fn resource_descriptor(bytes: &[u8]) -> Result<(Option<Resource>, &[u8]), AmlErr
             0x00..=0x03 => Err(AmlError::InvalidResourceDescriptor),
             0x04 => irq_format_descriptor(descriptor_bytes),
             0x05 => dma_format_descriptor(descriptor_bytes),
-            0x06 => unimplemented!("Start Dependent Functions Descriptor"),
-            0x07 => unimplemented!("End Dependent Functions Descriptor"),
             0x08 => io_port_descriptor(descriptor_bytes),
-            0x09 => unimplemented!("Fixed Location IO Port Descriptor"),
-            0x0A => unimplemented!("Fixed DMA Descriptor"),
             0x0B..=0x0D => Err(AmlError::InvalidResourceDescriptor),
-            0x0E => unimplemented!("Vendor Defined Descriptor"),
             0x0F => return Ok((None, &[])),
             0x10..=0xFF => unreachable!(),
+            _ => {
+                let descriptor_name =
+                    unsupported_resource_descriptor_name(UNSUPPORTED_SMALL_RESOURCE_DESCRIPTORS, descriptor_type).unwrap();
+                return skip_unsupported_resource("small", descriptor_type, descriptor_name, remaining_bytes);
+            }
         }?;
 
         Ok((Some(descriptor), remaining_bytes))
@@ -757,6 +785,31 @@ mod tests {
                     length: 0x1EC00000
                 }),
             ])
+        );
+    }
+
+    #[test]
+    fn skips_unsupported_large_resource_descriptors() {
+        let bytes: Vec<u8> = [
+            // GenericSerialBus descriptor with one byte of payload.
+            0x8e, 0x01, 0x00, 0x00,
+            // Memory32Fixed(ReadWrite, 0x1000, 0x1000)
+            0x86, 0x09, 0x00, 0x01, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00,
+            // End tag.
+            0x79, 0x00,
+        ]
+        .to_vec();
+
+        let value = Object::Buffer(bytes).wrap();
+        let resources = resource_descriptor_list(value).unwrap();
+
+        assert_eq!(
+            resources,
+            Vec::from([Resource::MemoryRange(MemoryRangeDescriptor::FixedLocation {
+                is_writable: true,
+                base_address: 0x1000,
+                range_length: 0x1000,
+            })])
         );
     }
 
