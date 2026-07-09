@@ -1,12 +1,12 @@
 //! Rather than defining a [`Handler`], this module defines useful functions to streamline the most-
 //! used case of a [`CheckCommandHandler`] wrapping a [`ListedResponseHandler`].
 
-use pci_types::PciAddress;
 use crate::handlers::{
     check_cmd_handler::{AcpiCommands as Check, CheckCommandHandler},
     listed_response_handler::{AcpiCommands as Response, ListedResponseHandler},
 };
 use acpi::{Handle, Handler};
+use pci_types::PciAddress;
 
 /// Simplifies the construction of a standard test [`Handler`].
 ///

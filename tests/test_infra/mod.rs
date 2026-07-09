@@ -1,5 +1,12 @@
 use acpi::Handler;
-use aml_test_tools::{RunTestResult, TestResult, handlers::logging_handler::LoggingHandler, new_interpreter, run_test_for_string, run_test_for_opcodes};
+use aml_test_tools::{
+    RunTestResult,
+    TestResult,
+    handlers::logging_handler::LoggingHandler,
+    new_interpreter,
+    run_test_for_opcodes,
+    run_test_for_string,
+};
 
 // The following two functions are very similar in structure, but whilst there are only two of them
 // it's not worth adding complexity to make them DRY.

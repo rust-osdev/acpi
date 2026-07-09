@@ -261,10 +261,16 @@ impl Object {
 
     pub fn read_buffer_field(&self, integer_size: IntegerSize) -> Result<Object, AmlError> {
         if let Self::BufferField { buffer, offset, length } = self {
-            let buffer = match **buffer {
-                Object::Buffer(ref buffer) => buffer.as_slice(),
-                Object::String(ref string) => string.as_bytes(),
-                _ => panic!(),
+            let buffer = buffer.clone().unwrap_transparent_reference();
+            let buffer = match &*buffer {
+                Object::Buffer(buffer) => buffer.as_slice(),
+                Object::String(string) => string.as_bytes(),
+                typ => {
+                    return Err(AmlError::InvalidOperationOnObject {
+                        op: Operation::ReadBufferField,
+                        typ: typ.typ(),
+                    });
+                }
             };
             if *length <= integer_size as usize {
                 let mut dst = [0u8; 8];
@@ -283,12 +289,18 @@ impl Object {
     pub fn write_buffer_field(&mut self, value: &[u8], token: &ObjectToken) -> Result<(), AmlError> {
         // TODO: bounds check the buffer first to avoid panicking
         if let Self::BufferField { buffer, offset, length } = self {
+            let buffer = buffer.clone().unwrap_transparent_reference();
             let buffer = match unsafe { buffer.gain_mut(token) } {
                 Object::Buffer(buffer) => buffer.as_mut_slice(),
                 // XXX: this unfortunately requires us to trust AML to keep the string as valid
                 // UTF8... maybe there is a better way?
                 Object::String(string) => unsafe { string.as_bytes_mut() },
-                _ => panic!(),
+                typ => {
+                    return Err(AmlError::InvalidOperationOnObject {
+                        op: Operation::WriteBufferField,
+                        typ: typ.typ(),
+                    });
+                }
             };
             copy_bits(value, 0, buffer, *offset, *length);
             Ok(())

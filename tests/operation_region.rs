@@ -1,4 +1,12 @@
-use aml_test_tools::handlers::std_test_handler::{Command, construct_std_handler, create_mutex, read_u8, write_pci_u8, write_u8, read_pci_u8};
+use aml_test_tools::handlers::std_test_handler::{
+    Command,
+    construct_std_handler,
+    create_mutex,
+    read_pci_u8,
+    read_u8,
+    write_pci_u8,
+    write_u8,
+};
 use pci_types::PciAddress;
 
 mod test_infra;
