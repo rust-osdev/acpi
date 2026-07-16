@@ -75,12 +75,13 @@ use core::{
 use log::{error, warn};
 use rsdp::Rsdp;
 
-/// `AcpiTables` should be constructed after finding the RSDP or RSDT/XSDT and allows enumeration
-/// of the system's ACPI tables.
+/// `AcpiTables` represents a platform's of ACPI static tables, enumerated from the RSDT/XSDT. It
+/// can be used to access a table with a specific signature, or to enumerate over each of the tables.
 pub struct AcpiTables<H: Handler> {
     rsdt_mapping: PhysicalMapping<H, SdtHeader>,
-    pub rsdp_revision: u8,
+    rsdt_entry_size: usize,
     handler: H,
+    pub quirks: AcpiQuirks,
 }
 
 unsafe impl<H> Send for AcpiTables<H> where H: Handler + Send {}
@@ -95,6 +96,18 @@ where
     /// # Safety
     /// The address of the RSDP must be valid.
     pub unsafe fn from_rsdp(handler: H, rsdp_address: usize) -> Result<AcpiTables<H>, AcpiError> {
+        unsafe { Self::from_rsdp_with_quirks(handler, rsdp_address, AcpiQuirks::default()) }
+    }
+
+    /// Construct an `AcpiTables` from the **physical** address of the RSDP.
+    ///
+    /// # Safety
+    /// The address of the RSDP must be valid.
+    pub unsafe fn from_rsdp_with_quirks(
+        handler: H,
+        rsdp_address: usize,
+        quirks: AcpiQuirks,
+    ) -> Result<AcpiTables<H>, AcpiError> {
         let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
 
         /*
@@ -111,19 +124,24 @@ where
             Err(_) => (),
         }
 
-        let rsdp_revision = rsdp_mapping.revision();
-        let rsdt_address = if rsdp_revision == 0 {
-            // We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
-            rsdp_mapping.rsdt_address() as usize
-        } else {
-            /*
-             * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
-             * to 32 bits on x86.
-             */
-            rsdp_mapping.xsdt_address() as usize
-        };
+        /*
+         * Decide whether we should use the RSDT, with 32-bit entries, or the XSDT, with 64-bit
+         * entries. We use the XSDT if the RSDP revision is 2 or greater, and the XSDT address is
+         * not null.
+         *
+         * Note that the spec does not define expected behaviour here particularly well - it claims
+         * that the extended RSDP fields are available for all ACPI versions after 1.0 (suggesting
+         * `revision > 0`), but also defines these fields as only valid when `revision > 1`. We have
+         * therefore chosen behaviour that matches other ACPI libraries.
+         */
+        let (rsdt_address, rsdt_entry_size) =
+            if rsdp_mapping.revision() > 1 && rsdp_mapping.xsdt_address() != 0 && !quirks.ignore_xsdt {
+                (rsdp_mapping.xsdt_address() as usize, 8)
+            } else {
+                (rsdp_mapping.rsdt_address() as usize, 4)
+            };
 
-        unsafe { Self::from_rsdt(handler, rsdp_revision, rsdt_address) }
+        unsafe { Self::from_rsdt_with_quirks(handler, rsdt_address, rsdt_entry_size, quirks) }
     }
 
     /// Construct an `AcpiTables` from the **physical** address of the RSDT/XSDT, and the revision
@@ -133,33 +151,46 @@ where
     /// The address of the RSDT must be valid.
     pub unsafe fn from_rsdt(
         handler: H,
-        rsdp_revision: u8,
         rsdt_address: usize,
+        rsdt_entry_size: usize,
+    ) -> Result<AcpiTables<H>, AcpiError> {
+        unsafe { Self::from_rsdt_with_quirks(handler, rsdt_address, rsdt_entry_size, AcpiQuirks::default()) }
+    }
+
+    /// Construct an `AcpiTables` from the **physical** address of the RSDT/XSDT, and the revision
+    /// found in the RSDP.
+    ///
+    /// # Safety
+    /// The address of the RSDT must be valid.
+    pub unsafe fn from_rsdt_with_quirks(
+        handler: H,
+        rsdt_address: usize,
+        rsdt_entry_size: usize,
+        quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
         let rsdt_mapping =
             unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, mem::size_of::<SdtHeader>()) };
         let rsdt_length = rsdt_mapping.length;
         let rsdt_mapping = unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, rsdt_length as usize) };
-        Ok(Self { rsdt_mapping, rsdp_revision, handler })
+        Ok(Self { rsdt_mapping, rsdt_entry_size, handler, quirks })
     }
 
     /// Iterate over the **physical** addresses of the SDTs.
     pub fn table_entries(&self) -> impl Iterator<Item = usize> {
-        let entry_size = if self.rsdp_revision == 0 { 4 } else { 8 };
         let mut table_entries_ptr =
             unsafe { self.rsdt_mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }.cast::<u8>();
         let mut num_entries =
-            (self.rsdt_mapping.region_length.saturating_sub(mem::size_of::<SdtHeader>())) / entry_size;
+            (self.rsdt_mapping.region_length.saturating_sub(mem::size_of::<SdtHeader>())) / self.rsdt_entry_size;
 
         core::iter::from_fn(move || {
             if num_entries > 0 {
                 unsafe {
-                    let entry = if entry_size == 4 {
+                    let entry = if self.rsdt_entry_size == 4 {
                         *table_entries_ptr.cast::<u32>() as usize
                     } else {
                         *table_entries_ptr.cast::<u64>() as usize
                     };
-                    table_entries_ptr = table_entries_ptr.byte_add(entry_size);
+                    table_entries_ptr = table_entries_ptr.byte_add(self.rsdt_entry_size);
                     num_entries -= 1;
 
                     Some(entry)
@@ -290,6 +321,14 @@ pub enum AcpiError {
     /// has not been implemented. This will cause the error to be propagated back to the host if an
     /// operation that requires that behaviour is performed.
     HostUnimplemented,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+pub struct AcpiQuirks {
+    /// When initializing a set of `AcpiTables` from an RSDP, ignore the `revision` field of the
+    /// RSDP and always use the RSDT address with 32-bit entries. This can be used to override a
+    /// firmware that has an invalid RSDP.
+    pub ignore_xsdt: bool,
 }
 
 /// Describes a physical mapping created by [`Handler::map_physical_region`] and unmapped by
