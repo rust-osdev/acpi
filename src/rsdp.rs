@@ -3,8 +3,8 @@ use core::{mem, ops::Range, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
 const RSDP_V1_LENGTH: usize = 20;
-/// The total size in bytes of the RSDP fields introduced in ACPI 2.0.
-const RSDP_V2_EXT_LENGTH: usize = mem::size_of::<Rsdp>() - RSDP_V1_LENGTH;
+/// The size of an RSDP with extended fields.
+const RSDP_EXT_LENGTH: usize = 36;
 
 /// The first structure found in ACPI. It just tells us where the RSDT is.
 ///
@@ -57,11 +57,10 @@ impl Rsdp {
         H: Handler,
     {
         let rsdp_address = find_search_areas(handler.clone()).iter().find_map(|area| {
-            // Map the search area for the RSDP followed by `RSDP_V2_EXT_LENGTH` bytes so an ACPI 1.0 RSDP at the
+            // Map the search area for the RSDP followed by `RSDP_EXT_BYTES` bytes so an ACPI 1.0 RSDP at the
             // end of the area can be read as an `Rsdp` (which always has the size of an ACPI 2.0 RSDP)
-            let mapping = unsafe {
-                handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_V2_EXT_LENGTH)
-            };
+            let mapping =
+                unsafe { handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_EXT_LENGTH) };
 
             let extended_area_bytes =
                 unsafe { slice::from_raw_parts(mapping.virtual_start.as_ptr(), mapping.region_length) };
@@ -112,16 +111,14 @@ impl Rsdp {
         }
 
         /*
-         * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
-         * check for version 1.0 and use a hard-coded length instead.
+         * The spec claims all RSDP revisions greater than `0` should have a valid `length` field,
+         * but also claims these fields are not valid unless `revision > 1`. Linux ignores the
+         * `length` field entirely and uses a length of `36` for checksum calculations for all
+         * tables with the extended fields.
+         *
+         * It's probably reasonable to say these checksum checks are of limited utility anyway.
          */
-        let length = if self.revision > 0 {
-            // For Version 2.0+, include the number of bytes specified by `length`
-            self.length as usize
-        } else {
-            RSDP_V1_LENGTH
-        };
-
+        let length = if self.revision > 1 { RSDP_EXT_LENGTH } else { RSDP_V1_LENGTH };
         let bytes = unsafe { slice::from_raw_parts(self as *const Rsdp as *const u8, length) };
         let sum = bytes.iter().fold(0u8, |sum, &byte| sum.wrapping_add(byte));
 
