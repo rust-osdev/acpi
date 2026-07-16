@@ -112,15 +112,12 @@ where
         }
 
         let rsdp_revision = rsdp_mapping.revision();
-        let rsdt_address = if rsdp_revision == 0 {
-            // We're running on ACPI Version 1.0. We should use the 32-bit RSDT address.
-            rsdp_mapping.rsdt_address() as usize
-        } else {
-            /*
-             * We're running on ACPI Version 2.0+. We should use the 64-bit XSDT address, truncated
-             * to 32 bits on x86.
-             */
+        // Use XSDT only when revision > 1, following Linux (tbutils.c).
+        // revision == 0 and revision == 1 both use the 32-bit RSDT address.
+        let rsdt_address = if rsdp_revision > 1 {
             rsdp_mapping.xsdt_address() as usize
+        } else {
+            rsdp_mapping.rsdt_address() as usize
         };
 
         unsafe { Self::from_rsdt(handler, rsdp_revision, rsdt_address) }

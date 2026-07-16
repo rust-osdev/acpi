@@ -3,6 +3,8 @@ use core::{mem, ops::Range, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
 const RSDP_V1_LENGTH: usize = 20;
+/// The size in bytes covered by the ACPI 2.0+ extended checksum (mirrors Linux ACPI_RSDP_XCHECKSUM_LENGTH).
+const RSDP_XCHECKSUM_LENGTH: usize = 36;
 /// The total size in bytes of the RSDP fields introduced in ACPI 2.0.
 const RSDP_V2_EXT_LENGTH: usize = mem::size_of::<Rsdp>() - RSDP_V1_LENGTH;
 
@@ -114,10 +116,17 @@ impl Rsdp {
         /*
          * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
          * check for version 1.0 and use a hard-coded length instead.
+         *
+         * For Version 2.0+, use the fixed constant size_of::<Rsdp>() (= 36) rather than
+         * `self.length`, following Linux's ACPI_RSDP_XCHECKSUM_LENGTH. Trusting the
+         * firmware-provided `length` is unsafe: if it exceeds 36, `slice::from_raw_parts`
+         * would read past the mapped region, causing undefined behaviour.
          */
         let length = if self.revision > 0 {
-            // For Version 2.0+, include the number of bytes specified by `length`
-            self.length as usize
+            if self.length as usize > RSDP_XCHECKSUM_LENGTH {
+                return Err(AcpiError::RsdpInvalidChecksum);
+            }
+            RSDP_XCHECKSUM_LENGTH
         } else {
             RSDP_V1_LENGTH
         };
