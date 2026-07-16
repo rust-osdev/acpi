@@ -117,15 +117,9 @@ impl Rsdp {
          * `self.length` doesn't exist on ACPI version 1.0, so we mustn't rely on it. Instead,
          * check for version 1.0 and use a hard-coded length instead.
          *
-         * For Version 2.0+, use the fixed constant size_of::<Rsdp>() (= 36) rather than
-         * `self.length`, following Linux's ACPI_RSDP_XCHECKSUM_LENGTH. Trusting the
-         * firmware-provided `length` is unsafe: if it exceeds 36, `slice::from_raw_parts`
-         * would read past the mapped region, causing undefined behaviour.
+         * For Version 2.0+, use the Linux's ACPI_RSDP_XCHECKSUM_LENGTH.
          */
-        let length = if self.revision > 0 {
-            if self.length as usize > RSDP_XCHECKSUM_LENGTH {
-                return Err(AcpiError::RsdpInvalidChecksum);
-            }
+        let length = if self.revision > 1 {
             RSDP_XCHECKSUM_LENGTH
         } else {
             RSDP_V1_LENGTH
