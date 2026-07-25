@@ -95,33 +95,47 @@ macro_rules! extract_args {
     };
 }
 
-/// `Interpreter` implements a virtual machine for the dynamic AML bytecode. It can be used by a
+/// `BaseInterpreter` implements a virtual machine for the dynamic AML bytecode. It can be used by a
 /// host operating system to load tables containing AML bytecode (generally the DSDT and SSDTs) and
 /// will then manage the AML namespace and all objects created during the life of the system.
-pub struct Interpreter<H>
+///
+/// [`Interpreter`] and [`NoSendInterpreter`] provide sensible partial specialisations of
+/// `BaseInterpreter` for the multi-threaded and single-threaded use cases.
+pub struct BaseInterpreter<H, R>
 where
     H: Handler,
+    R: RegionHandler + ?Sized,
 {
     handler: H,
     pub namespace: Spinlock<Namespace>,
     pub object_token: Spinlock<ObjectToken>,
     integer_size: IntegerSize,
-    region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
+    region_handlers: Spinlock<BTreeMap<RegionSpace, Box<R>>>,
 
     global_lock_mutex: Handle,
     registers: Arc<FixedRegisters<H>>,
     facs: Option<PhysicalMapping<H, Facs>>,
 }
 
+/// An Interpreter that does not enforce a requirement to be Send. This might be useful for
+/// uni-processor kernels, or operating systems where this crate runs in a single-threaded user-mode
+/// process.
+pub type NoSendInterpreter<H> = BaseInterpreter<H, dyn RegionHandler>;
+
+/// An Interpreter that is known to be Send + Sync. The version you should prefer by default.
+pub type Interpreter<H> = BaseInterpreter<H, dyn RegionHandler + Send + Sync>;
+
+// TODO: Make sure to remove these two lines after Interpreter really is Send + Sync.
 unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
 unsafe impl<H> Sync for Interpreter<H> where H: Handler + Send {}
 
 /// The value returned by the `Revision` opcode.
 const INTERPRETER_REVISION: u64 = 1;
 
-impl<H> Interpreter<H>
+impl<H, R> BaseInterpreter<H, R>
 where
     H: Handler,
+    R: RegionHandler + ?Sized,
 {
     /// Construct a new [`Interpreter`]. This does not load any tables - if you have an
     /// [`crate::AcpiTables`] already, construct an [`AcpiPlatform`] first and then use
@@ -131,12 +145,12 @@ where
         dsdt_revision: u8,
         registers: Arc<FixedRegisters<H>>,
         facs: Option<PhysicalMapping<H, Facs>>,
-    ) -> Interpreter<H> {
+    ) -> Self {
         info!("Initializing AML interpreter v{}", env!("CARGO_PKG_VERSION"));
 
         let global_lock_mutex = handler.create_mutex();
 
-        Interpreter {
+        BaseInterpreter {
             handler,
             namespace: Spinlock::new(Namespace::new(global_lock_mutex)),
             object_token: Spinlock::new(unsafe { ObjectToken::create_interpreter_token() }),
@@ -149,8 +163,12 @@ where
     }
 
     /// Construct a new [`Interpreter`] with the given [`AcpiPlatform`].
-    pub fn new_from_platform(platform: &AcpiPlatform<H>) -> Result<Interpreter<H>, AcpiError> {
-        fn load_table(interpreter: &Interpreter<impl Handler>, table: AmlTable) -> Result<(), AcpiError> {
+    pub fn new_from_platform(platform: &AcpiPlatform<H>) -> Result<BaseInterpreter<H, R>, AcpiError> {
+        fn load_table<H, R>(interpreter: &BaseInterpreter<H, R>, table: AmlTable) -> Result<(), AcpiError>
+        where
+            H: Handler,
+            R: RegionHandler + ?Sized,
+        {
             let mapping = unsafe {
                 interpreter.handler.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize)
             };
@@ -174,7 +192,7 @@ where
         };
 
         let dsdt = platform.tables.dsdt()?;
-        let interpreter = Interpreter::new(platform.handler.clone(), dsdt.revision, registers, facs);
+        let interpreter = BaseInterpreter::new(platform.handler.clone(), dsdt.revision, registers, facs);
 
         if let Err(err) = load_table(&interpreter, dsdt) {
             error!("Error while loading DSDT: {:?}. Continuing; this may cause downstream errors.", err);
@@ -233,13 +251,10 @@ where
         }
     }
 
-    pub fn install_region_handler<RH>(&self, space: RegionSpace, handler: RH)
-    where
-        RH: RegionHandler + 'static,
-    {
+    pub fn install_region_handler(&self, space: RegionSpace, handler: Box<R>) {
         let mut handlers = self.region_handlers.lock();
         assert!(handlers.get(&space).is_none(), "Tried to install handler for same space twice!");
-        handlers.insert(space, Box::new(handler));
+        handlers.insert(space, handler);
     }
 
     /// Initialize the namespace - this should be called after all tables have been loaded and
