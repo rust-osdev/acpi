@@ -1,4 +1,7 @@
-use acpi::Handler;
+use acpi::{
+    Handler,
+    aml::{Interpreter, namespace::AmlName, object::Object},
+};
 use aml_test_tools::{
     RunTestResult,
     TestResult,
@@ -7,6 +10,7 @@ use aml_test_tools::{
     run_test_for_opcodes,
     run_test_for_string,
 };
+use std::str::FromStr;
 
 // The following two functions are very similar in structure, but whilst there are only two of them
 // it's not worth adding complexity to make them DRY.
@@ -16,7 +20,7 @@ use aml_test_tools::{
 /// The string `asl` represents a compile-able ASL string, so needs to include the `DefinitionBlock`
 /// statement.
 #[allow(dead_code)]
-pub fn run_aml_test(asl: &'static str, handler: impl Handler) {
+pub fn run_aml_test<H: Handler>(asl: &'static str, handler: H) -> Interpreter<LoggingHandler<H>> {
     // Tests calling `run_aml_test` don't do much else, and we usually want logging, so initialize it here.
     let _ = pretty_env_logger::try_init();
 
@@ -24,7 +28,16 @@ pub fn run_aml_test(asl: &'static str, handler: impl Handler) {
     let interpreter = new_interpreter(logged_handler);
 
     let result = run_test_for_string(asl, interpreter, &None);
-    assert!(matches!(result, RunTestResult::Pass(_)), "Test failed with: {:?}", TestResult::from(&result));
+    match result {
+        RunTestResult::Pass(interpreter) => interpreter,
+        result => panic!("Test failed with: {:?}", TestResult::from(&result)),
+    }
+}
+
+/// Evaluate an object without arguments and return its unwrapped value.
+#[allow(dead_code)]
+pub fn evaluate(interpreter: &Interpreter<impl Handler>, path: &str) -> Object {
+    (*interpreter.evaluate(AmlName::from_str(path).unwrap(), vec![]).unwrap()).clone()
 }
 
 /// Run a test against a sequence of AML opcodes.
