@@ -1,4 +1,4 @@
-use crate::aml::{AmlError, Handle, IntegerSize, Operation, op_region::OpRegion};
+use crate::aml::{AmlError, Handle, IntegerSize, Operation, namespace::AmlName, op_region::OpRegion};
 use alloc::{
     borrow::Cow,
     string::{String, ToString},
@@ -23,6 +23,7 @@ pub enum Object {
     NativeMethod { f: Arc<NativeMethod>, flags: MethodFlags },
     Mutex { mutex: Handle, sync_level: u8 },
     Reference { kind: ReferenceKind, inner: WrappedObject },
+    NamePath { name: AmlName, scope: AmlName },
     OpRegion(OpRegion),
     Package(Vec<WrappedObject>),
     PowerResource { system_level: u8, resource_order: u16 },
@@ -62,6 +63,7 @@ impl fmt::Display for Object {
             Object::NativeMethod { .. } => write!(f, "NativeMethod"),
             Object::Mutex { .. } => write!(f, "Mutex"),
             Object::Reference { kind, inner } => write!(f, "Reference({:?} -> {})", kind, **inner),
+            Object::NamePath { name, scope } => write!(f, "NamePath({name} from {scope})"),
             Object::OpRegion(region) => write!(f, "{region:?}"),
             Object::Package(elements) => {
                 write!(f, "Package {{ ")?;
@@ -354,9 +356,9 @@ impl Object {
             Object::NativeMethod { .. } => ObjectType::Method,
             Object::Mutex { .. } => ObjectType::Mutex,
             // Object::Reference { inner, .. } => inner.typ(),
-            Object::Reference { .. } => ObjectType::Reference, // TODO: maybe this should
-            // differentiate internal/real
-            // references?
+            // TODO: maybe this should differentiate internal/real references?
+            // An unresolved package name also behaves as a reference until dereferenced.
+            Object::Reference { .. } | Object::NamePath { .. } => ObjectType::Reference,
             Object::OpRegion(_) => ObjectType::OpRegion,
             Object::Package(_) => ObjectType::Package,
             Object::PowerResource { .. } => ObjectType::PowerResource,

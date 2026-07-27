@@ -119,6 +119,11 @@ unsafe impl<H> Sync for Interpreter<H> where H: Handler + Send {}
 /// The value returned by the `Revision` opcode.
 const INTERPRETER_REVISION: u64 = 1;
 
+/// The maximum number of times a name used as a package element may resolve to another such name
+/// before we give up. Real firmware doesn't chain these at all, but broken tables must not be able
+/// to make us loop forever.
+const MAX_NAME_PATH_INDIRECTIONS: usize = 8;
+
 impl<H> Interpreter<H>
 where
     H: Handler,
@@ -956,7 +961,7 @@ where
                     }
                     Opcode::ObjectType => {
                         extract_args!(op => [Argument::Object(object)]);
-                        let object_type = self.object_type(object);
+                        let object_type = self.object_type(object.clone())?;
                         context.contribute_arg(Argument::Object(Object::Integer(object_type).wrap()));
                         context.retire_op(op);
                     }
@@ -1589,7 +1594,16 @@ where
                             }
                         }
                         ResolveBehaviour::AsPackageElements => {
-                            context.contribute_arg(Argument::Object(Object::String(name.to_string()).wrap()));
+                            /*
+                             * NameStrings in packages can refer to objects that are defined later,
+                             * including ones in another table. Keep the name and the scope it
+                             * appeared in, so resolution doesn't depend on table load order, or on
+                             * the scope the package is eventually used from. Store it directly;
+                             * indexing the package creates a reference to the element when needed.
+                             */
+                            context.contribute_arg(Argument::Object(
+                                Object::NamePath { name, scope: context.current_scope.clone() }.wrap(),
+                            ));
                         }
                         ResolveBehaviour::Placeholder => {
                             panic!("Invalid resolve behaviour for name to be resolved!")
@@ -2116,6 +2130,8 @@ where
                 Object::Method { .. } | Object::NativeMethod { .. } => "[Control Method]".to_string(),
                 Object::Mutex { .. } => "[Mutex]".to_string(),
                 Object::Reference { inner, .. } => resolve_as_string(&(inner.clone().unwrap_reference())),
+                // We can't resolve the name here, as we don't have access to the namespace
+                Object::NamePath { name, .. } => name.to_string(),
                 Object::OpRegion(_) => "[Operation Region]".to_string(),
                 Object::Package(_) => "[Package]".to_string(),
                 Object::PowerResource { .. } => "[Power Resource]".to_string(),
@@ -2195,7 +2211,7 @@ where
 
     fn do_size_of(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
         extract_args!(op => [Argument::Object(object)]);
-        let object = object.clone().unwrap_reference();
+        let object = self.resolve_name_path(object.clone())?;
 
         let result = match *object {
             Object::Buffer(ref buffer) => buffer.len(),
@@ -2259,14 +2275,34 @@ where
         Ok(())
     }
 
-    fn object_type(&self, object: &Object) -> u64 {
-        if let Object::Reference { kind: _, inner } = object {
-            return self.object_type(inner);
+    /// Resolve an object to the value it refers to, looking up `NamePath`s (i.e. names that were
+    /// used as package elements) in the namespace. Objects that aren't references are returned
+    /// unchanged.
+    fn resolve_name_path(&self, object: WrappedObject) -> Result<WrappedObject, AmlError> {
+        let mut object = object.unwrap_reference();
+
+        /*
+         * A name can resolve to another unresolved name, and firmware is free to make that
+         * circular. Bound the number of indirections we follow rather than recursing.
+         */
+        for _ in 0..MAX_NAME_PATH_INDIRECTIONS {
+            let (name, scope) = match *object {
+                Object::NamePath { ref name, ref scope } => (name.clone(), scope.clone()),
+                _ => return Ok(object),
+            };
+            let (_, resolved) = self.namespace.lock().search(&name, &scope)?;
+            object = resolved.unwrap_reference();
         }
+
+        Err(AmlError::NameResolutionLoop)
+    }
+
+    fn object_type(&self, object: WrappedObject) -> Result<u64, AmlError> {
+        let object = self.resolve_name_path(object)?;
 
         // TODO: this should technically support scopes as well - this is less easy
         // (they should return `0`)
-        match object.typ() {
+        Ok(match object.typ() {
             ObjectType::Uninitialized => 0,
             ObjectType::Integer => 1,
             ObjectType::String => 2,
@@ -2286,11 +2322,11 @@ where
             ObjectType::Debug => 16,
             ObjectType::RawDataBuffer => 17,
             ObjectType::Reference => unreachable!(),
-        }
+        })
     }
 
     fn do_deref_of(&self, object: WrappedObject, current_scope: &AmlName) -> Result<WrappedObject, AmlError> {
-        let object = object.unwrap_reference();
+        let object = self.resolve_name_path(object)?;
         match &*object {
             Object::BufferField { .. } => Ok(object.read_buffer_field(self.integer_size)?.wrap()),
             Object::FieldUnit(field) => self.do_field_read(field),
@@ -2840,9 +2876,11 @@ enum ResolveBehaviour {
     /// `SuperName`, but can also be `NullName`
     Target,
     /// Surrogate argument, used by `DefPackage` and `DefVarPackage`. Only one of these is emitted,
-    /// but represents parsing of potentially many package elements. Names in packages should be
-    /// resolved into `String` objects - this is not well defined by the specification, but matches
-    /// expected behaviour of other interpreters.
+    /// but represents parsing of potentially many package elements. Names in packages refer to the
+    /// named object (see `Package` in the ASL reference, §19.6.101 of ACPI 6.5). We keep the name
+    /// and the scope it appeared in, and only resolve it when the reference is used, as the object
+    /// may not exist yet. ACPICA resolves these at package creation, but that makes resolution
+    /// depend on the order tables are loaded in.
     AsPackageElements,
     /// Used with [`OpInFlight::new_with`] to represent arguments that have already been resolved
     /// when an operation enters flight.
@@ -3416,6 +3454,9 @@ pub enum AmlError {
     InvalidNormalizedName(AmlName),
     /// An absolute name was required, but a relative one was supplied.
     NameNotAbsolute(AmlName),
+    /// A name in a package resolved to another unresolved name too many times, probably because
+    /// the names form a cycle.
+    NameResolutionLoop,
     RootHasNoParent,
     EmptyNamesAreInvalid,
     LevelDoesNotExist(AmlName),

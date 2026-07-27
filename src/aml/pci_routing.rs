@@ -105,8 +105,40 @@ impl PciRoutingTable {
                         _ => return Err(AmlError::PrtInvalidPin),
                     };
 
-                    match *pin_package[2] {
-                        Object::Integer(0) => {
+                    /*
+                     * A `NamePath` source is a reference to a name that we haven't resolved yet. We
+                     * also accept a string, as that is how names in packages used to be
+                     * represented, and some tables store the path as a string themselves.
+                     */
+                    let source = pin_package[2].clone().unwrap_reference();
+                    let link_object_name = match *source {
+                        /*
+                         * A `Source` of a single NameSeg is subject to the namespace search rules,
+                         * so search from the scope the name appeared in, rather than resolving it.
+                         */
+                        Object::NamePath { ref name, ref scope } => {
+                            Some(interpreter.namespace.lock().search_for_level(name, scope)?)
+                        }
+                        Object::String(ref name) => Some(
+                            interpreter.namespace.lock().search_for_level(&AmlName::from_str(name)?, &prt_path)?,
+                        ),
+                        _ => None,
+                    };
+
+                    match link_object_name {
+                        Some(link_object_name) => {
+                            entries.push(PciRoute {
+                                device,
+                                function,
+                                pin,
+                                route_type: PciRouteType::LinkObject(link_object_name),
+                            });
+                        }
+                        None => {
+                            if !matches!(*source, Object::Integer(0)) {
+                                return Err(AmlError::PrtInvalidSource);
+                            }
+
                             /*
                              * The Source Index field contains the GSI number that this interrupt is attached
                              * to.
@@ -121,19 +153,6 @@ impl PciRoutingTable {
                                 route_type: PciRouteType::Gsi(gsi as u32),
                             });
                         }
-                        Object::String(ref name) => {
-                            let link_object_name = interpreter
-                                .namespace
-                                .lock()
-                                .search_for_level(&AmlName::from_str(name)?, &prt_path)?;
-                            entries.push(PciRoute {
-                                device,
-                                function,
-                                pin,
-                                route_type: PciRouteType::LinkObject(link_object_name),
-                            });
-                        }
-                        _ => return Err(AmlError::PrtInvalidSource),
                     }
                 } else {
                     return Err(AmlError::InvalidOperationOnObject { op: Operation::DecodePrt, typ: value.typ() });
