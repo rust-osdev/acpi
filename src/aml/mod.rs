@@ -839,18 +839,7 @@ where
                     }
                     Opcode::DerefOf => {
                         extract_args!(op => [Argument::Object(object)]);
-                        let object = object.clone().unwrap_reference();
-                        let result = match &*object {
-                            Object::BufferField { .. } => object.read_buffer_field(self.integer_size)?.wrap(),
-                            Object::FieldUnit(field) => self.do_field_read(field)?,
-                            Object::String(path) => {
-                                let path = AmlName::from_str(path)?;
-                                let (_, object) = self.namespace.lock().search(&path, &context.current_scope)?;
-                                object.clone()
-                            }
-                            Object::Reference { .. } => unreachable!(),
-                            _ => object,
-                        };
+                        let result = self.do_deref_of(object.clone(), &context.current_scope)?;
                         context.contribute_arg(Argument::Object(result));
                         context.retire_op(op);
                     }
@@ -967,38 +956,8 @@ where
                     }
                     Opcode::ObjectType => {
                         extract_args!(op => [Argument::Object(object)]);
-
-                        // TODO: this should technically support scopes as well - this is less easy
-                        // (they should return `0`)
-                        fn object_type(object: &Object) -> u64 {
-                            if let Object::Reference { kind: _, inner } = object {
-                                object_type(&inner)
-                            } else {
-                                match object.typ() {
-                                    ObjectType::Uninitialized => 0,
-                                    ObjectType::Integer => 1,
-                                    ObjectType::String => 2,
-                                    ObjectType::Buffer => 3,
-                                    ObjectType::Package => 4,
-                                    ObjectType::FieldUnit => 5,
-                                    ObjectType::Device => 6,
-                                    ObjectType::Event => 7,
-                                    ObjectType::Method => 8,
-                                    ObjectType::Mutex => 9,
-                                    ObjectType::OpRegion => 10,
-                                    ObjectType::PowerResource => 11,
-                                    ObjectType::Processor => 12,
-                                    ObjectType::ThermalZone => 13,
-                                    ObjectType::BufferField => 14,
-                                    // XXX: 15 is reserved
-                                    ObjectType::Debug => 16,
-                                    ObjectType::RawDataBuffer => 17,
-                                    ObjectType::Reference => unreachable!(),
-                                }
-                            }
-                        }
-
-                        context.contribute_arg(Argument::Object(Object::Integer(object_type(&object)).wrap()));
+                        let object_type = self.object_type(object);
+                        context.contribute_arg(Argument::Object(Object::Integer(object_type).wrap()));
                         context.retire_op(op);
                     }
                     Opcode::SizeOf => self.do_size_of(&mut context, op)?,
@@ -2298,6 +2257,51 @@ where
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
+    }
+
+    fn object_type(&self, object: &Object) -> u64 {
+        if let Object::Reference { kind: _, inner } = object {
+            return self.object_type(inner);
+        }
+
+        // TODO: this should technically support scopes as well - this is less easy
+        // (they should return `0`)
+        match object.typ() {
+            ObjectType::Uninitialized => 0,
+            ObjectType::Integer => 1,
+            ObjectType::String => 2,
+            ObjectType::Buffer => 3,
+            ObjectType::Package => 4,
+            ObjectType::FieldUnit => 5,
+            ObjectType::Device => 6,
+            ObjectType::Event => 7,
+            ObjectType::Method => 8,
+            ObjectType::Mutex => 9,
+            ObjectType::OpRegion => 10,
+            ObjectType::PowerResource => 11,
+            ObjectType::Processor => 12,
+            ObjectType::ThermalZone => 13,
+            ObjectType::BufferField => 14,
+            // XXX: 15 is reserved
+            ObjectType::Debug => 16,
+            ObjectType::RawDataBuffer => 17,
+            ObjectType::Reference => unreachable!(),
+        }
+    }
+
+    fn do_deref_of(&self, object: WrappedObject, current_scope: &AmlName) -> Result<WrappedObject, AmlError> {
+        let object = object.unwrap_reference();
+        match &*object {
+            Object::BufferField { .. } => Ok(object.read_buffer_field(self.integer_size)?.wrap()),
+            Object::FieldUnit(field) => self.do_field_read(field),
+            Object::String(path) => {
+                let path = AmlName::from_str(path)?;
+                let (_, object) = self.namespace.lock().search(&path, current_scope)?;
+                Ok(object.clone())
+            }
+            Object::Reference { .. } => unreachable!(),
+            _ => Ok(object),
+        }
     }
 
     /// Perform a store of `object` into `target`, matching the expected behaviour of `DefStore`,
