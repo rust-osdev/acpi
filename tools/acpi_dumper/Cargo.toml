@@ -6,7 +6,7 @@ authors = ["Isaac Woods", "Matt Taylor"]
 repository = "https://github.com/rust-osdev/acpi"
 description = "ACPI table dumper"
 categories = ["hardware-support"]
-readme = "../README.md"
+readme = "../../README.md"
 license = "MIT/Apache-2.0"
 edition = "2018"
 
