@@ -532,7 +532,7 @@ where
                             let mut buffer = Vec::from(source1);
                             buffer.extend_from_slice(source2);
                             // Add a new end-tag
-                            buffer.push(0x78);
+                            buffer.push(0x79);
                             // Don't calculate the new real checksum - just use 0
                             buffer.push(0x00);
                             Object::Buffer(buffer).wrap()
