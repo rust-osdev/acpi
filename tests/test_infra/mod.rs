@@ -12,8 +12,8 @@ use aml_test_tools::{
 };
 use std::str::FromStr;
 
-// The following two functions are very similar in structure, but whilst there are only two of them
-// it's not worth adding complexity to make them DRY.
+// `run_aml_test` and `run_opcodes_test` are very similar in structure, but whilst there are only
+// two of them it's not worth adding complexity to make them DRY.
 
 /// Run a test against an ASL string.
 ///

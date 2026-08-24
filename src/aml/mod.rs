@@ -109,6 +109,11 @@ where
     region_handlers: Spinlock<BTreeMap<RegionSpace, Box<dyn RegionHandler>>>,
 
     global_lock_mutex: Handle,
+
+    /// How many times has the thread that owns the global lock acquired it? Zero should correspond
+    /// to [`global_lock_mutex`] being unlocked.
+    global_lock_acquisition_count: AtomicU64,
+
     registers: Arc<FixedRegisters<H>>,
     facs: Option<PhysicalMapping<H, Facs>>,
 }
@@ -148,6 +153,7 @@ where
             integer_size: IntegerSize::from_revision(dsdt_revision),
             region_handlers: Spinlock::new(BTreeMap::new()),
             global_lock_mutex,
+            global_lock_acquisition_count: AtomicU64::new(0),
             registers,
             facs,
         }
@@ -327,25 +333,34 @@ where
     }
 
     pub fn acquire_global_lock(&self, timeout: u16) -> Result<(), AmlError> {
+        // This lock is released by `release_global_lock`. Acquire unconditionally since AML
+        // mutexes are reentrant, and the [`Handler`] might want to take action on each acquisition.
         self.handler.acquire(self.global_lock_mutex, timeout)?;
 
-        // Now we've acquired the AML-side mutex, acquire the hardware side
-        // TODO: count the number of times we have to go round this loop / enforce a timeout?
-        loop {
-            if self.try_do_acquire_firmware_lock() {
-                break Ok(());
-            } else {
-                /*
-                 * The lock is owned by the firmware. We have set the pending bit - we now need to
-                 * wait for the firmware to signal it has released the lock.
-                 *
-                 * TODO: this should wait for an interrupt from the firmware. That needs more infra
-                 * so for now let's just spin round and try and acquire it again...
-                 */
-                self.handler.release(self.global_lock_mutex);
-                continue;
+        let last = self.global_lock_acquisition_count.fetch_add(1, Ordering::Relaxed);
+
+        // The firmware lock does not have an acquisition counter, so don't try and acquire a
+        // firmware lock we already own.
+        if last == 0 {
+            // Now we've acquired the AML-side mutex, acquire the hardware side
+            // TODO: count the number of times we have to go round this loop / enforce a timeout?
+            loop {
+                if self.try_do_acquire_firmware_lock() {
+                    break;
+                } else {
+                    /*
+                     * The lock is owned by the firmware. We have set the pending bit - we now need
+                     * to wait for the firmware to signal it has released the lock.
+                     *
+                     * TODO: this should wait for an interrupt from the firmware. That needs more
+                     * infra so for now let's just spin round and try and acquire it again...
+                     */
+                    continue;
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Attempt to acquire the firmware lock, setting the owned bit if the lock is free. If the
@@ -379,10 +394,22 @@ where
     }
 
     pub fn release_global_lock(&self) -> Result<(), AmlError> {
-        let is_pending = self.do_release_firmware_lock();
-        if is_pending {
-            self.registers.pm1_control_registers.set_bit(Pm1ControlBit::GlobalLockRelease, true).unwrap();
+        let c = self.global_lock_acquisition_count.fetch_sub(1, Ordering::Relaxed);
+
+        // Only release the firmware lock if that was the last global lock acquisition that this
+        // thread was holding.
+        //
+        // There is no risk of `c` changing - this thread still holds the global lock mutex, so only
+        // this thread can change `self.global_lock_acquisition_count`.
+        if c == 1 {
+            let is_pending = self.do_release_firmware_lock();
+            if is_pending {
+                self.registers.pm1_control_registers.set_bit(Pm1ControlBit::GlobalLockRelease, true).unwrap();
+            }
         }
+
+        // This mutex was locked in `acquire_global_mutex`.
+        self.handler.release(self.global_lock_mutex);
         Ok(())
     }
 
@@ -884,7 +911,8 @@ where
                     }
                     Opcode::Acquire => {
                         extract_args!(op => [Argument::Object(mutex)]);
-                        let Object::Mutex { mutex, sync_level: _ } = **mutex else {
+                        let mutex = mutex.clone().unwrap_reference();
+                        let Object::Mutex { mutex, sync_level: _ } = *mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Acquire, typ: mutex.typ() })?
                         };
                         let timeout = context.next_u16()?;
@@ -900,7 +928,8 @@ where
                     }
                     Opcode::Release => {
                         extract_args!(op => [Argument::Object(mutex)]);
-                        let Object::Mutex { mutex, sync_level: _ } = **mutex else {
+                        let mutex = mutex.clone().unwrap_reference();
+                        let Object::Mutex { mutex, sync_level: _ } = *mutex else {
                             Err(AmlError::InvalidOperationOnObject { op: Operation::Release, typ: mutex.typ() })?
                         };
 

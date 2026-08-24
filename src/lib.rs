@@ -507,8 +507,23 @@ pub trait Handler: Clone {
     ///
     /// AML mutexes are **reentrant** - that is, a thread may acquire the same mutex more than once
     /// without causing a deadlock.
+    ///
+    /// Note: The ACPI specification says: "A Mutex must be totally released before an invocation
+    /// completes." - this crate does not enforce that, and it also does not forcibly release
+    /// mutexes when the top-level called method exits.
     #[cfg(feature = "aml")]
     fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError>;
+
+    /// Release the mutex referred to by the given handle.
+    ///
+    /// AML mutexes are reentrant - this function should release only one acquisition of the mutex.
+    ///
+    /// In correctly written AML code, the number of Acquire statements (which cause the interpreter
+    /// to call [`acquire`](Self::acquire) must equal the number of Release statements (which causes
+    /// this function to be called).
+    ///
+    /// According to the ACPI spec: "It is fatal to release ownership on a Mutex unless it is
+    /// currently owned" - this crate does not specify what a Handler should do in this case.
     #[cfg(feature = "aml")]
     fn release(&self, mutex: Handle);
 
