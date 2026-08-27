@@ -1,5 +1,6 @@
 use crate::{AcpiError, Handler, address::MappedGas, sdt::fadt::Fadt};
 use bit_field::BitField;
+use bitflags::{Flags, bitflags};
 
 pub struct FixedRegisters<H: Handler> {
     pub pm1_event_registers: Pm1EventRegisterBlock<H>,
@@ -58,6 +59,19 @@ pub enum Pm1Event {
     Wake = 15,
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct Pm1EventFlags: u16 {
+        const TIMER = 1 << 0;
+        const GLOBAL_LOCK = 1 << 5;
+        const POWER_BUTTON = 1 << 8;
+        const SLEEP_BUTTON = 1 << 9;
+        const RTC = 1 << 10;
+        const PCIE_WAKE = 1 << 14;
+        const WAKE = 1 << 15;
+    }
+}
+
 impl<H> Pm1EventRegisterBlock<H>
 where
     H: Handler,
@@ -94,6 +108,25 @@ where
         let pm1b = if let Some(pm1b) = &self.pm1b { pm1b.read()?.get_bits(0..pm1_len) } else { 0 };
 
         Ok(pm1a | pm1b)
+    }
+
+    pub fn pending_events(&self) -> Pm1EventFlags {
+        let bits = {
+            let mut bits = self.pm1a.read_u16(0);
+            if let Some(pm1b) = &self.pm1b {
+                bits |= pm1b.read_u16(0);
+            }
+            bits
+        };
+        Pm1EventFlags::from_bits_retain(bits)
+    }
+
+    pub fn clear_events(&self, events: Pm1EventFlags) {
+        let bits = events.known_bits();
+        self.pm1a.write_u16(0, bits);
+        if let Some(pm1b) = &self.pm1b {
+            pm1b.write_u16(0, bits);
+        }
     }
 }
 
