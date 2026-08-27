@@ -216,6 +216,32 @@ where
             }
         }
     }
+
+    /// Ignores the GAS access size and does a 16-bit read.
+    pub fn read_u16(&self, byte_offset: u64) -> u16 {
+        match self.gas.address_space {
+            AddressSpace::SystemMemory => {
+                let addr = self.mapping.as_ref().unwrap().virtual_start.cast::<u16>();
+                unsafe { addr.byte_offset(byte_offset as isize).read_unaligned() }
+            }
+            AddressSpace::SystemIo => self.handler.read_io_u16(self.gas.address as u16 + byte_offset as u16),
+            address_space => todo!("{address_space:?}"),
+        }
+    }
+
+    /// Ignores the GAS access size and does a 16-bit write.
+    pub fn write_u16(&self, byte_offset: u64, value: u16) {
+        match self.gas.address_space {
+            AddressSpace::SystemMemory => {
+                let addr = self.mapping.as_ref().unwrap().virtual_start.cast::<u16>();
+                unsafe { addr.byte_offset(byte_offset as isize).write_unaligned(value) }
+            }
+            AddressSpace::SystemIo => {
+                self.handler.write_io_u16(self.gas.address as u16 + byte_offset as u16, value)
+            }
+            address_space => todo!("{address_space:?}"),
+        }
+    }
 }
 
 /// Returns the access size that should be made for a given `GenericAddress`, in bits.
