@@ -337,7 +337,7 @@ where
         // mutexes are reentrant, and the [`Handler`] might want to take action on each acquisition.
         self.handler.acquire(self.global_lock_mutex, timeout)?;
 
-        let last = self.global_lock_acquisition_count.fetch_add(1, Ordering::Relaxed);
+        let last = self.global_lock_acquisition_count.fetch_add(1, Ordering::Acquire);
 
         // The firmware lock does not have an acquisition counter, so don't try and acquire a
         // firmware lock we already own.
@@ -394,7 +394,7 @@ where
     }
 
     pub fn release_global_lock(&self) -> Result<(), AmlError> {
-        let c = self.global_lock_acquisition_count.fetch_sub(1, Ordering::Relaxed);
+        let c = self.global_lock_acquisition_count.fetch_sub(1, Ordering::Release);
 
         // Only release the firmware lock if that was the last global lock acquisition that this
         // thread was holding.
