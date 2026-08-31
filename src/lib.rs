@@ -44,6 +44,7 @@
 
 #![no_std]
 #![feature(allocator_api)]
+#![feature(btreemap_alloc)]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
