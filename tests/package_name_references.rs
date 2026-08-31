@@ -8,6 +8,7 @@ use acpi::aml::{
     namespace::AmlName,
     object::Object,
     pci_routing::{PciRoutingTable, Pin},
+    resource::Irqs,
 };
 use aml_test_tools::handlers::null_handler::NullHandler;
 use std::str::FromStr;
@@ -154,9 +155,9 @@ DefinitionBlock("", "DSDT", 2, "RSACPI", "PRTTST", 1) {
 
     // An absolute name, a relative name found by the namespace search rules, and a GSI.
     // The IRQ of a link object is decoded from its `_CRS` as a mask.
-    assert_eq!(table.route(1, 0, Pin::IntA, &interpreter).unwrap().irqs, 1 << 11);
-    assert_eq!(table.route(2, 0, Pin::IntB, &interpreter).unwrap().irqs, 1 << 10);
-    assert_eq!(table.route(3, 0, Pin::IntC, &interpreter).unwrap().irqs, 19);
+    assert_eq!(table.route(1, 0, Pin::IntA, &interpreter).unwrap().irqs, Irqs::from_buf([1 << 11]));
+    assert_eq!(table.route(2, 0, Pin::IntB, &interpreter).unwrap().irqs, Irqs::from_buf([1 << 10]));
+    assert_eq!(table.route(3, 0, Pin::IntC, &interpreter).unwrap().irqs, Irqs::from_buf([19]));
 }
 
 /// `DerefOf` of a string is a namespace lookup, and must not recurse into the object it finds -
