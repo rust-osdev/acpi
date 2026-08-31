@@ -21,6 +21,7 @@ log = "0.4.20"
 spinning_top = "0.3.0"
 pci_types = { version = "0.10.0", public = true }
 byteorder = { version = "1.5.0", default-features = false }
+smallvec = { version = "1.15.2", default-features = false }
 
 [dev-dependencies]
 aml_test_tools = { path = "tools/aml_test_tools" }

@@ -4,6 +4,7 @@ use alloc::vec::Vec;
 use bit_field::BitField;
 use byteorder::{ByteOrder, LittleEndian};
 use core::mem;
+pub use smallvec;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Resource {
@@ -339,11 +340,7 @@ fn address_space_descriptor<T>(bytes: &[u8]) -> Result<Resource, AmlError> {
     }))
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Irq {
-    Single(u32),
-    Multiple(Vec<u32>),
-}
+pub type Irqs = smallvec::SmallVec<[u32; 1]>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IrqDescriptor {
@@ -352,7 +349,7 @@ pub struct IrqDescriptor {
     pub polarity: InterruptPolarity,
     pub is_shared: bool,
     pub is_wake_capable: bool,
-    pub irq: Irq,
+    pub irqs: Irqs,
 }
 
 fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
@@ -396,7 +393,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
             let irq = LittleEndian::read_u16(&bytes[1..=2]);
 
             Ok(Resource::Irq(IrqDescriptor {
-                irq: Irq::Single(irq as u32),
+                irqs: Irqs::from_buf([irq as u32]),
                 is_wake_capable: false,
                 is_shared: false,
                 polarity: InterruptPolarity::ActiveHigh,
@@ -422,7 +419,7 @@ fn irq_format_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
             };
 
             Ok(Resource::Irq(IrqDescriptor {
-                irq: Irq::Single(irq as u32),
+                irqs: Irqs::from_buf([irq as u32]),
                 is_wake_capable,
                 is_shared,
                 polarity,
@@ -571,12 +568,12 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
 
     let number_of_interrupts = bytes[4] as usize;
 
-    let irq = if number_of_interrupts == 1 {
+    let irqs = if number_of_interrupts == 1 {
         let irq = LittleEndian::read_u32(&bytes[5..9]);
 
-        Irq::Single(irq)
+        Irqs::from_buf([irq])
     } else {
-        let mut irqs = Vec::with_capacity(number_of_interrupts);
+        let mut irqs = Irqs::with_capacity(number_of_interrupts);
 
         for i in 0..number_of_interrupts {
             let start = 5 + i * size_of::<u32>();
@@ -587,7 +584,7 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
             irqs.push(irq);
         }
 
-        Irq::Multiple(irqs)
+        irqs
     };
 
     Ok(Resource::Irq(IrqDescriptor {
@@ -596,7 +593,7 @@ fn extended_interrupt_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
         polarity: if bytes[3].get_bit(2) { InterruptPolarity::ActiveLow } else { InterruptPolarity::ActiveHigh },
         is_shared: bytes[3].get_bit(3),
         is_wake_capable: bytes[3].get_bit(4),
-        irq,
+        irqs,
     }))
 }
 
@@ -660,7 +657,7 @@ mod tests {
                     polarity: InterruptPolarity::ActiveHigh,
                     is_shared: false,
                     is_wake_capable: false,
-                    irq: Irq::Single(1 << 1)
+                    irqs: Irqs::from_buf([1 << 1])
                 })
             ])
         );
@@ -917,7 +914,7 @@ mod tests {
                     polarity: InterruptPolarity::ActiveHigh,
                     is_shared: false,
                     is_wake_capable: false,
-                    irq: Irq::Single(1 << 6)
+                    irqs: Irqs::from_buf([1 << 6])
                 }),
                 Resource::Dma(DMADescriptor {
                     channel_mask: 1 << 2,
