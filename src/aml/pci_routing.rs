@@ -8,8 +8,8 @@ use crate::aml::{
     resource::{self, InterruptPolarity, InterruptTrigger, Resource},
 };
 use alloc::{vec, vec::Vec};
+use core::alloc::Allocator;
 use bit_field::BitField;
-use core::str::FromStr;
 
 pub use crate::aml::resource::IrqDescriptor;
 
@@ -58,13 +58,13 @@ impl PciRoutingTable {
     /// `AmlError::InvalidOperationOnObject` if the value passed is not a package, or if any of the
     /// values within it are not packages. Returns the various `AmlError::Prt*` errors if the
     /// internal structure of the entries is invalid.
-    pub fn from_prt_path(
-        prt_path: AmlName,
-        interpreter: &Interpreter<impl Handler>,
+    pub fn from_prt_path<A: Allocator + Clone>(
+        prt_path: AmlName<A>,
+        interpreter: &Interpreter<impl Handler, A>,
     ) -> Result<PciRoutingTable, AmlError> {
         let mut entries = Vec::new();
 
-        let prt = interpreter.evaluate(prt_path.clone(), vec![])?;
+        let prt = interpreter.evaluate(prt_path.clone(), Vec::new_in(interpreter.alloc.clone()))?;
 
         if let Object::Package(ref inner_values) = *prt {
             for value in inner_values {
@@ -117,10 +117,14 @@ impl PciRoutingTable {
                          * so search from the scope the name appeared in, rather than resolving it.
                          */
                         Object::NamePath { ref name, ref scope } => {
-                            Some(interpreter.namespace.lock().search_for_level(name, scope)?)
+                            Some(interpreter.namespace.lock().search_for_level(name, scope)?.to_global())
                         }
                         Object::String(ref name) => Some(
-                            interpreter.namespace.lock().search_for_level(&AmlName::from_str(name)?, &prt_path)?,
+                            interpreter
+                                .namespace
+                                .lock()
+                                .search_for_level(&AmlName::parse_in(name.as_str(), interpreter.alloc.clone())?, &prt_path)?
+                                .to_global(),
                         ),
                         _ => None,
                     };
@@ -194,7 +198,7 @@ impl PciRoutingTable {
                 irq: gsi,
             }),
             PciRouteType::LinkObject(ref name) => {
-                let path = AmlName::from_str("_CRS").unwrap().resolve(name)?;
+                let path = AmlName::parse_in("_CRS", interpreter.alloc.clone()).unwrap().resolve(name)?;
                 let link_crs = interpreter.evaluate(path, vec![])?;
 
                 let resources = resource::resource_descriptor_list(link_crs)?;

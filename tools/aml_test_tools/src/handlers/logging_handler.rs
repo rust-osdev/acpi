@@ -197,7 +197,7 @@ where
         self.next_handler.release(mutex);
     }
 
-    fn handle_debug(&self, object: &Object) {
+    fn handle_debug(&self, object: &Object<std::alloc::Global>) {
         info!("Debug store: {}", object);
         self.next_handler.handle_debug(object);
     }
