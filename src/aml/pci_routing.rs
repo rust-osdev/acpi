@@ -5,7 +5,7 @@ use crate::aml::{
     Operation,
     namespace::AmlName,
     object::Object,
-    resource::{self, InterruptPolarity, InterruptTrigger, Resource},
+    resource::{self, InterruptPolarity, InterruptTrigger, Irq, Resource},
 };
 use alloc::{vec, vec::Vec};
 use bit_field::BitField;
@@ -191,7 +191,7 @@ impl PciRoutingTable {
                 polarity: InterruptPolarity::ActiveLow,
                 is_shared: true,
                 is_wake_capable: false,
-                irq: gsi,
+                irq: Irq::Single(gsi),
             }),
             PciRouteType::LinkObject(ref name) => {
                 let path = AmlName::from_str("_CRS").unwrap().resolve(name)?;
