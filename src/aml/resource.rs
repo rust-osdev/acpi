@@ -666,7 +666,7 @@ mod tests {
                     polarity: InterruptPolarity::ActiveHigh,
                     is_shared: false,
                     is_wake_capable: false,
-                    irqs: Irqs::from_buf([1 << 1])
+                    irqs: Irqs::from_buf([1])
                 })
             ])
         );
@@ -923,7 +923,7 @@ mod tests {
                     polarity: InterruptPolarity::ActiveHigh,
                     is_shared: false,
                     is_wake_capable: false,
-                    irqs: Irqs::from_buf([1 << 6])
+                    irqs: Irqs::from_buf([6])
                 }),
                 Resource::Dma(DMADescriptor {
                     channel_mask: 1 << 2,
