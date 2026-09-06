@@ -376,7 +376,7 @@ impl fmt::Display for Namespace {
                 writeln!(
                     f,
                     "{}{}{}: {}{}",
-                    &indent_stack,
+                    indent_stack,
                     if end { END } else { BRANCH },
                     name.as_str(),
                     if flags.is_alias() { "[A] " } else { "" },
@@ -397,7 +397,7 @@ impl fmt::Display for Namespace {
                 level.children.iter().filter(|(_, l)| l.kind == NamespaceLevelKind::Scope).collect();
             for (i, (name, sub_level)) in remaining_scopes.iter().enumerate() {
                 let end = i == remaining_scopes.len() - 1;
-                writeln!(f, "{}{}{}:", &indent_stack, if end { END } else { BRANCH }, name.as_str())?;
+                writeln!(f, "{}{}{}:", indent_stack, if end { END } else { BRANCH }, name.as_str())?;
                 print_level(f, sub_level, indent_stack.clone() + STEM)?;
             }
 
