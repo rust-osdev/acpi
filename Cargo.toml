@@ -18,10 +18,10 @@ edition = "2024"
 bit_field = "0.10.2"
 bitflags = "2.5.0"
 log = "0.4.20"
-spinning_top = "0.3.0"
+spinning_top = { version = "0.3.0", optional = true }
 pci_types = { version = "0.10.0", public = true }
-byteorder = { version = "1.5.0", default-features = false }
-smallvec = { version = "1.15.2", default-features = false }
+byteorder = { version = "1.5.0", optional = true, default-features = false }
+smallvec = { version = "1.15.2", optional = true, default-features = false }
 
 [dev-dependencies]
 aml_test_tools = { path = "tools/aml_test_tools" }
@@ -33,4 +33,9 @@ serial_test = "4.0.1"
 [features]
 default = ["alloc", "aml"]
 alloc = []
-aml = ["alloc"]
+aml = [
+    "alloc",
+    "dep:spinning_top",
+    "dep:byteorder",
+    "dep:smallvec",
+]
