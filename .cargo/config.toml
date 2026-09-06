@@ -1,2 +1,5 @@
 [alias]
 run_tests = "run --manifest-path tools/aml-tester/Cargo.toml --"
+
+[unstable]
+public-dependency = true
