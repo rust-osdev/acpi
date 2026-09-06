@@ -43,7 +43,7 @@
 //! ```
 
 #![no_std]
-#![feature(allocator_api)]
+#![cfg_attr(feature = "alloc", feature(allocator_api))]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
