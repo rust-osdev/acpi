@@ -2546,9 +2546,8 @@ where
          * Break the field read into native reads that respect the region's access width.
          * Copy each potentially-unaligned part into the destination's bit range.
          */
-        let native_accesses_needed = (field.bit_length + (field.bit_index % access_width_bits))
-            .next_multiple_of(access_width_bits)
-            / access_width_bits;
+        let native_accesses_needed =
+            (field.bit_length + (field.bit_index % access_width_bits)).div_ceil(access_width_bits);
         let mut read_so_far = 0;
         for i in 0..native_accesses_needed {
             // Advance the read pointer. For Index fields, this also means updating the Index
@@ -2626,9 +2625,8 @@ where
 
         // TODO: maybe also a fast path for writes
 
-        let native_accesses_needed = (field.bit_length + (field.bit_index % access_width_bits))
-            .next_multiple_of(access_width_bits)
-            / access_width_bits;
+        let native_accesses_needed =
+            (field.bit_length + (field.bit_index % access_width_bits)).div_ceil(access_width_bits);
         let mut written_so_far = 0;
 
         for i in 0..native_accesses_needed {
