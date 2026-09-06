@@ -28,6 +28,7 @@ jobs:
     runs-on: ${{ matrix.OS }}
     env:
       TARGET: ${{ matrix.TARGET }}
+      FEATURES: ${{ matrix.FEATURES }}
 
     steps:
     - uses: actions/checkout@v2
