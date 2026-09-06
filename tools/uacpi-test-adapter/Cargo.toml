@@ -1,15 +1,14 @@
 [package]
-name = "acpi_dumper"
+name = "uacpi-test-adapter"
 version = "0.0.0"
 publish = false
-authors = ["Isaac Woods", "Matt Taylor"]
+authors = ["Martin Hughes"]
 repository = "https://github.com/rust-osdev/acpi"
-description = "ACPI table dumper"
+description = "uACPI to aml-tester adapter"
 categories = ["hardware-support"]
 readme = "../../README.md"
 license = "MIT/Apache-2.0"
-edition = "2018"
+edition = "2024"
 
 [dependencies]
-pico-args = "0.2.0"
-libc = "0.2.61"
+which = "8.0.2"

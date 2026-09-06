@@ -1,5 +1,5 @@
-/* This file is a test for `aml_tester` rather than of the parser itself.
- * Can `aml_tester` cope with multiple tables?
+/* This file is a test for `aml-tester` rather than of the parser itself.
+ * Can `aml-tester` cope with multiple tables?
  */
 DefinitionBlock("", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
     OperationRegion(MEM, SystemMemory, 0x40000, 0x1000)

@@ -1,6 +1,9 @@
 //! A [`Handler`] that does nothing useful.
+//!
+//! This is pretty much a duplicate of [`aml_test_utils::NullHandler`]. We don't use that version
+//! because `aml-test-tools` is not a `no_std` crate, which we need for this executable.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
+use acpi::{Handler, PhysicalMapping};
 use pci_types::PciAddress;
 
 #[derive(Clone)]
@@ -10,9 +13,11 @@ pub struct NullHandler;
 ///
 /// This is useful as a placeholder if you really don't care what values the core [`acpi`] parser
 /// receives.
+///
+/// The handler is not ever called in this crate, but it must be present for compilation purposes.
 impl Handler for NullHandler {
     unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
-        // This isn't implemented in `aml_tester` either
+        // This isn't implemented in `aml-tester` either
         todo!()
     }
 
@@ -85,14 +90,4 @@ impl Handler for NullHandler {
     fn stall(&self, _microseconds: u64) {}
 
     fn sleep(&self, _milliseconds: u64) {}
-
-    fn create_mutex(&self) -> Handle {
-        Handle(0)
-    }
-
-    fn acquire(&self, _mutex: Handle, _timeout: u16) -> Result<(), AmlError> {
-        Ok(())
-    }
-
-    fn release(&self, _mutex: Handle) {}
 }
