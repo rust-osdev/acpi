@@ -2986,7 +2986,7 @@ impl OpInFlight {
     fn resolve_behaviour(&self) -> ResolveBehaviour {
         if let Some(behaviour) = self.resolve_behaviour.get(self.arguments.len()) {
             *behaviour
-        } else if self.op == Opcode::Package || (self.op == Opcode::VarPackage && self.arguments.len() > 0) {
+        } else if self.op == Opcode::Package || (self.op == Opcode::VarPackage && !self.arguments.is_empty()) {
             ResolveBehaviour::AsPackageElements
         } else {
             panic!("Tried to get resolving behaviour for unexpected argument for operation of type {:?}", self.op);
