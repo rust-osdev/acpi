@@ -1,13 +1,10 @@
 //! A wrapper around another [`Handler`] that checks for the correct sequence of commands in a test.
 
-use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, RawPhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
-use std::{
-    mem::ManuallyDrop,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering::Relaxed},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
 /// The commands that may be received by an ACPI [`handler`](Handler).
@@ -104,27 +101,18 @@ where
         unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) }
     }
 
-    unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
         // This function can be called during a panic, and it's pretty unlikely this command will
         // be in the expected commands list...
         //
         // Also stop checking if we're at or past the end of the command list. This stops any
         // confusion about whether we're in Drop or not.
-        if !std::thread::panicking()
-            && region.handler.commands.len() > region.handler.next_command_idx.load(Relaxed)
-        {
-            region.handler.check_command(AcpiCommands::UnmapPhysicalRegion(region.raw.physical_start));
+        if !std::thread::panicking() && self.commands.len() > self.next_command_idx.load(Relaxed) {
+            self.check_command(AcpiCommands::UnmapPhysicalRegion(region.physical_start));
         }
 
-        // Convert `PhysicalMapping<LoggingHandler<H>, T>` -> `PhysicalMapping<H, T>` and delegate.
-        // Prevent the temporary mapping from being dropped (and thus calling `H::unmap_physical_region` twice).
-        let inner_region = ManuallyDrop::new(PhysicalMapping::<H, T> {
-            raw: region.raw,
-            handler: region.handler.next_handler.clone(),
-        });
-
         unsafe {
-            H::unmap_physical_region(&inner_region);
+            self.next_handler.unmap_physical_region(region);
         }
     }
 

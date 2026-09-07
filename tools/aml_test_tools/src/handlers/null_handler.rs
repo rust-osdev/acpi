@@ -1,6 +1,6 @@
 //! A [`Handler`] that does nothing useful.
 
-use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, RawPhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 
 #[derive(Clone)]
@@ -16,7 +16,7 @@ impl Handler for NullHandler {
         todo!()
     }
 
-    unsafe fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
+    unsafe fn unmap_physical_region<T>(&self, _region: RawPhysicalMapping<T>) {}
 
     fn read_u8(&self, _address: usize) -> u8 {
         0
