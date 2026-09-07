@@ -411,7 +411,7 @@ where
     H: Handler,
 {
     fn drop(&mut self) {
-        H::unmap_physical_region(self)
+        unsafe { H::unmap_physical_region(self) }
     }
 }
 
@@ -452,7 +452,7 @@ pub trait Handler: Clone {
     /// Unmap the given physical mapping. This is called when a [`PhysicalMapping`] is dropped, you should **not** manually call this.
     ///
     /// Note: A reference to the [`Handler`] used to construct `region` can be acquired from [`PhysicalMapping::handler`].
-    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
+    unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
 
     // TODO: maybe we should map stuff ourselves in the AML interpreter and do this internally?
     // Maybe provide a hook for tracing the IO / emit trace events ourselves if we do do that?

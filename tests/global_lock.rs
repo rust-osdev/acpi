@@ -183,7 +183,7 @@ impl Handler for LockHandler {
         unimplemented!()
     }
 
-    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {
         // Do nothing
     }
 

@@ -21,7 +21,7 @@ impl Handler for NullHandler {
         todo!()
     }
 
-    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
+    unsafe fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
 
     fn read_u8(&self, _address: usize) -> u8 {
         0

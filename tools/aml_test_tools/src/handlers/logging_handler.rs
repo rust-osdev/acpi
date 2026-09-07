@@ -41,7 +41,7 @@ where
         }
     }
 
-    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
         info!("unmap_physical_region(physical_start={:#x})", region.physical_start);
 
         // Convert `PhysicalMapping<LoggingHandler<H>, T>` -> `PhysicalMapping<H, T>` and delegate.
@@ -54,7 +54,9 @@ where
             handler: region.handler.next_handler.clone(),
         });
 
-        H::unmap_physical_region(&inner_region);
+        unsafe {
+            H::unmap_physical_region(&inner_region);
+        }
     }
 
     fn read_u8(&self, address: usize) -> u8 {
