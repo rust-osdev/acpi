@@ -139,7 +139,7 @@ where
         match gas.address_space {
             AddressSpace::SystemMemory => {
                 // TODO: how to know total size needed?
-                let mapping = unsafe { handler.map_physical_region(gas.address as usize, 0x1000) };
+                let mapping = unsafe { PhysicalMapping::<_, u8>::new(gas.address as usize, 0x1000, handler) };
                 Ok(MappedGas { gas, handler: handler.clone(), mapping: Some(mapping) })
             }
             AddressSpace::SystemIo => Ok(MappedGas { gas, handler: handler.clone(), mapping: None }),

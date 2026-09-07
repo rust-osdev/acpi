@@ -181,7 +181,11 @@ where
             R: RegionHandler + ?Sized,
         {
             let mapping = unsafe {
-                interpreter.handler.map_physical_region::<SdtHeader>(table.phys_address, table.length as usize)
+                PhysicalMapping::<_, SdtHeader>::new(
+                    table.phys_address,
+                    table.length as usize,
+                    &interpreter.handler,
+                )
             };
             let stream = unsafe {
                 slice::from_raw_parts(
@@ -197,7 +201,7 @@ where
         let facs = {
             platform.tables.find_table::<Fadt>().and_then(|fadt| fadt.facs_address().ok()).map(
                 |facs_address| unsafe {
-                    platform.handler.map_physical_region(facs_address, mem::size_of::<Facs>())
+                    PhysicalMapping::<_, Facs>::new(facs_address, mem::size_of::<Facs>(), &platform.handler)
                 },
             )
         };
