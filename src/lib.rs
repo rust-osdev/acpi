@@ -108,7 +108,8 @@ where
         rsdp_address: usize,
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
+        let rsdp_mapping =
+            unsafe { PhysicalMapping::<_, Rsdp>::new(rsdp_address, mem::size_of::<Rsdp>(), &handler) };
 
         /*
          * If the address given does not have a correct RSDP signature, the user has probably given
@@ -169,9 +170,11 @@ where
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
         let rsdt_mapping =
-            unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, mem::size_of::<SdtHeader>()) };
+            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, mem::size_of::<SdtHeader>(), &handler) };
+
         let rsdt_length = rsdt_mapping.length;
-        let rsdt_mapping = unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, rsdt_length as usize) };
+        let rsdt_mapping =
+            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, rsdt_length as usize, &handler) };
         Ok(Self { rsdt_mapping, rsdt_entry_size, handler, quirks })
     }
 
@@ -206,7 +209,11 @@ where
     pub fn table_headers(&self) -> impl Iterator<Item = (usize, SdtHeader)> {
         self.table_entries().map(|table_phys_address| {
             let mapping = unsafe {
-                self.handler.map_physical_region::<SdtHeader>(table_phys_address, mem::size_of::<SdtHeader>())
+                PhysicalMapping::<_, SdtHeader>::new(
+                    table_phys_address,
+                    mem::size_of::<SdtHeader>(),
+                    &self.handler,
+                )
             };
             (table_phys_address, *mapping)
         })
@@ -219,13 +226,17 @@ where
     {
         self.table_entries().filter_map(|table_phys_address| {
             let header_mapping = unsafe {
-                self.handler.map_physical_region::<SdtHeader>(table_phys_address, mem::size_of::<SdtHeader>())
+                PhysicalMapping::<_, SdtHeader>::new(
+                    table_phys_address,
+                    mem::size_of::<SdtHeader>(),
+                    &self.handler,
+                )
             };
             if header_mapping.signature == T::SIGNATURE {
                 // Extend the mapping to the entire table
                 let length = header_mapping.length;
                 drop(header_mapping);
-                Some(unsafe { self.handler.map_physical_region::<T>(table_phys_address, length as usize) })
+                Some(unsafe { PhysicalMapping::<_, T>::new(table_phys_address, length as usize, &self.handler) })
             } else {
                 None
             }
@@ -245,8 +256,9 @@ where
             Err(AcpiError::TableNotFound(Signature::FADT))?
         };
         let phys_address = fadt.dsdt_address()?;
-        let header =
-            unsafe { self.handler.map_physical_region::<SdtHeader>(phys_address, mem::size_of::<SdtHeader>()) };
+        let header = unsafe {
+            PhysicalMapping::<_, SdtHeader>::new(phys_address, mem::size_of::<SdtHeader>(), &self.handler)
+        };
         Ok(AmlTable { phys_address, length: header.length, revision: header.revision })
     }
 
@@ -382,6 +394,10 @@ impl<H, T> PhysicalMapping<H, T>
 where
     H: Handler,
 {
+    pub unsafe fn new(physical_address: usize, size: usize, handler: &H) -> PhysicalMapping<H, T> {
+        unsafe { handler.map_physical_region(physical_address, size) }
+    }
+
     /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,
     /// otherwise the mapping can simply be dereferenced to access the inner type.
     pub fn get(&self) -> Pin<&T> {
