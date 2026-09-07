@@ -31,7 +31,7 @@ jobs:
       FEATURES: ${{ matrix.FEATURES }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: 'recursive'
 
@@ -50,7 +50,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: 'recursive'
     - name: Install Rust
@@ -72,7 +72,7 @@ jobs:
   clippy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
       with:
         submodules: 'recursive'
     - name: Install Rust
@@ -92,7 +92,7 @@ jobs:
   test-no-alloc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
         with:
           submodules: 'recursive'
       - name: Install Rust
