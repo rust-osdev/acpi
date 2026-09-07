@@ -1,13 +1,10 @@
 //! A wrapper around another [`Handler`] that checks for the correct sequence of commands in a test.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, RawPhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
-use std::{
-    mem::ManuallyDrop,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering::Relaxed},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
 /// The commands that may be received by an ACPI [`handler`](Handler).
@@ -98,44 +95,25 @@ impl<H> Handler for CheckCommandHandler<H>
 where
     H: Handler + Clone,
 {
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T> {
         self.check_command(AcpiCommands::MapPhysicalRegion(physical_address, size));
 
-        let inner_mapping = unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) };
-        let inner_mapping = ManuallyDrop::new(inner_mapping);
-
-        PhysicalMapping {
-            physical_start: inner_mapping.physical_start,
-            virtual_start: inner_mapping.virtual_start,
-            region_length: inner_mapping.region_length,
-            mapped_length: inner_mapping.mapped_length,
-            handler: self.clone(),
-        }
+        unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) }
     }
 
-    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
         // This function can be called during a panic, and it's pretty unlikely this command will
         // be in the expected commands list...
         //
         // Also stop checking if we're at or past the end of the command list. This stops any
         // confusion about whether we're in Drop or not.
-        if !std::thread::panicking()
-            && region.handler.commands.len() > region.handler.next_command_idx.load(Relaxed)
-        {
-            region.handler.check_command(AcpiCommands::UnmapPhysicalRegion(region.physical_start));
+        if !std::thread::panicking() && self.commands.len() > self.next_command_idx.load(Relaxed) {
+            self.check_command(AcpiCommands::UnmapPhysicalRegion(region.physical_start));
         }
 
-        // Convert `PhysicalMapping<LoggingHandler<H>, T>` -> `PhysicalMapping<H, T>` and delegate.
-        // Prevent the temporary mapping from being dropped (and thus calling `H::unmap_physical_region` twice).
-        let inner_region = ManuallyDrop::new(PhysicalMapping::<H, T> {
-            physical_start: region.physical_start,
-            virtual_start: region.virtual_start,
-            region_length: region.region_length,
-            mapped_length: region.mapped_length,
-            handler: region.handler.next_handler.clone(),
-        });
-
-        H::unmap_physical_region(&inner_region);
+        unsafe {
+            self.next_handler.unmap_physical_region(region);
+        }
     }
 
     fn read_u8(&self, address: usize) -> u8 {

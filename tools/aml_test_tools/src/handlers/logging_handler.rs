@@ -1,7 +1,6 @@
 //! A [`Handler`] that logs all calls, then forwards them to an inner handler.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::object::Object};
-use core::mem::ManuallyDrop;
+use acpi::{Handle, Handler, RawPhysicalMapping, aml::object::Object};
 use log::info;
 use pci_types::PciAddress;
 
@@ -26,35 +25,18 @@ impl<H> Handler for LoggingHandler<H>
 where
     H: Handler,
 {
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T> {
         info!("map_physical_region(physical_address={:#x}, size={:#x})", physical_address, size);
 
-        let inner_mapping = unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) };
-        let inner_mapping = ManuallyDrop::new(inner_mapping);
-
-        PhysicalMapping {
-            physical_start: inner_mapping.physical_start,
-            virtual_start: inner_mapping.virtual_start,
-            region_length: inner_mapping.region_length,
-            mapped_length: inner_mapping.mapped_length,
-            handler: self.clone(),
-        }
+        unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) }
     }
 
-    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
         info!("unmap_physical_region(physical_start={:#x})", region.physical_start);
 
-        // Convert `PhysicalMapping<LoggingHandler<H>, T>` -> `PhysicalMapping<H, T>` and delegate.
-        // Prevent the temporary mapping from being dropped (and thus calling `H::unmap_physical_region` twice).
-        let inner_region = ManuallyDrop::new(PhysicalMapping::<H, T> {
-            physical_start: region.physical_start,
-            virtual_start: region.virtual_start,
-            region_length: region.region_length,
-            mapped_length: region.mapped_length,
-            handler: region.handler.next_handler.clone(),
-        });
-
-        H::unmap_physical_region(&inner_region);
+        unsafe {
+            self.next_handler.unmap_physical_region(region);
+        }
     }
 
     fn read_u8(&self, address: usize) -> u8 {

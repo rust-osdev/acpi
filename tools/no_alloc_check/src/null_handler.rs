@@ -3,7 +3,7 @@
 //! This is pretty much a duplicate of [`aml_test_utils::NullHandler`]. We don't use that version
 //! because `aml_test_tools` is not a `no_std` crate, which we need for this executable.
 
-use acpi::{Handler, PhysicalMapping};
+use acpi::{Handler, RawPhysicalMapping};
 use pci_types::PciAddress;
 
 #[derive(Clone)]
@@ -16,12 +16,12 @@ pub struct NullHandler;
 ///
 /// The handler is not ever called in this crate, but it must be present for compilation purposes.
 impl Handler for NullHandler {
-    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> RawPhysicalMapping<T> {
         // This isn't implemented in `aml_tester` either
         todo!()
     }
 
-    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
+    unsafe fn unmap_physical_region<T>(&self, _region: RawPhysicalMapping<T>) {}
 
     fn read_u8(&self, _address: usize) -> u8 {
         0

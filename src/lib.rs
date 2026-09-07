@@ -108,7 +108,8 @@ where
         rsdp_address: usize,
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(rsdp_address, mem::size_of::<Rsdp>()) };
+        let rsdp_mapping =
+            unsafe { PhysicalMapping::<_, Rsdp>::new(rsdp_address, mem::size_of::<Rsdp>(), handler.clone()) };
 
         /*
          * If the address given does not have a correct RSDP signature, the user has probably given
@@ -168,19 +169,23 @@ where
         rsdt_entry_size: usize,
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdt_mapping =
-            unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, mem::size_of::<SdtHeader>()) };
+        let rsdt_mapping = unsafe {
+            PhysicalMapping::<_, SdtHeader>::new(rsdt_address, mem::size_of::<SdtHeader>(), handler.clone())
+        };
+
         let rsdt_length = rsdt_mapping.length;
-        let rsdt_mapping = unsafe { handler.map_physical_region::<SdtHeader>(rsdt_address, rsdt_length as usize) };
+        let rsdt_mapping =
+            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, rsdt_length as usize, handler.clone()) };
         Ok(Self { rsdt_mapping, rsdt_entry_size, handler, quirks })
     }
 
     /// Iterate over the **physical** addresses of the SDTs.
     pub fn table_entries(&self) -> impl Iterator<Item = usize> {
         let mut table_entries_ptr =
-            unsafe { self.rsdt_mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }.cast::<u8>();
-        let mut num_entries =
-            (self.rsdt_mapping.region_length.saturating_sub(mem::size_of::<SdtHeader>())) / self.rsdt_entry_size;
+            unsafe { self.rsdt_mapping.raw.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }
+                .cast::<u8>();
+        let mut num_entries = (self.rsdt_mapping.raw.region_length.saturating_sub(mem::size_of::<SdtHeader>()))
+            / self.rsdt_entry_size;
 
         core::iter::from_fn(move || {
             if num_entries > 0 {
@@ -205,7 +210,11 @@ where
     pub fn table_headers(&self) -> impl Iterator<Item = (usize, SdtHeader)> {
         self.table_entries().map(|table_phys_address| {
             let mapping = unsafe {
-                self.handler.map_physical_region::<SdtHeader>(table_phys_address, mem::size_of::<SdtHeader>())
+                PhysicalMapping::<_, SdtHeader>::new(
+                    table_phys_address,
+                    mem::size_of::<SdtHeader>(),
+                    &self.handler,
+                )
             };
             (table_phys_address, *mapping)
         })
@@ -218,13 +227,19 @@ where
     {
         self.table_entries().filter_map(|table_phys_address| {
             let header_mapping = unsafe {
-                self.handler.map_physical_region::<SdtHeader>(table_phys_address, mem::size_of::<SdtHeader>())
+                PhysicalMapping::<_, SdtHeader>::new(
+                    table_phys_address,
+                    mem::size_of::<SdtHeader>(),
+                    &self.handler,
+                )
             };
             if header_mapping.signature == T::SIGNATURE {
                 // Extend the mapping to the entire table
                 let length = header_mapping.length;
                 drop(header_mapping);
-                Some(unsafe { self.handler.map_physical_region::<T>(table_phys_address, length as usize) })
+                Some(unsafe {
+                    PhysicalMapping::<_, T>::new(table_phys_address, length as usize, self.handler.clone())
+                })
             } else {
                 None
             }
@@ -244,8 +259,9 @@ where
             Err(AcpiError::TableNotFound(Signature::FADT))?
         };
         let phys_address = fadt.dsdt_address()?;
-        let header =
-            unsafe { self.handler.map_physical_region::<SdtHeader>(phys_address, mem::size_of::<SdtHeader>()) };
+        let header = unsafe {
+            PhysicalMapping::<_, SdtHeader>::new(phys_address, mem::size_of::<SdtHeader>(), &self.handler)
+        };
         Ok(AmlTable { phys_address, length: header.length, revision: header.revision })
     }
 
@@ -331,13 +347,11 @@ pub struct AcpiQuirks {
     pub ignore_xsdt: bool,
 }
 
-/// Describes a physical mapping created by [`Handler::map_physical_region`] and unmapped by
-/// [`Handler::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
-/// bytes, but may be bigger.
-pub struct PhysicalMapping<H, T>
-where
-    H: Handler,
-{
+/// Describes a physical mapping.
+///
+/// The region mapped must be at least `size_of::<T>()` bytes, but may be bigger.
+#[derive(Debug)]
+pub struct RawPhysicalMapping<T: ?Sized> {
     /// The physical address of the mapped structure. The actual mapping may start at a lower address
     /// if the requested physical address is not well-aligned.
     pub physical_start: usize,
@@ -351,6 +365,29 @@ where
     /// The total size of the produced mapping. This may be the same as `region_length`, or larger to
     /// meet requirements of the mapping implementation.
     pub mapped_length: usize,
+}
+
+impl<T: ?Sized> Clone for RawPhysicalMapping<T> {
+    fn clone(&self) -> Self {
+        Self {
+            physical_start: self.physical_start.clone(),
+            virtual_start: self.virtual_start.clone(),
+            region_length: self.region_length.clone(),
+            mapped_length: self.mapped_length.clone(),
+        }
+    }
+}
+
+impl<T: ?Sized> Copy for RawPhysicalMapping<T> {}
+
+/// Describes a physical mapping created by [`Handler::map_physical_region`] and unmapped by
+/// [`Handler::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
+/// bytes, but may be bigger.
+pub struct PhysicalMapping<H, T>
+where
+    H: Handler,
+{
+    pub raw: RawPhysicalMapping<T>,
     /// The [`Handler`] that was used to produce the mapping. When this mapping is dropped, this
     /// handler will be used to unmap the region.
     pub handler: H,
@@ -360,10 +397,15 @@ impl<H, T> PhysicalMapping<H, T>
 where
     H: Handler,
 {
+    pub unsafe fn new(physical_address: usize, size: usize, handler: H) -> PhysicalMapping<H, T> {
+        let raw = unsafe { handler.map_physical_region(physical_address, size) };
+        PhysicalMapping { raw, handler }
+    }
+
     /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,
     /// otherwise the mapping can simply be dereferenced to access the inner type.
     pub fn get(&self) -> Pin<&T> {
-        unsafe { Pin::new_unchecked(self.virtual_start.as_ref()) }
+        unsafe { Pin::new_unchecked(self.raw.virtual_start.as_ref()) }
     }
 }
 
@@ -373,10 +415,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PhysicalMapping")
-            .field("physical_start", &self.physical_start)
-            .field("virtual_start", &self.virtual_start)
-            .field("region_length", &self.region_length)
-            .field("mapped_length", &self.mapped_length)
+            .field("physical_start", &self.raw.physical_start)
+            .field("virtual_start", &self.raw.virtual_start)
+            .field("region_length", &self.raw.region_length)
+            .field("mapped_length", &self.raw.mapped_length)
             .field("handler", &())
             .finish()
     }
@@ -392,7 +434,7 @@ where
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { self.virtual_start.as_ref() }
+        unsafe { self.raw.virtual_start.as_ref() }
     }
 }
 
@@ -402,7 +444,7 @@ where
     H: Handler,
 {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { self.virtual_start.as_mut() }
+        unsafe { self.raw.virtual_start.as_mut() }
     }
 }
 
@@ -411,7 +453,9 @@ where
     H: Handler,
 {
     fn drop(&mut self) {
-        H::unmap_physical_region(self)
+        unsafe {
+            self.handler.unmap_physical_region(self.raw);
+        }
     }
 }
 
@@ -447,12 +491,12 @@ pub trait Handler: Clone {
     ///
     /// - `physical_address` must point to a valid `T` in physical memory.
     /// - `size` must be at least `size_of::<T>()`.
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T>;
 
     /// Unmap the given physical mapping. This is called when a [`PhysicalMapping`] is dropped, you should **not** manually call this.
     ///
     /// Note: A reference to the [`Handler`] used to construct `region` can be acquired from [`PhysicalMapping::handler`].
-    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>);
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>);
 
     // TODO: maybe we should map stuff ourselves in the AML interpreter and do this internally?
     // Maybe provide a hook for tracing the IO / emit trace events ourselves if we do do that?
@@ -539,6 +583,169 @@ pub trait Handler: Clone {
             "Fatal error while executing AML (encountered DefFatalOp). fatal_type = {}, fatal_code = {}, fatal_arg = {}",
             fatal_type, fatal_code, fatal_arg
         );
+    }
+}
+
+impl<H: Handler + ?Sized> Handler for &H {
+    #[inline]
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T> {
+        unsafe { (**self).map_physical_region(physical_address, size) }
+    }
+
+    #[inline]
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
+        unsafe { (**self).unmap_physical_region(region) }
+    }
+
+    #[inline]
+    fn read_u8(&self, address: usize) -> u8 {
+        (**self).read_u8(address)
+    }
+
+    #[inline]
+    fn read_u16(&self, address: usize) -> u16 {
+        (**self).read_u16(address)
+    }
+
+    #[inline]
+    fn read_u32(&self, address: usize) -> u32 {
+        (**self).read_u32(address)
+    }
+
+    #[inline]
+    fn read_u64(&self, address: usize) -> u64 {
+        (**self).read_u64(address)
+    }
+
+    #[inline]
+    fn write_u8(&self, address: usize, value: u8) {
+        (**self).write_u8(address, value)
+    }
+
+    #[inline]
+    fn write_u16(&self, address: usize, value: u16) {
+        (**self).write_u16(address, value)
+    }
+
+    #[inline]
+    fn write_u32(&self, address: usize, value: u32) {
+        (**self).write_u32(address, value)
+    }
+
+    #[inline]
+    fn write_u64(&self, address: usize, value: u64) {
+        (**self).write_u64(address, value)
+    }
+
+    #[inline]
+    fn read_io_u8(&self, port: u16) -> u8 {
+        (**self).read_io_u8(port)
+    }
+
+    #[inline]
+    fn read_io_u16(&self, port: u16) -> u16 {
+        (**self).read_io_u16(port)
+    }
+
+    #[inline]
+    fn read_io_u32(&self, port: u16) -> u32 {
+        (**self).read_io_u32(port)
+    }
+
+    #[inline]
+    fn write_io_u8(&self, port: u16, value: u8) {
+        (**self).write_io_u8(port, value)
+    }
+
+    #[inline]
+    fn write_io_u16(&self, port: u16, value: u16) {
+        (**self).write_io_u16(port, value)
+    }
+
+    #[inline]
+    fn write_io_u32(&self, port: u16, value: u32) {
+        (**self).write_io_u32(port, value)
+    }
+
+    #[inline]
+    fn read_pci_u8(&self, address: PciAddress, offset: u16) -> u8 {
+        (**self).read_pci_u8(address, offset)
+    }
+
+    #[inline]
+    fn read_pci_u16(&self, address: PciAddress, offset: u16) -> u16 {
+        (**self).read_pci_u16(address, offset)
+    }
+
+    #[inline]
+    fn read_pci_u32(&self, address: PciAddress, offset: u16) -> u32 {
+        (**self).read_pci_u32(address, offset)
+    }
+
+    #[inline]
+    fn write_pci_u8(&self, address: PciAddress, offset: u16, value: u8) {
+        (**self).write_pci_u8(address, offset, value)
+    }
+
+    #[inline]
+    fn write_pci_u16(&self, address: PciAddress, offset: u16, value: u16) {
+        (**self).write_pci_u16(address, offset, value)
+    }
+
+    #[inline]
+    fn write_pci_u32(&self, address: PciAddress, offset: u16, value: u32) {
+        (**self).write_pci_u32(address, offset, value)
+    }
+
+    #[inline]
+    fn nanos_since_boot(&self) -> u64 {
+        (**self).nanos_since_boot()
+    }
+
+    #[inline]
+    fn stall(&self, microseconds: u64) {
+        (**self).stall(microseconds)
+    }
+
+    #[inline]
+    fn sleep(&self, milliseconds: u64) {
+        (**self).sleep(milliseconds)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn create_mutex(&self) -> Handle {
+        (**self).create_mutex()
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError> {
+        (**self).acquire(mutex, timeout)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn release(&self, mutex: Handle) {
+        (**self).release(mutex)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn breakpoint(&self) {
+        (**self).breakpoint()
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn handle_debug(&self, object: &aml::object::Object) {
+        (**self).handle_debug(object)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
+        (**self).handle_fatal_error(fatal_type, fatal_code, fatal_arg)
     }
 }
 

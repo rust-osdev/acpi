@@ -16,6 +16,7 @@ use crate::{
 use acpi::{
     Handler,
     PhysicalMapping,
+    RawPhysicalMapping,
     address::MappedGas,
     aml::{AmlError, Interpreter, namespace::AmlName},
     sdt::{SdtHeader, Signature, facs::Facs},
@@ -222,7 +223,7 @@ where
                         access_size: 1,
                         address: 0x400,
                     },
-                    &handler,
+                    handler.clone(),
                 )
                 .unwrap()
             },
@@ -238,7 +239,7 @@ where
                         access_size: 1,
                         address: 0x600,
                     },
-                    &handler,
+                    handler.clone(),
                 )
                 .unwrap()
             },
@@ -271,10 +272,12 @@ where
     // the handler object you'll see a call to Handler::unmap_physical_region without any
     // corresponding call to Interpreter::map_physical_region.
     let fake_facs_mapping = PhysicalMapping {
-        physical_start: 0x0,
-        virtual_start: NonNull::new(fake_facs_ptr).unwrap(),
-        region_length: 32,
-        mapped_length: 32,
+        raw: RawPhysicalMapping {
+            physical_start: 0x0,
+            virtual_start: NonNull::new(fake_facs_ptr).unwrap(),
+            region_length: 32,
+            mapped_length: 32,
+        },
         handler: handler.clone(),
     };
     Interpreter::new(handler, 2, fake_registers, Some(fake_facs_mapping))
