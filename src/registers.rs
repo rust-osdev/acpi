@@ -12,17 +12,17 @@ where
 {
     pub fn new(fadt: &Fadt, handler: H) -> Result<FixedRegisters<H>, AcpiError> {
         let pm1_event_registers = {
-            let pm1a = unsafe { MappedGas::map_gas(fadt.pm1a_event_block()?, &handler)? };
+            let pm1a = unsafe { MappedGas::map_gas(fadt.pm1a_event_block()?, handler.clone())? };
             let pm1b = match fadt.pm1b_event_block()? {
-                Some(gas) => Some(unsafe { MappedGas::map_gas(gas, &handler)? }),
+                Some(gas) => Some(unsafe { MappedGas::map_gas(gas, handler.clone())? }),
                 None => None,
             };
             Pm1EventRegisterBlock { pm1_event_length: fadt.pm1_event_length as usize, pm1a, pm1b }
         };
         let pm1_control_registers = {
-            let pm1a = unsafe { MappedGas::map_gas(fadt.pm1a_control_block()?, &handler)? };
+            let pm1a = unsafe { MappedGas::map_gas(fadt.pm1a_control_block()?, handler.clone())? };
             let pm1b = match fadt.pm1b_control_block()? {
-                Some(gas) => Some(unsafe { MappedGas::map_gas(gas, &handler)? }),
+                Some(gas) => Some(unsafe { MappedGas::map_gas(gas, handler)? }),
                 None => None,
             };
             Pm1ControlRegisterBlock { pm1a, pm1b }

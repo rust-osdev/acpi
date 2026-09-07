@@ -183,7 +183,7 @@ where
         let facs = {
             platform.tables.find_table::<Fadt>().and_then(|fadt| fadt.facs_address().ok()).map(
                 |facs_address| unsafe {
-                    PhysicalMapping::<_, Facs>::new(facs_address, mem::size_of::<Facs>(), &platform.handler)
+                    PhysicalMapping::<_, Facs>::new(facs_address, mem::size_of::<Facs>(), platform.handler.clone())
                 },
             )
         };

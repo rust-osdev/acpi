@@ -109,7 +109,7 @@ where
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
         let rsdp_mapping =
-            unsafe { PhysicalMapping::<_, Rsdp>::new(rsdp_address, mem::size_of::<Rsdp>(), &handler) };
+            unsafe { PhysicalMapping::<_, Rsdp>::new(rsdp_address, mem::size_of::<Rsdp>(), handler.clone()) };
 
         /*
          * If the address given does not have a correct RSDP signature, the user has probably given
@@ -169,12 +169,13 @@ where
         rsdt_entry_size: usize,
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdt_mapping =
-            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, mem::size_of::<SdtHeader>(), &handler) };
+        let rsdt_mapping = unsafe {
+            PhysicalMapping::<_, SdtHeader>::new(rsdt_address, mem::size_of::<SdtHeader>(), handler.clone())
+        };
 
         let rsdt_length = rsdt_mapping.length;
         let rsdt_mapping =
-            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, rsdt_length as usize, &handler) };
+            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, rsdt_length as usize, handler.clone()) };
         Ok(Self { rsdt_mapping, rsdt_entry_size, handler, quirks })
     }
 
@@ -236,7 +237,9 @@ where
                 // Extend the mapping to the entire table
                 let length = header_mapping.length;
                 drop(header_mapping);
-                Some(unsafe { PhysicalMapping::<_, T>::new(table_phys_address, length as usize, &self.handler) })
+                Some(unsafe {
+                    PhysicalMapping::<_, T>::new(table_phys_address, length as usize, self.handler.clone())
+                })
             } else {
                 None
             }
@@ -394,9 +397,9 @@ impl<H, T> PhysicalMapping<H, T>
 where
     H: Handler,
 {
-    pub unsafe fn new(physical_address: usize, size: usize, handler: &H) -> PhysicalMapping<H, T> {
+    pub unsafe fn new(physical_address: usize, size: usize, handler: H) -> PhysicalMapping<H, T> {
         let raw = unsafe { handler.map_physical_region(physical_address, size) };
-        PhysicalMapping { raw, handler: handler.clone() }
+        PhysicalMapping { raw, handler }
     }
 
     /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,

@@ -91,7 +91,7 @@ impl Rsdp {
         match rsdp_address {
             Some(address) => {
                 let rsdp_mapping =
-                    unsafe { PhysicalMapping::<_, Rsdp>::new(address, mem::size_of::<Rsdp>(), &handler) };
+                    unsafe { PhysicalMapping::<_, Rsdp>::new(address, mem::size_of::<Rsdp>(), handler.clone()) };
                 Ok(rsdp_mapping)
             }
             None => Err(AcpiError::NoValidRsdp),
