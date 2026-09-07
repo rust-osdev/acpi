@@ -1,6 +1,6 @@
 //! A wrapper around another [`Handler`] that checks for the correct sequence of commands in a test.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 use std::{
     mem::ManuallyDrop,
@@ -98,13 +98,10 @@ impl<H> Handler for CheckCommandHandler<H>
 where
     H: Handler + Clone,
 {
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T> {
         self.check_command(AcpiCommands::MapPhysicalRegion(physical_address, size));
 
-        let inner_mapping = unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) };
-        let inner_mapping = ManuallyDrop::new(inner_mapping);
-
-        PhysicalMapping { raw: inner_mapping.raw, handler: self.clone() }
+        unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) }
     }
 
     unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
