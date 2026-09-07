@@ -4,7 +4,7 @@
 // it for all tests - which causes these tests of the locking mechanism to conflict with each other
 // when run in parallel.
 
-use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, RawPhysicalMapping, aml::AmlError};
 use aml_test_tools::new_interpreter;
 use lock_api::RawReentrantMutex;
 use parking_lot::{RawMutex, RawThreadId};
@@ -183,7 +183,7 @@ impl Handler for LockHandler {
         unimplemented!()
     }
 
-    unsafe fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(&self, _region: RawPhysicalMapping<T>) {
         // Do nothing
     }
 

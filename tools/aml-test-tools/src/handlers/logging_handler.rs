@@ -1,7 +1,6 @@
 //! A [`Handler`] that logs all calls, then forwards them to an inner handler.
 
-use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::object::Object};
-use core::mem::ManuallyDrop;
+use acpi::{Handle, Handler, RawPhysicalMapping, aml::object::Object};
 use log::info;
 use pci_types::PciAddress;
 
@@ -32,18 +31,11 @@ where
         unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) }
     }
 
-    unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
-        info!("unmap_physical_region(physical_start={:#x})", region.raw.physical_start);
-
-        // Convert `PhysicalMapping<LoggingHandler<H>, T>` -> `PhysicalMapping<H, T>` and delegate.
-        // Prevent the temporary mapping from being dropped (and thus calling `H::unmap_physical_region` twice).
-        let inner_region = ManuallyDrop::new(PhysicalMapping::<H, T> {
-            raw: region.raw,
-            handler: region.handler.next_handler.clone(),
-        });
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
+        info!("unmap_physical_region(physical_start={:#x})", region.physical_start);
 
         unsafe {
-            H::unmap_physical_region(&inner_region);
+            self.next_handler.unmap_physical_region(region);
         }
     }
 
