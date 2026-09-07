@@ -36,13 +36,9 @@ jobs:
         submodules: 'recursive'
 
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        default: true
-        profile: minimal
-        target: ${{ matrix.target }}
-        components: llvm-tools-preview
+      run: |
+        rustup toolchain install --profile minimal --target ${{ matrix.target }} --component llvm-tools nightly
+        rustup default nightly
 
     - name: Build crates
       run: cargo build --target $TARGET $FEATURES
@@ -54,11 +50,9 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        default: true
-        profile: minimal
+      run: |
+        rustup toolchain install --profile minimal nightly
+        rustup default nightly
 
     - name: Install dependencies
       run: sudo apt-get install -y acpica-tools
@@ -76,12 +70,9 @@ jobs:
       with:
         submodules: 'recursive'
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        default: true
-        profile: minimal
-        components: clippy
+      run: |
+        rustup toolchain install --profile minimal --component clippy nightly
+        rustup default nightly
 
     - name: Run clippy
       run: cargo clippy
@@ -96,13 +87,9 @@ jobs:
         with:
           submodules: 'recursive'
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          default: true
-          profile: minimal
-          components: llvm-tools-preview
-          target: x86_64-unknown-none
+        run: |
+          rustup toolchain install --profile minimal --target x86_64-unknown-none --component llvm-tools nightly
+          rustup default nightly
 
       - name: Build no alloc test exe
         working-directory: tools/no_alloc_check
