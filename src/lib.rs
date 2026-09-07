@@ -583,6 +583,169 @@ pub trait Handler: Clone {
     }
 }
 
+impl<H: Handler + ?Sized> Handler for &H {
+    #[inline]
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T> {
+        unsafe { (**self).map_physical_region(physical_address, size) }
+    }
+
+    #[inline]
+    unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
+        unsafe { (**self).unmap_physical_region(region) }
+    }
+
+    #[inline]
+    fn read_u8(&self, address: usize) -> u8 {
+        (**self).read_u8(address)
+    }
+
+    #[inline]
+    fn read_u16(&self, address: usize) -> u16 {
+        (**self).read_u16(address)
+    }
+
+    #[inline]
+    fn read_u32(&self, address: usize) -> u32 {
+        (**self).read_u32(address)
+    }
+
+    #[inline]
+    fn read_u64(&self, address: usize) -> u64 {
+        (**self).read_u64(address)
+    }
+
+    #[inline]
+    fn write_u8(&self, address: usize, value: u8) {
+        (**self).write_u8(address, value)
+    }
+
+    #[inline]
+    fn write_u16(&self, address: usize, value: u16) {
+        (**self).write_u16(address, value)
+    }
+
+    #[inline]
+    fn write_u32(&self, address: usize, value: u32) {
+        (**self).write_u32(address, value)
+    }
+
+    #[inline]
+    fn write_u64(&self, address: usize, value: u64) {
+        (**self).write_u64(address, value)
+    }
+
+    #[inline]
+    fn read_io_u8(&self, port: u16) -> u8 {
+        (**self).read_io_u8(port)
+    }
+
+    #[inline]
+    fn read_io_u16(&self, port: u16) -> u16 {
+        (**self).read_io_u16(port)
+    }
+
+    #[inline]
+    fn read_io_u32(&self, port: u16) -> u32 {
+        (**self).read_io_u32(port)
+    }
+
+    #[inline]
+    fn write_io_u8(&self, port: u16, value: u8) {
+        (**self).write_io_u8(port, value)
+    }
+
+    #[inline]
+    fn write_io_u16(&self, port: u16, value: u16) {
+        (**self).write_io_u16(port, value)
+    }
+
+    #[inline]
+    fn write_io_u32(&self, port: u16, value: u32) {
+        (**self).write_io_u32(port, value)
+    }
+
+    #[inline]
+    fn read_pci_u8(&self, address: PciAddress, offset: u16) -> u8 {
+        (**self).read_pci_u8(address, offset)
+    }
+
+    #[inline]
+    fn read_pci_u16(&self, address: PciAddress, offset: u16) -> u16 {
+        (**self).read_pci_u16(address, offset)
+    }
+
+    #[inline]
+    fn read_pci_u32(&self, address: PciAddress, offset: u16) -> u32 {
+        (**self).read_pci_u32(address, offset)
+    }
+
+    #[inline]
+    fn write_pci_u8(&self, address: PciAddress, offset: u16, value: u8) {
+        (**self).write_pci_u8(address, offset, value)
+    }
+
+    #[inline]
+    fn write_pci_u16(&self, address: PciAddress, offset: u16, value: u16) {
+        (**self).write_pci_u16(address, offset, value)
+    }
+
+    #[inline]
+    fn write_pci_u32(&self, address: PciAddress, offset: u16, value: u32) {
+        (**self).write_pci_u32(address, offset, value)
+    }
+
+    #[inline]
+    fn nanos_since_boot(&self) -> u64 {
+        (**self).nanos_since_boot()
+    }
+
+    #[inline]
+    fn stall(&self, microseconds: u64) {
+        (**self).stall(microseconds)
+    }
+
+    #[inline]
+    fn sleep(&self, milliseconds: u64) {
+        (**self).sleep(milliseconds)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn create_mutex(&self) -> Handle {
+        (**self).create_mutex()
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn acquire(&self, mutex: Handle, timeout: u16) -> Result<(), aml::AmlError> {
+        (**self).acquire(mutex, timeout)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn release(&self, mutex: Handle) {
+        (**self).release(mutex)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn breakpoint(&self) {
+        (**self).breakpoint()
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn handle_debug(&self, object: &aml::object::Object) {
+        (**self).handle_debug(object)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
+        (**self).handle_fatal_error(fatal_type, fatal_code, fatal_arg)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
