@@ -63,14 +63,15 @@ impl Rsdp {
                 unsafe { handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_EXT_LENGTH) };
 
             let extended_area_bytes =
-                unsafe { slice::from_raw_parts(mapping.virtual_start.as_ptr(), mapping.region_length) };
+                unsafe { slice::from_raw_parts(mapping.raw.virtual_start.as_ptr(), mapping.raw.region_length) };
 
             // Search `Rsdp`-sized windows at 16-byte boundaries relative to the base of the area (which is also
             // aligned to 16 bytes due to the implementation of `find_search_areas`)
             extended_area_bytes.windows(mem::size_of::<Rsdp>()).step_by(16).find_map(|maybe_rsdp_bytes_slice| {
                 let maybe_rsdp_virt_ptr = maybe_rsdp_bytes_slice.as_ptr().cast::<Rsdp>();
-                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize - mapping.virtual_start.as_ptr() as usize
-                    + mapping.physical_start;
+                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize
+                    - mapping.raw.virtual_start.as_ptr() as usize
+                    + mapping.raw.physical_start;
                 // SAFETY: `maybe_rsdp_virt_ptr` points to an aligned, readable `Rsdp`-sized value, and the `Rsdp`
                 // struct's fields are always initialized.
                 let maybe_rsdp = unsafe { &*maybe_rsdp_virt_ptr };

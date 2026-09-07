@@ -104,13 +104,7 @@ where
         let inner_mapping = unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) };
         let inner_mapping = ManuallyDrop::new(inner_mapping);
 
-        PhysicalMapping {
-            physical_start: inner_mapping.physical_start,
-            virtual_start: inner_mapping.virtual_start,
-            region_length: inner_mapping.region_length,
-            mapped_length: inner_mapping.mapped_length,
-            handler: self.clone(),
-        }
+        PhysicalMapping { raw: inner_mapping.raw, handler: self.clone() }
     }
 
     unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
@@ -122,16 +116,13 @@ where
         if !std::thread::panicking()
             && region.handler.commands.len() > region.handler.next_command_idx.load(Relaxed)
         {
-            region.handler.check_command(AcpiCommands::UnmapPhysicalRegion(region.physical_start));
+            region.handler.check_command(AcpiCommands::UnmapPhysicalRegion(region.raw.physical_start));
         }
 
         // Convert `PhysicalMapping<LoggingHandler<H>, T>` -> `PhysicalMapping<H, T>` and delegate.
         // Prevent the temporary mapping from being dropped (and thus calling `H::unmap_physical_region` twice).
         let inner_region = ManuallyDrop::new(PhysicalMapping::<H, T> {
-            physical_start: region.physical_start,
-            virtual_start: region.virtual_start,
-            region_length: region.region_length,
-            mapped_length: region.mapped_length,
+            raw: region.raw,
             handler: region.handler.next_handler.clone(),
         });
 
