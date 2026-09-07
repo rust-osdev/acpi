@@ -59,8 +59,9 @@ impl Rsdp {
         let rsdp_address = find_search_areas(handler.clone()).iter().find_map(|area| {
             // Map the search area for the RSDP followed by `RSDP_EXT_BYTES` bytes so an ACPI 1.0 RSDP at the
             // end of the area can be read as an `Rsdp` (which always has the size of an ACPI 2.0 RSDP)
-            let mapping =
-                unsafe { handler.map_physical_region::<u8>(area.start, area.end - area.start + RSDP_EXT_LENGTH) };
+            let mapping = unsafe {
+                PhysicalMapping::<_, u8>::new(area.start, area.end - area.start + RSDP_EXT_LENGTH, &handler)
+            };
 
             let extended_area_bytes =
                 unsafe { slice::from_raw_parts(mapping.raw.virtual_start.as_ptr(), mapping.raw.region_length) };
@@ -89,7 +90,8 @@ impl Rsdp {
 
         match rsdp_address {
             Some(address) => {
-                let rsdp_mapping = unsafe { handler.map_physical_region::<Rsdp>(address, mem::size_of::<Rsdp>()) };
+                let rsdp_mapping =
+                    unsafe { PhysicalMapping::<_, Rsdp>::new(address, mem::size_of::<Rsdp>(), &handler) };
                 Ok(rsdp_mapping)
             }
             None => Err(AcpiError::NoValidRsdp),
@@ -176,7 +178,7 @@ where
      * unfortunately, so we might not get a sensible result. We shift it left 4, as it's a segment address.
      */
     let ebda_start_mapping =
-        unsafe { handler.map_physical_region::<u16>(EBDA_START_SEGMENT_PTR, mem::size_of::<u16>()) };
+        unsafe { PhysicalMapping::<_, u16>::new(EBDA_START_SEGMENT_PTR, mem::size_of::<u16>(), &handler) };
     let ebda_start = (*ebda_start_mapping as usize) << 4;
 
     [

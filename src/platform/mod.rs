@@ -9,6 +9,7 @@ use crate::{
     AcpiError,
     AcpiTables,
     Handler,
+    PhysicalMapping,
     PowerProfile,
     address::GenericAddress,
     registers::{FixedRegisters, Pm1ControlBit, Pm1Event},
@@ -155,9 +156,10 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
         let Some(madt) = self.tables.find_table::<Madt>() else { Err(AcpiError::TableNotFound(Signature::MADT))? };
         let mailbox_addr = madt.get().get_mpwk_mailbox_addr()?;
         let mut mpwk_mapping = unsafe {
-            self.handler.map_physical_region::<MultiprocessorWakeupMailbox>(
+            PhysicalMapping::<_, MultiprocessorWakeupMailbox>::new(
                 mailbox_addr as usize,
                 mem::size_of::<MultiprocessorWakeupMailbox>(),
+                &self.handler,
             )
         };
 
