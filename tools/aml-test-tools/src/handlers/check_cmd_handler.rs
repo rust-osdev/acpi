@@ -113,7 +113,7 @@ where
         }
     }
 
-    fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
+    unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
         // This function can be called during a panic, and it's pretty unlikely this command will
         // be in the expected commands list...
         //
@@ -135,7 +135,9 @@ where
             handler: region.handler.next_handler.clone(),
         });
 
-        H::unmap_physical_region(&inner_region);
+        unsafe {
+            H::unmap_physical_region(&inner_region);
+        }
     }
 
     fn read_u8(&self, address: usize) -> u8 {
