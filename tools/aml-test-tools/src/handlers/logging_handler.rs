@@ -1,6 +1,6 @@
 //! A [`Handler`] that logs all calls, then forwards them to an inner handler.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::object::Object};
+use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::object::Object};
 use core::mem::ManuallyDrop;
 use log::info;
 use pci_types::PciAddress;
@@ -26,13 +26,10 @@ impl<H> Handler for LoggingHandler<H>
 where
     H: Handler,
 {
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T> {
         info!("map_physical_region(physical_address={:#x}, size={:#x})", physical_address, size);
 
-        let inner_mapping = unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) };
-        let inner_mapping = ManuallyDrop::new(inner_mapping);
-
-        PhysicalMapping { raw: inner_mapping.raw, handler: self.clone() }
+        unsafe { self.next_handler.map_physical_region::<T>(physical_address, size) }
     }
 
     unsafe fn unmap_physical_region<T>(region: &PhysicalMapping<Self, T>) {
