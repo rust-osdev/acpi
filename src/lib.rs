@@ -43,7 +43,7 @@
 //! ```
 
 #![no_std]
-#![feature(allocator_api)]
+#![cfg_attr(feature = "alloc", feature(allocator_api))]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
@@ -72,7 +72,7 @@ use core::{
     pin::Pin,
     ptr::NonNull,
 };
-use log::{error, warn};
+use log::warn;
 use rsdp::Rsdp;
 
 /// `AcpiTables` represents a platform's of ACPI static tables, enumerated from the RSDT/XSDT. It
@@ -535,9 +535,11 @@ pub trait Handler: Clone {
 
     #[cfg(feature = "aml")]
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
-        error!(
+        log::error!(
             "Fatal error while executing AML (encountered DefFatalOp). fatal_type = {}, fatal_code = {}, fatal_arg = {}",
-            fatal_type, fatal_code, fatal_arg
+            fatal_type,
+            fatal_code,
+            fatal_arg
         );
     }
 }
