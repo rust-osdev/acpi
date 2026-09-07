@@ -178,9 +178,10 @@ where
     /// Iterate over the **physical** addresses of the SDTs.
     pub fn table_entries(&self) -> impl Iterator<Item = usize> {
         let mut table_entries_ptr =
-            unsafe { self.rsdt_mapping.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }.cast::<u8>();
-        let mut num_entries =
-            (self.rsdt_mapping.region_length.saturating_sub(mem::size_of::<SdtHeader>())) / self.rsdt_entry_size;
+            unsafe { self.rsdt_mapping.raw.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }
+                .cast::<u8>();
+        let mut num_entries = (self.rsdt_mapping.raw.region_length.saturating_sub(mem::size_of::<SdtHeader>()))
+            / self.rsdt_entry_size;
 
         core::iter::from_fn(move || {
             if num_entries > 0 {
@@ -331,13 +332,11 @@ pub struct AcpiQuirks {
     pub ignore_xsdt: bool,
 }
 
-/// Describes a physical mapping created by [`Handler::map_physical_region`] and unmapped by
-/// [`Handler::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
-/// bytes, but may be bigger.
-pub struct PhysicalMapping<H, T>
-where
-    H: Handler,
-{
+/// Describes a physical mapping.
+///
+/// The region mapped must be at least `size_of::<T>()` bytes, but may be bigger.
+#[derive(Debug)]
+pub struct RawPhysicalMapping<T: ?Sized> {
     /// The physical address of the mapped structure. The actual mapping may start at a lower address
     /// if the requested physical address is not well-aligned.
     pub physical_start: usize,
@@ -351,6 +350,29 @@ where
     /// The total size of the produced mapping. This may be the same as `region_length`, or larger to
     /// meet requirements of the mapping implementation.
     pub mapped_length: usize,
+}
+
+impl<T: ?Sized> Clone for RawPhysicalMapping<T> {
+    fn clone(&self) -> Self {
+        Self {
+            physical_start: self.physical_start.clone(),
+            virtual_start: self.virtual_start.clone(),
+            region_length: self.region_length.clone(),
+            mapped_length: self.mapped_length.clone(),
+        }
+    }
+}
+
+impl<T: ?Sized> Copy for RawPhysicalMapping<T> {}
+
+/// Describes a physical mapping created by [`Handler::map_physical_region`] and unmapped by
+/// [`Handler::unmap_physical_region`]. The region mapped must be at least `size_of::<T>()`
+/// bytes, but may be bigger.
+pub struct PhysicalMapping<H, T>
+where
+    H: Handler,
+{
+    pub raw: RawPhysicalMapping<T>,
     /// The [`Handler`] that was used to produce the mapping. When this mapping is dropped, this
     /// handler will be used to unmap the region.
     pub handler: H,
@@ -363,7 +385,7 @@ where
     /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,
     /// otherwise the mapping can simply be dereferenced to access the inner type.
     pub fn get(&self) -> Pin<&T> {
-        unsafe { Pin::new_unchecked(self.virtual_start.as_ref()) }
+        unsafe { Pin::new_unchecked(self.raw.virtual_start.as_ref()) }
     }
 }
 
@@ -373,10 +395,10 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PhysicalMapping")
-            .field("physical_start", &self.physical_start)
-            .field("virtual_start", &self.virtual_start)
-            .field("region_length", &self.region_length)
-            .field("mapped_length", &self.mapped_length)
+            .field("physical_start", &self.raw.physical_start)
+            .field("virtual_start", &self.raw.virtual_start)
+            .field("region_length", &self.raw.region_length)
+            .field("mapped_length", &self.raw.mapped_length)
             .field("handler", &())
             .finish()
     }
@@ -392,7 +414,7 @@ where
     type Target = T;
 
     fn deref(&self) -> &T {
-        unsafe { self.virtual_start.as_ref() }
+        unsafe { self.raw.virtual_start.as_ref() }
     }
 }
 
@@ -402,7 +424,7 @@ where
     H: Handler,
 {
     fn deref_mut(&mut self) -> &mut T {
-        unsafe { self.virtual_start.as_mut() }
+        unsafe { self.raw.virtual_start.as_mut() }
     }
 }
 
