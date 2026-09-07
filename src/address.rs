@@ -135,14 +135,15 @@ where
     /// ### Safety
     /// The supplied `GenericAddress` must be a valid GAS and all subsequent reads and writes must
     /// be valid.
-    pub unsafe fn map_gas(gas: GenericAddress, handler: &H) -> Result<MappedGas<H>, AcpiError> {
+    pub unsafe fn map_gas(gas: GenericAddress, handler: H) -> Result<MappedGas<H>, AcpiError> {
         match gas.address_space {
             AddressSpace::SystemMemory => {
                 // TODO: how to know total size needed?
-                let mapping = unsafe { PhysicalMapping::<_, u8>::new(gas.address as usize, 0x1000, handler) };
-                Ok(MappedGas { gas, handler: handler.clone(), mapping: Some(mapping) })
+                let mapping =
+                    unsafe { PhysicalMapping::<_, u8>::new(gas.address as usize, 0x1000, handler.clone()) };
+                Ok(MappedGas { gas, handler, mapping: Some(mapping) })
             }
-            AddressSpace::SystemIo => Ok(MappedGas { gas, handler: handler.clone(), mapping: None }),
+            AddressSpace::SystemIo => Ok(MappedGas { gas, handler, mapping: None }),
             other => {
                 warn!("Mapping a GAS in address space {:?} is not supported!", other);
                 Err(AcpiError::LibUnimplemented)

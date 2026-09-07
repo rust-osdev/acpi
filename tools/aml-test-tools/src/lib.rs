@@ -223,7 +223,7 @@ where
                         access_size: 1,
                         address: 0x400,
                     },
-                    &handler,
+                    handler.clone(),
                 )
                 .unwrap()
             },
@@ -239,7 +239,7 @@ where
                         access_size: 1,
                         address: 0x600,
                     },
-                    &handler,
+                    handler.clone(),
                 )
                 .unwrap()
             },
