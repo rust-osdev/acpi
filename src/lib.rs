@@ -395,7 +395,8 @@ where
     H: Handler,
 {
     pub unsafe fn new(physical_address: usize, size: usize, handler: &H) -> PhysicalMapping<H, T> {
-        unsafe { handler.map_physical_region(physical_address, size) }
+        let raw = unsafe { handler.map_physical_region(physical_address, size) };
+        PhysicalMapping { raw, handler: handler.clone() }
     }
 
     /// Get a pinned reference to the inner `T`. This is generally only useful if `T` is `!Unpin`,
@@ -485,7 +486,7 @@ pub trait Handler: Clone {
     ///
     /// - `physical_address` must point to a valid `T` in physical memory.
     /// - `size` must be at least `size_of::<T>()`.
-    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> PhysicalMapping<Self, T>;
+    unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T>;
 
     /// Unmap the given physical mapping. This is called when a [`PhysicalMapping`] is dropped, you should **not** manually call this.
     ///

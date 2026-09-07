@@ -1,6 +1,6 @@
 //! A [`Handler`] that does nothing useful.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 
 #[derive(Clone)]
@@ -11,7 +11,7 @@ pub struct NullHandler;
 /// This is useful as a placeholder if you really don't care what values the core [`acpi`] parser
 /// receives.
 impl Handler for NullHandler {
-    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> RawPhysicalMapping<T> {
         // This isn't implemented in `aml_tester` either
         todo!()
     }

@@ -1,6 +1,6 @@
 //! A basic [`Handler`] that returns an expected result from a provided sequence of commands.
 
-use acpi::{Handle, Handler, PhysicalMapping, aml::AmlError};
+use acpi::{Handle, Handler, PhysicalMapping, RawPhysicalMapping, aml::AmlError};
 use pci_types::PciAddress;
 use std::sync::{Arc, atomic::AtomicUsize};
 
@@ -85,7 +85,7 @@ impl Drop for ListedResponseHandler {
 }
 
 impl Handler for ListedResponseHandler {
-    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
+    unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> RawPhysicalMapping<T> {
         // This isn't implemented in `aml_tester` either
         todo!()
     }
