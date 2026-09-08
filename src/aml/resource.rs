@@ -740,7 +740,7 @@ pub struct GPIOConnectionDescriptor {
     pub output_drive_strength: u16,
     pub debounce_timeout: u16,
     pub pins: Vec<u16>,
-    pub source: crate::aml::String,
+    pub source: alloc::string::String,
     pub vendor_data: Vec<u8>,
     pub connection: GPIOConnection,
 }
