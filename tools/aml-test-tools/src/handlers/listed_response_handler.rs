@@ -86,7 +86,7 @@ impl Drop for ListedResponseHandler {
 
 impl Handler for ListedResponseHandler {
     unsafe fn map_physical_region<T>(&self, _physical_address: usize, _size: usize) -> PhysicalMapping<Self, T> {
-        // This isn't implemented in `aml_tester` either
+        // This isn't implemented in `aml-tester` either
         todo!()
     }
 

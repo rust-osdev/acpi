@@ -1,4 +1,4 @@
-# no_alloc_check test tool
+# no-alloc-check test tool
 
 This executable is used to check that the crate is usable in a no-alloc environment. It was born
 out of a comment on [issue 311](https://github.com/rust-osdev/acpi/issues/311) that it didn't work.

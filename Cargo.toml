@@ -1,7 +1,7 @@
 [workspace]
-members = ["tools/aml_tester", "tools/acpi_dumper", "tools/aml_test_tools", "tools/uacpi_test_adapter"]
-# See the note in the no_alloc_check README.md to see why this is excluded.
-exclude = ["tools/no_alloc_check"]
+members = ["tools/aml-tester", "tools/acpi-dumper", "tools/aml-test-tools", "tools/uacpi-test-adapter"]
+# See the note in the no-alloc-check README.md to see why this is excluded.
+exclude = ["tools/no-alloc-check"]
 resolver = "2"
 
 [package]
@@ -24,7 +24,7 @@ byteorder = { version = "1.5.0", optional = true, default-features = false }
 smallvec = { version = "1.15.2", optional = true, default-features = false }
 
 [dev-dependencies]
-aml_test_tools = { path = "tools/aml_test_tools" }
+aml-test-tools = { path = "tools/aml-test-tools" }
 lock_api = "0.4.14"
 parking_lot = "0.12.5"
 pretty_env_logger = "0.5.0"

@@ -8,8 +8,8 @@
  *        each AML file
  *      - For failing tests, print out a nice summary of the errors for each file
  *
- * `aml_tester` can be used with `uacpi_test_adapter` to run the uACPI test suite (except for the
- * resource tests). See the `uacpi_test_adapter` documentation for more information.
+ * `aml-tester` can be used with `uacpi-test-adapter` to run the uACPI test suite (except for the
+ * resource tests). See the `uacpi-test-adapter` documentation for more information.
  */
 
 use acpi::Handler;
@@ -62,7 +62,7 @@ impl From<TestResult> for FinalTestResult {
 fn main() -> ExitCode {
     pretty_env_logger::init();
 
-    let mut cmd = clap::Command::new("aml_tester")
+    let mut cmd = clap::Command::new("aml-tester")
         .version("v0.1.0")
         .author("Isaac Woods")
         .about(

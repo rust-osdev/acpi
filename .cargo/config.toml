@@ -1,2 +1,2 @@
 [alias]
-run_tests = "run --manifest-path tools/aml_tester/Cargo.toml --"
+run_tests = "run --manifest-path tools/aml-tester/Cargo.toml --"

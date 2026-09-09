@@ -93,5 +93,5 @@ jobs:
           rustup default nightly
 
       - name: Build no alloc test exe
-        working-directory: tools/no_alloc_check
+        working-directory: tools/no-alloc-check
         run: cargo build

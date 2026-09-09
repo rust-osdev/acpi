@@ -1,31 +1,31 @@
-//! A wrapper around the `aml_tester` crate that allows it to run the uACPI test suite.
+//! A wrapper around the `aml-tester` crate that allows it to run the uACPI test suite.
 //!
-//! Simply forwards all arguments sent from the uACPI test runner to `aml_tester`, *except* for when
+//! Simply forwards all arguments sent from the uACPI test runner to `aml-tester`, *except* for when
 //! the resource-tests are requested (which we don't support).
 //!
-//! Why make an adapter instead of just running `aml_tester` directly?
-//! * It allows uACPI to change their testing system without affecting users of `aml_tester`.
+//! Why make an adapter instead of just running `aml-tester` directly?
+//! * It allows uACPI to change their testing system without affecting users of `aml-tester`.
 //! * We can write a separate binary or other tool for running "resource-tests" without needing to
-//!   complicate `aml_tester`.
+//!   complicate `aml-tester`.
 //!
 //! Usage:
-//! * Make sure `aml_tester` can be found. The following methods are tried, in this order of
+//! * Make sure `aml-tester` can be found. The following methods are tried, in this order of
 //!   precedence:
-//!   * Set the environment variable `AML_TESTER_PATH` to the path and filename of the `aml_tester`
+//!   * Set the environment variable `AML_TESTER_PATH` to the path and filename of the `aml-tester`
 //!     binary, or
-//!   * Make sure `aml_tester` is in the system PATH, or
-//!   * Ensure `aml_tester` is in the same folder as `uacpi_test_adapter`.
-//! * Run the uACPI test suite but setting `uacpi_test_adapter` to the test runner.
+//!   * Make sure `aml-tester` is in the system PATH, or
+//!   * Ensure `aml-tester` is in the same folder as `uacpi-test-adapter`.
+//! * Run the uACPI test suite but setting `uacpi-test-adapter` to the test runner.
 //!
 //! e.g.: from the uACPI root directory:
 //! ```sh
-//! AML_TESTER_PATH=../acpi/target/debug/aml_tester python3 tests/run_tests.py --test-runner ../acpi/target/debug/uacpi_test_adapter
+//! AML_TESTER_PATH=../acpi/target/debug/aml-tester python3 tests/run_tests.py --test-runner ../acpi/target/debug/uacpi-test-adapter
 //! ```
 //! > Adjust the paths as needed!
 //!
 //! Notes:
 //!
-//! You may prefer to manually run aml_tester with individual ASL files from the uACPI test suite,
+//! You may prefer to manually run aml-tester with individual ASL files from the uACPI test suite,
 //! as you'll get better formatting. However, that would require you to manually enter the expected
 //! results.
 use std::{
@@ -44,14 +44,14 @@ fn main() -> ExitCode {
     }
 
     let Some(tester_path) = get_aml_tester_path() else {
-        eprintln!("aml_tester not found. Try setting AML_TESTER_PATH to the path of the aml_tester binary.");
+        eprintln!("aml-tester not found. Try setting AML_TESTER_PATH to the path of the aml-tester binary.");
         return ExitCode::FAILURE;
     };
 
     let status = match Command::new(tester_path).args(env::args_os().skip(1)).status() {
         Ok(status) => status,
         Err(err) => {
-            eprintln!("Failed to execute aml_tester: {err}");
+            eprintln!("Failed to execute aml-tester: {err}");
             return ExitCode::FAILURE;
         }
     };
@@ -62,7 +62,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// Find the path to the `aml_tester` binary.
+/// Find the path to the `aml-tester` binary.
 ///
 /// Uses the search order given in this executable's main documentation.
 fn get_aml_tester_path() -> Option<OsString> {
@@ -77,24 +77,24 @@ fn get_aml_tester_from_env() -> Option<OsString> {
     env::var_os("AML_TESTER_PATH")
 }
 
-/// If `aml_tester` is in the system PATH, use that.
+/// If `aml-tester` is in the system PATH, use that.
 fn get_aml_tester_from_path_env() -> Option<OsString> {
-    which("aml_tester").ok().map(|path| path.into())
+    which("aml-tester").ok().map(|path| path.into())
 }
 
-/// If `aml_tester` exists alongside this executable, use that.
+/// If `aml-tester` exists alongside this executable, use that.
 fn get_aml_tester_from_binary_path() -> Option<OsString> {
-    // This says: "change the name of the current executable to `aml_tester` and see if that exists."
+    // This says: "change the name of the current executable to `aml-tester` and see if that exists."
     env::current_exe().ok().map(change_exec_name).and_then(|path| which(path).ok()).map(|path| path.into())
 }
 
-/// Replace the filename of the given path with `aml_tester`. Preserve the extension so that
+/// Replace the filename of the given path with `aml-tester`. Preserve the extension so that
 /// Windows won't have problems.
 fn change_exec_name(mut path: PathBuf) -> PathBuf {
     // The final `unwrap` on the following line is reasonable because if the UTF-8 conversion fails,
     // the filename is probably invalid, so we don't really want to keep trying to use it!
     let extension = String::from(path.extension().unwrap_or_default().to_str().unwrap());
-    path.set_file_name("aml_tester");
+    path.set_file_name("aml-tester");
     path.set_extension(extension);
     path
 }
@@ -105,9 +105,9 @@ mod tests {
 
     #[test]
     fn test_filename_replacement() {
-        const PATH: &str = "/a/b/c/uacpi_test_adapter.ext";
+        const PATH: &str = "/a/b/c/uacpi-test-adapter.ext";
         let original_path = PathBuf::from(PATH);
-        let expected_path = PathBuf::from("/a/b/c/aml_tester.ext");
+        let expected_path = PathBuf::from("/a/b/c/aml-tester.ext");
         let result_path = change_exec_name(original_path);
 
         assert_eq!(result_path, expected_path);
