@@ -764,7 +764,7 @@ fn gpio_connection_descriptor(bytes: &[u8]) -> Result<Resource, AmlError> {
     let vendor_data_offset = LittleEndian::read_u16(&bytes[19..=20]) as usize;
     let vendor_data_length = LittleEndian::read_u16(&bytes[21..=22]) as usize;
 
-    let pin_count = ((source_name_offset - pin_table_offset) / 2) as usize;
+    let pin_count = (source_name_offset - pin_table_offset) / 2;
     let vendor_data = &bytes[vendor_data_offset..vendor_data_offset + vendor_data_length];
     let source = str::from_utf8(&bytes[source_name_offset..bytes.len() - vendor_data_length - 1])
         .map_err(|_| AmlError::InvalidResourceDescriptor)?;
