@@ -2396,7 +2396,11 @@ where
     ///    - Locals are overwritten, unless they contain a reference, in which case a store is
     ///      performed to the referenced object with implicit casting
     ///    - Args are overwritten, unless they contain a reference, in which case the referenced
-    ///      object is overwritten
+    ///      object is usually overwritten. References from Arg to Local without an intermediate
+    ///      `RefOf` cause the Arg to be overwritten.
+    ///      (see [issue #313](https://github.com/rust-osdev/acpi/issues/313))
+    ///    - Args that ultimately refer to a string *always* overwrite the string and not the Arg,
+    ///      as per the Windows NT behaviour (see `tests/store.asl`)
     ///    - Index references behave the same as locals
     ///    - Named objects are stored into, with implicit casting
     fn do_store(&self, target: WrappedObject, object: WrappedObject) -> Result<WrappedObject, AmlError> {
@@ -2404,29 +2408,10 @@ where
         let token = self.object_token.lock();
 
         match unsafe { target.gain_mut(&token) } {
-            Object::Reference { kind, inner } => {
-                let (target_object, overwrite) = match kind {
-                    ReferenceKind::Named => (inner.clone().unwrap_reference(), false),
-                    ReferenceKind::Local | ReferenceKind::Index => {
-                        if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
-                            (inner_inner.clone(), false)
-                        } else {
-                            (inner.clone().unwrap_transparent_reference(), true)
-                        }
-                    }
-                    ReferenceKind::Arg => {
-                        if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
-                            (inner_inner.clone(), true)
-                        } else {
-                            (inner.clone().unwrap_transparent_reference(), true)
-                        }
-                    }
-                    ReferenceKind::RefOf | ReferenceKind::Unresolved => {
-                        return Err(AmlError::StoreToInvalidReferenceType);
-                    }
-                };
+            Object::Reference { .. } => {
+                let (target_object, implicit_cast_reqd) = target.unwrap_ref_for_store()?;
 
-                if overwrite {
+                if !implicit_cast_reqd {
                     unsafe {
                         *target_object.gain_mut(&token) = (*object).clone();
                     }
