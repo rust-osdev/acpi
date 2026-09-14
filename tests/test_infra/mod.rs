@@ -15,23 +15,32 @@ use std::str::FromStr;
 // `run_aml_test` and `run_opcodes_test` are very similar in structure, but whilst there are only
 // two of them it's not worth adding complexity to make them DRY.
 
-/// Run a test against an ASL string.
+/// Run a test against an ASL string and check for successful execution.
 ///
 /// The string `asl` represents a compile-able ASL string, so needs to include the `DefinitionBlock`
 /// statement.
 #[allow(dead_code)]
 pub fn run_aml_test<H: Handler>(asl: &'static str, handler: H) -> Interpreter<LoggingHandler<H>> {
-    // Tests calling `run_aml_test` don't do much else, and we usually want logging, so initialize it here.
+    let result = run_aml_test_with_result(asl, handler);
+    match result {
+        RunTestResult::Pass(interpreter) => interpreter,
+        result => panic!("Test failed with: {:?}", TestResult::from(&result)),
+    }
+}
+
+/// Run a test against an ASL string and return the raw result.
+///
+/// The string `asl` represents a compile-able ASL string, so needs to include the `DefinitionBlock`
+/// statement.
+#[allow(dead_code)]
+pub fn run_aml_test_with_result<H: Handler>(asl: &'static str, handler: H) -> RunTestResult<LoggingHandler<H>> {
+    // Tests calling the test functions don't do much else, and we usually want logging, so initialize it here.
     let _ = pretty_env_logger::try_init();
 
     let logged_handler = LoggingHandler::new(handler);
     let interpreter = new_interpreter(logged_handler);
 
-    let result = run_test_for_string(asl, interpreter, &None);
-    match result {
-        RunTestResult::Pass(interpreter) => interpreter,
-        result => panic!("Test failed with: {:?}", TestResult::from(&result)),
-    }
+    run_test_for_string(asl, interpreter, &None)
 }
 
 /// Evaluate an object without arguments and return its unwrapped value.

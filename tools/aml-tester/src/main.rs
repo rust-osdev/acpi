@@ -14,7 +14,11 @@
 
 use acpi::Handler;
 use aml_test_tools::{
-    handlers::{logging_handler::LoggingHandler, null_handler::NullHandler},
+    handlers::{
+        logging_handler::LoggingHandler,
+        null_handler::NullHandler,
+        sys_timer_handler::SystemTimerHandler,
+    },
     new_interpreter,
     resolve_and_compile,
     result::ExpectedResult,
@@ -300,5 +304,5 @@ fn find_tests(matches: &clap::ArgMatches) -> std::io::Result<Vec<PathBuf>> {
 }
 
 fn new_handler() -> impl Handler {
-    LoggingHandler::new(NullHandler {})
+    LoggingHandler::new(SystemTimerHandler::new(NullHandler {}, 1))
 }

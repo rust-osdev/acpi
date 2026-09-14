@@ -7,3 +7,4 @@ pub mod listed_response_handler;
 pub mod logging_handler;
 pub mod null_handler;
 pub mod std_test_handler;
+pub mod sys_timer_handler;
