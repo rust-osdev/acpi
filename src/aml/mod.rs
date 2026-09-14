@@ -142,6 +142,21 @@ const INTERPRETER_REVISION: u64 = 1;
 /// to make us loop forever.
 const MAX_NAME_PATH_INDIRECTIONS: usize = 8;
 
+// The following constants are public as they are referenced from the AmlError docs.
+/// How many nested function calls should we allow? This is a fairly arbitrary figure that could be
+/// changed with experience if it proves too small.
+///
+/// The interpreter doesn't allocate a stack frame on the processor stack for each AML method call,
+/// so we're not worried about overflowing the kernel or process stack. This is a basic way to
+/// ensure the AML is not stuck in an infinite recursion (which would deadlock the caller)
+pub const MAX_STACK_DEPTH: usize = 1000;
+
+/// The maximum length of time a single loop should be allowed to execute for, in nanoseconds.
+///
+/// This is a fairly arbitrary limit to protect against infinite loops and the risk of system
+/// deadlock.
+pub const LOOP_TIMEOUT_NS: u64 = 10_000_000_000;
+
 impl<H, R> BaseInterpreter<H, R>
 where
     H: Handler,
@@ -969,6 +984,10 @@ where
                         context.retire_op(op);
                     }
                     Opcode::InternalMethodCall => {
+                        if context_stack.len() >= MAX_STACK_DEPTH {
+                            return Err(AmlError::MethodStackExceeded);
+                        }
+
                         extract_args!(op[0..2] => [Argument::Object(method), Argument::Namestring(method_scope)]);
                         let args = op.arguments[2..]
                             .iter()
@@ -1174,13 +1193,8 @@ where
 
                             continue;
                         }
-                        BlockKind::While { start_pc } => {
-                            /*
-                             * Go round again, and create a new in-flight op to have a look at the
-                             * predicate.
-                             */
-                            context.current_block.pc = start_pc;
-                            context.start(OpInFlight::new(Opcode::While, &[ResolveBehaviour::TermArg]));
+                        BlockKind::While { .. } => {
+                            self.continue_loop(&mut context)?;
                             continue;
                         }
                     }
@@ -1781,26 +1795,16 @@ where
                     let pkg_length = context.pkglength()?;
                     let remaining_length = pkg_length - (context.current_block.pc - start_pc);
                     context.start_new_block(
-                        BlockKind::While { start_pc: context.current_block.pc },
+                        BlockKind::While {
+                            start_pc: context.current_block.pc,
+                            start_nanos: self.handler.nanos_since_boot(),
+                        },
                         remaining_length,
                     );
                     context.start(OpInFlight::new(Opcode::While, &[ResolveBehaviour::TermArg]));
                 }
                 Opcode::Continue => {
-                    if let BlockKind::While { start_pc } = &context.current_block.kind {
-                        context.current_block.pc = *start_pc;
-                    } else {
-                        loop {
-                            let Some(block) = context.block_stack.pop() else {
-                                Err(AmlError::ContinueOutsideOfWhile)?
-                            };
-                            if let BlockKind::While { start_pc } = block.kind {
-                                context.current_block.pc = start_pc;
-                                break;
-                            }
-                        }
-                    }
-                    context.start(OpInFlight::new(Opcode::While, &[ResolveBehaviour::TermArg]));
+                    self.continue_loop(&mut context)?;
                 }
                 Opcode::Break => {
                     if let BlockKind::While { .. } = &context.current_block.kind {
@@ -2855,6 +2859,33 @@ where
         };
         Ok(PciAddress::new(seg as u16, bus as u8, device as u8, function as u8))
     }
+
+    /// Return to the beginning of a While loop - either because `Continue` was executed or
+    /// because we reached the end of the While block.
+    fn continue_loop(&self, context: &mut MethodContext) -> Result<(), AmlError> {
+        let start: u64;
+
+        if let BlockKind::While { start_pc, start_nanos } = &context.current_block.kind {
+            context.current_block.pc = *start_pc;
+            start = *start_nanos;
+        } else {
+            loop {
+                let Some(block) = context.block_stack.pop() else { Err(AmlError::ContinueOutsideOfWhile)? };
+                if let BlockKind::While { start_pc, start_nanos } = block.kind {
+                    context.current_block.pc = start_pc;
+                    start = start_nanos;
+                    break;
+                }
+            }
+        }
+
+        if self.handler.nanos_since_boot() - start > LOOP_TIMEOUT_NS {
+            return Err(AmlError::LoopTimeout);
+        }
+
+        context.start(OpInFlight::new(Opcode::While, &[ResolveBehaviour::TermArg]));
+        Ok(())
+    }
 }
 
 /// A `MethodContext` represents a piece of running AML code - either a real method, or the
@@ -2898,6 +2929,7 @@ pub enum BlockKind {
     IfThenBranch,
     While {
         start_pc: usize,
+        start_nanos: u64,
     },
 }
 
@@ -3027,11 +3059,8 @@ impl MethodContext {
             if args.len() != flags.arg_count() {
                 return Err(AmlError::MethodArgCountIncorrect);
             }
-            let block = Block {
-                stream: code.clone(),
-                pc: 0,
-                kind: BlockKind::Method { method_scope: scope.clone() },
-            };
+            let block =
+                Block { stream: code.clone(), pc: 0, kind: BlockKind::Method { method_scope: scope.clone() } };
             let args = core::array::from_fn(|i| {
                 if let Some(arg) = args.get(i) { arg.clone() } else { Object::Uninitialized.wrap() }
             });
@@ -3562,6 +3591,13 @@ pub enum AmlError {
     /// An internal interpreter error has occured, and the interpreter has been left in an unknown
     /// state. More information may be given in the contained value.
     InternalError(String),
+
+    /// The maximum stack depths of method calls [`MAX_STACK_DEPTH`] has been reached, so the method
+    /// call has been aborted.
+    MethodStackExceeded,
+
+    /// The maximum length of time a loop ([`LOOP_TIMEOUT_NS`]) can execute for has been exceeded.
+    LoopTimeout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
