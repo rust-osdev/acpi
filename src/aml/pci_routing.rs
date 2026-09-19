@@ -58,6 +58,10 @@ impl PciRoutingTable {
     /// `AmlError::InvalidOperationOnObject` if the value passed is not a package, or if any of the
     /// values within it are not packages. Returns the various `AmlError::Prt*` errors if the
     /// internal structure of the entries is invalid.
+    ///
+    /// Before calling this method, `\_PIC` should be called. See [`Interpreter::set_interrupt_model_used`].
+    /// The evaluation of `_PRT` can depend on the interrupt model being used. If `\_PIC` is not called,
+    /// the evaluation of PCI interrupts to GSI numbers can return incorrect results.
     pub fn from_prt_path(
         prt_path: AmlName,
         interpreter: &Interpreter<impl Handler>,
