@@ -21,6 +21,24 @@ pub enum Pin {
     IntD,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidPciInterruptPinError(pub u8);
+
+impl Pin {
+    /// If the PCI interrupt pin is `0`, that means that the PCI device doesn't use an interrupt pin,
+    /// and `Ok(None)` will be returned.
+    pub fn from_pci_interrupt_pin(pin: u8) -> Result<Option<Self>, InvalidPciInterruptPinError> {
+        match pin {
+            0 => Ok(None),
+            1 => Ok(Some(Self::IntA)),
+            2 => Ok(Some(Self::IntB)),
+            3 => Ok(Some(Self::IntC)),
+            4 => Ok(Some(Self::IntD)),
+            pin => Err(InvalidPciInterruptPinError(pin)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum PciRouteType {
     /// The interrupt is hard-coded to a specific GSI
