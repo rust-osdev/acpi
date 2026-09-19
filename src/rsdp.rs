@@ -1,5 +1,5 @@
 use crate::{AcpiError, Handler, PhysicalMapping};
-use core::{mem, ops::Range, slice, str};
+use core::{mem, ops::Range, ptr, slice, str};
 
 /// The size in bytes of the ACPI 1.0 RSDP.
 const RSDP_V1_LENGTH: usize = 20;
@@ -64,15 +64,17 @@ impl Rsdp {
             };
 
             let extended_area_bytes =
-                unsafe { slice::from_raw_parts(mapping.raw.virtual_start.as_ptr(), mapping.raw.region_length) };
+                // Safety: We aren't casting from non-mut to mut. Also, we have not created any
+                // other reference to the extended data area. This means reading the extended data
+                // area is protected from overlapping writes by the Rust referencing rules.
+                unsafe { slice::from_raw_parts(ptr::from_ref(&*mapping), mapping.get_raw().get_region_length()) };
 
             // Search `Rsdp`-sized windows at 16-byte boundaries relative to the base of the area (which is also
             // aligned to 16 bytes due to the implementation of `find_search_areas`)
             extended_area_bytes.windows(mem::size_of::<Rsdp>()).step_by(16).find_map(|maybe_rsdp_bytes_slice| {
                 let maybe_rsdp_virt_ptr = maybe_rsdp_bytes_slice.as_ptr().cast::<Rsdp>();
-                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize
-                    - mapping.raw.virtual_start.as_ptr() as usize
-                    + mapping.raw.physical_start;
+                let maybe_rsdp_phys_start = maybe_rsdp_virt_ptr as usize - ptr::from_ref(&*mapping) as usize
+                    + mapping.get_raw().get_physical_start();
                 // SAFETY: `maybe_rsdp_virt_ptr` points to an aligned, readable `Rsdp`-sized value, and the `Rsdp`
                 // struct's fields are always initialized.
                 let maybe_rsdp = unsafe { &*maybe_rsdp_virt_ptr };

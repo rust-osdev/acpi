@@ -66,7 +66,7 @@ pub use pci_types::PciAddress;
 pub use sdt::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
 
 use crate::sdt::{SdtHeader, Signature};
-use core::mem;
+use core::{mem, ptr};
 use log::warn;
 pub use physical_mapping::{PhysicalMapping, RawPhysicalMapping};
 use rsdp::Rsdp;
@@ -165,9 +165,8 @@ where
         rsdt_entry_size: usize,
         quirks: AcpiQuirks,
     ) -> Result<AcpiTables<H>, AcpiError> {
-        let rsdt_mapping = unsafe {
-            PhysicalMapping::<_, SdtHeader>::new(rsdt_address, mem::size_of::<SdtHeader>(), handler.clone())
-        };
+        let rsdt_mapping =
+            unsafe { PhysicalMapping::<_, SdtHeader>::new(rsdt_address, size_of::<SdtHeader>(), handler.clone()) };
 
         let rsdt_length = rsdt_mapping.length;
         let rsdt_mapping =
@@ -178,10 +177,10 @@ where
     /// Iterate over the **physical** addresses of the SDTs.
     pub fn table_entries(&self) -> impl Iterator<Item = usize> {
         let mut table_entries_ptr =
-            unsafe { self.rsdt_mapping.raw.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) }
-                .cast::<u8>();
-        let mut num_entries = (self.rsdt_mapping.raw.region_length.saturating_sub(mem::size_of::<SdtHeader>()))
-            / self.rsdt_entry_size;
+            unsafe { ptr::from_ref(&*self.rsdt_mapping).byte_add(size_of::<SdtHeader>()) }.cast::<u8>();
+        let mut num_entries =
+            (self.rsdt_mapping.get_raw().get_region_length().saturating_sub(mem::size_of::<SdtHeader>()))
+                / self.rsdt_entry_size;
 
         core::iter::from_fn(move || {
             if num_entries > 0 {
@@ -378,8 +377,6 @@ pub trait Handler: Clone {
     unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> RawPhysicalMapping<T>;
 
     /// Unmap the given physical mapping. This is called when a [`PhysicalMapping`] is dropped, you should **not** manually call this.
-    ///
-    /// Note: A reference to the [`Handler`] used to construct `region` can be acquired from [`PhysicalMapping::handler`].
     ///
     /// # Safety
     ///

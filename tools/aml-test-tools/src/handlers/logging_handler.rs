@@ -32,7 +32,7 @@ where
     }
 
     unsafe fn unmap_physical_region<T>(&self, region: RawPhysicalMapping<T>) {
-        info!("unmap_physical_region(physical_start={:#x})", region.physical_start);
+        info!("unmap_physical_region(physical_start={:#x})", region.get_physical_start());
 
         unsafe {
             self.next_handler.unmap_physical_region(region);

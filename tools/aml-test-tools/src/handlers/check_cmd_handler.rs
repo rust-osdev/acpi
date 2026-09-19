@@ -108,7 +108,7 @@ where
         // Also stop checking if we're at or past the end of the command list. This stops any
         // confusion about whether we're in Drop or not.
         if !std::thread::panicking() && self.commands.len() > self.next_command_idx.load(Relaxed) {
-            self.check_command(AcpiCommands::UnmapPhysicalRegion(region.physical_start));
+            self.check_command(AcpiCommands::UnmapPhysicalRegion(region.get_physical_start()));
         }
 
         unsafe {
