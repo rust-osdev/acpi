@@ -5,13 +5,14 @@ use crate::{
     Handler,
     aml::{
         AmlError,
-        Interpreter,
+        BaseInterpreter,
         namespace::AmlName,
         object::{Object, WrappedObject},
+        op_region::RegionHandler,
     },
 };
 
-/// See <https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html?highlight=_pic#pic-method>.
+/// See the [the docs for the `\_PIC` method](https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html#pic-method).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub enum InterruptModelUsed {
@@ -21,6 +22,12 @@ pub enum InterruptModelUsed {
     ApicMode,
     /// 2 - SAPIC mode
     SapicMode,
+    /// 4 – GIC model
+    GicModel = 4,
+    /// 5 – LPIC model
+    LpicModel = 5,
+    /// 6 – RINTC model
+    RintcModel = 6,
 }
 
 impl From<InterruptModelUsed> for Object {
@@ -29,15 +36,19 @@ impl From<InterruptModelUsed> for Object {
             InterruptModelUsed::PicMode => 0,
             InterruptModelUsed::ApicMode => 1,
             InterruptModelUsed::SapicMode => 2,
+            InterruptModelUsed::GicModel => 4,
+            InterruptModelUsed::LpicModel => 5,
+            InterruptModelUsed::RintcModel => 6,
         })
     }
 }
 
-impl<H> Interpreter<H>
+impl<H, R> BaseInterpreter<H, R>
 where
     H: Handler,
+    R: RegionHandler + ?Sized,
 {
-    /// Calls the [`\_PIC` method](https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/05_ACPI_Software_Programming_Model/ACPI_Software_Programming_Model.html?highlight=_pic#pic-method).
+    /// Calls the [`\_PIC` method](https://uefi.org/specs/ACPI/6.6/05_ACPI_Software_Programming_Model.html#pic-method).
     /// The method is optional, so if it doesn't exist this function returns success. Returns `true` is the method was called, `false` if it doesn't exist.
     pub fn set_interrupt_model_used(&self, model: InterruptModelUsed) -> Result<bool, AmlError> {
         Ok(self
