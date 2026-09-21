@@ -501,24 +501,37 @@ where
                         self.do_unary_maths(&mut context, op)?;
                     }
                     Opcode::Increment | Opcode::Decrement => {
-                        let [Argument::Object(operand)] = &op.arguments[..] else { panic!() };
+                        extract_args!(op => [Argument::Object(operand)]);
                         let operand = operand.clone().unwrap_transparent_reference();
                         let token = self.object_token.lock();
 
-                        let Object::Integer(operand) = (unsafe { operand.gain_mut(&token) }) else {
-                            Err(AmlError::ObjectNotOfExpectedType {
-                                expected: ObjectType::Integer,
-                                got: operand.typ(),
-                            })?
+                        let operand = unsafe {operand.gain_mut(&token)};
+                        let value = match operand {
+                            Object::Integer(operand) => {
+                                *operand
+                            }
+                            Object::BufferField{..} => {
+                                operand.to_integer(self.integer_size)?
+                            }
+                            _ => Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: operand.typ() })?
                         };
 
                         let new_value = match op.op {
-                            Opcode::Increment => operand.wrapping_add(1),
-                            Opcode::Decrement => operand.wrapping_sub(1),
+                            Opcode::Increment => value.wrapping_add(1),
+                            Opcode::Decrement => value.wrapping_sub(1),
                             _ => unreachable!(),
                         };
 
-                        *operand = new_value;
+                        match operand {
+                            Object::Integer(operand) => {
+                                *operand = new_value;
+                            }
+                            Object::BufferField{..} => {
+                                operand.write_buffer_field(&new_value.to_le_bytes(), &token)?;
+                            }
+                            _ => unreachable!()
+                        }
+
                         context.contribute_arg(Argument::Object(Object::Integer(new_value).wrap()));
                         context.retire_op(op);
                     }
