@@ -226,7 +226,7 @@ where
     pub fn read_u16(&self, byte_offset: u64) -> u16 {
         match self.gas.address_space {
             AddressSpace::SystemMemory => {
-                let addr = self.mapping.as_ref().unwrap().virtual_start.cast::<u16>();
+                let addr = self.mapping.as_ref().unwrap().raw.virtual_start.cast::<u16>();
                 unsafe { addr.byte_offset(byte_offset as isize).read_unaligned() }
             }
             AddressSpace::SystemIo => self.handler.read_io_u16(self.gas.address as u16 + byte_offset as u16),
@@ -238,7 +238,7 @@ where
     pub fn write_u16(&self, byte_offset: u64, value: u16) {
         match self.gas.address_space {
             AddressSpace::SystemMemory => {
-                let addr = self.mapping.as_ref().unwrap().virtual_start.cast::<u16>();
+                let addr = self.mapping.as_ref().unwrap().raw.virtual_start.cast::<u16>();
                 unsafe { addr.byte_offset(byte_offset as isize).write_unaligned(value) }
             }
             AddressSpace::SystemIo => {
