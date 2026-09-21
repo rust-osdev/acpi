@@ -21,6 +21,39 @@ pub enum Pin {
     IntD,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidPciInterruptPinError(pub u8);
+
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidPrtPackagePin(pub u8);
+
+impl Pin {
+    /// The [pin byte in the PCI configuration space](https://wiki.osdev.org/PCI#Header_Type_0x0) represents INTA-INTD as 1-4.
+    /// 0 means that the PCI device doesn't use an interrupt pin, in which case `Ok(None)` will be returned.
+    pub fn from_pci_interrupt_pin(pin: u8) -> Result<Option<Self>, InvalidPciInterruptPinError> {
+        match pin {
+            0 => Ok(None),
+            1 => Ok(Some(Self::IntA)),
+            2 => Ok(Some(Self::IntB)),
+            3 => Ok(Some(Self::IntC)),
+            4 => Ok(Some(Self::IntD)),
+            pin => Err(InvalidPciInterruptPinError(pin)),
+        }
+    }
+
+    /// The [ACPI PCI Routing Table](https://uefi.org/specs/ACPI/6.6/06_Device_Configuration.html#prt-pci-routing-table)
+    /// represents INTA-INTD as 0-3.
+    pub fn from_prt_package_pin(pin: u8) -> Result<Self, InvalidPrtPackagePin> {
+        match pin {
+            0 => Ok(Self::IntA),
+            1 => Ok(Self::IntB),
+            2 => Ok(Self::IntC),
+            3 => Ok(Self::IntD),
+            pin => Err(InvalidPrtPackagePin(pin)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum PciRouteType {
     /// The interrupt is hard-coded to a specific GSI
@@ -97,13 +130,11 @@ impl PciRoutingTable {
                     };
                     let device = address.get_bits(16..32).try_into().map_err(|_| AmlError::PrtInvalidAddress)?;
                     let function = address.get_bits(0..16).try_into().map_err(|_| AmlError::PrtInvalidAddress)?;
-                    let pin = match *pin_package[1] {
-                        Object::Integer(0) => Pin::IntA,
-                        Object::Integer(1) => Pin::IntB,
-                        Object::Integer(2) => Pin::IntC,
-                        Object::Integer(3) => Pin::IntD,
+                    let pin_byte = match *pin_package[1] {
+                        Object::Integer(byte) => byte as u8,
                         _ => return Err(AmlError::PrtInvalidPin),
                     };
+                    let pin = Pin::from_prt_package_pin(pin_byte).map_err(|_| AmlError::PrtInvalidPin)?;
 
                     /*
                      * A `NamePath` source is a reference to a name that we haven't resolved yet. We
