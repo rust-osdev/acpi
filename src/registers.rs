@@ -47,23 +47,11 @@ pub struct Pm1EventRegisterBlock<H: Handler> {
     pub pm1b: Option<MappedGas<H>>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum Pm1Event {
-    Timer = 0,
-    GlobalLock = 5,
-    PowerButton = 8,
-    SleepButton = 9,
-    Rtc = 10,
-    PciEWake = 14,
-    Wake = 15,
-}
-
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Pm1EventFlags: u16 {
         const TIMER = 1 << 0;
-        const GLOBAL_LOCK = 1 << 5;
+        const GLOBAL_ENABLE = 1 << 5;
         const POWER_BUTTON = 1 << 8;
         const SLEEP_BUTTON = 1 << 9;
         const RTC = 1 << 10;
@@ -76,38 +64,19 @@ impl<H> Pm1EventRegisterBlock<H>
 where
     H: Handler,
 {
-    pub fn set_event_enabled(&self, event: Pm1Event, enabled: bool) -> Result<(), AcpiError> {
-        let enable_offset = self.pm1_event_length * 8 / 2;
-        let event_bit = match event {
-            Pm1Event::Timer => 0,
-            Pm1Event::GlobalLock => 5,
-            Pm1Event::PowerButton => 8,
-            Pm1Event::SleepButton => 9,
-            Pm1Event::Rtc => 10,
-            Pm1Event::PciEWake => 14,
-            Pm1Event::Wake => 15,
-        };
-
-        let mut pm1a = self.pm1a.read()?;
-        pm1a.set_bit(enable_offset + event_bit, enabled);
-        self.pm1a.write(pm1a)?;
-
+    /// Sets the specified flags and unsets the other flags.
+    /// When an event happens, the corresponding status bit is always set.
+    /// These flags control whether an *interrupt* is triggered as a result of that status bit being set.
+    /// Note that global enable (GBL_EN) must be set for any SCI interrupts to be fired.
+    /// For most flags you set to enable and clear to disable.
+    /// But for PCIe wake the flag is set to disable and clear to enable.
+    pub fn set_enable_flags(&self, events: Pm1EventFlags) {
+        let enable_offset = self.pm1_event_length as u64 / 2;
+        let bits = events.known_bits();
+        self.pm1a.write_u16(enable_offset, bits);
         if let Some(pm1b) = &self.pm1b {
-            let mut value = pm1b.read()?;
-            value.set_bit(enable_offset + event_bit, enabled);
-            pm1b.write(value)?;
+            pm1b.write_u16(enable_offset, bits);
         }
-
-        Ok(())
-    }
-
-    pub fn read(&self) -> Result<u64, AcpiError> {
-        let pm1_len = self.pm1_event_length * 8;
-
-        let pm1a = self.pm1a.read()?.get_bits(0..pm1_len);
-        let pm1b = if let Some(pm1b) = &self.pm1b { pm1b.read()?.get_bits(0..pm1_len) } else { 0 };
-
-        Ok(pm1a | pm1b)
     }
 
     pub fn pending_events(&self) -> Pm1EventFlags {
