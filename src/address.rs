@@ -161,14 +161,10 @@ where
             AddressSpace::SystemMemory => {
                 let mapping = self.mapping.as_ref().unwrap();
                 match access_size_bits {
-                    8 => Ok(unsafe { ptr::read_volatile(mapping.raw.virtual_start.as_ptr() as *const u8) as u64 }),
-                    16 => {
-                        Ok(unsafe { ptr::read_volatile(mapping.raw.virtual_start.as_ptr() as *const u16) as u64 })
-                    }
-                    32 => {
-                        Ok(unsafe { ptr::read_volatile(mapping.raw.virtual_start.as_ptr() as *const u32) as u64 })
-                    }
-                    64 => Ok(unsafe { ptr::read_volatile(mapping.raw.virtual_start.as_ptr() as *const u64) }),
+                    8 => Ok(unsafe { ptr::read_volatile(ptr::from_ref(&**mapping)) as u64 }),
+                    16 => Ok(unsafe { ptr::read_volatile(ptr::from_ref(&**mapping) as *const u16) as u64 }),
+                    32 => Ok(unsafe { ptr::read_volatile(ptr::from_ref(&**mapping) as *const u32) as u64 }),
+                    64 => Ok(unsafe { ptr::read_volatile(ptr::from_ref(&**mapping) as *const u64) }),
                     _ => Err(AcpiError::InvalidGenericAddress),
                 }
             }
@@ -191,17 +187,28 @@ where
         match self.gas.address_space {
             AddressSpace::SystemMemory => {
                 let mapping = self.mapping.as_ref().unwrap();
+                // SAFETY: We would really prefer to have a mut ref to mapping here, but that
+                // requires `&mut self`.
+                //
+                // We rely on the write being to memory outside the Rust allocation system in order
+                // to be safe. This assumption justifies the allowed `invalid_reference_casting`.
                 match access_size_bits {
                     8 => unsafe {
-                        ptr::write_volatile(mapping.raw.virtual_start.as_ptr(), value as u8);
+                        #[allow(invalid_reference_casting)]
+                        ptr::write_volatile(ptr::from_ref(&**mapping) as *mut u8, value as u8);
                     },
                     16 => unsafe {
-                        ptr::write_volatile(mapping.raw.virtual_start.as_ptr() as *mut u16, value as u16);
+                        #[allow(invalid_reference_casting)]
+                        ptr::write_volatile(ptr::from_ref(&**mapping) as *mut u16, value as u16);
                     },
                     32 => unsafe {
-                        ptr::write_volatile(mapping.raw.virtual_start.as_ptr() as *mut u32, value as u32);
+                        #[allow(invalid_reference_casting)]
+                        ptr::write_volatile(ptr::from_ref(&**mapping) as *mut u32, value as u32);
                     },
-                    64 => unsafe { ptr::write_volatile(mapping.raw.virtual_start.as_ptr() as *mut u64, value) },
+                    64 => unsafe {
+                        #[allow(invalid_reference_casting)]
+                        ptr::write_volatile(ptr::from_ref(&**mapping) as *mut u64, value)
+                    },
                     _ => return Err(AcpiError::InvalidGenericAddress),
                 }
                 Ok(())
@@ -226,7 +233,7 @@ where
     pub fn read_u16(&self, byte_offset: u64) -> u16 {
         match self.gas.address_space {
             AddressSpace::SystemMemory => {
-                let addr = self.mapping.as_ref().unwrap().raw.virtual_start.cast::<u16>();
+                let addr = ptr::from_ref(&**self.mapping.as_ref().unwrap()).cast::<u16>();
                 unsafe { addr.byte_offset(byte_offset as isize).read_unaligned() }
             }
             AddressSpace::SystemIo => self.handler.read_io_u16(self.gas.address as u16 + byte_offset as u16),
@@ -238,7 +245,7 @@ where
     pub fn write_u16(&self, byte_offset: u64, value: u16) {
         match self.gas.address_space {
             AddressSpace::SystemMemory => {
-                let addr = self.mapping.as_ref().unwrap().raw.virtual_start.cast::<u16>();
+                let addr = ptr::from_ref(&**self.mapping.as_ref().unwrap()).cast::<u16>() as *mut u16;
                 unsafe { addr.byte_offset(byte_offset as isize).write_unaligned(value) }
             }
             AddressSpace::SystemIo => {
