@@ -16,6 +16,7 @@
  *  - Fuzzing and guarantee panic-free interpretation
  */
 
+mod interrupt_model_used;
 pub mod namespace;
 pub mod object;
 pub mod op_region;
@@ -47,6 +48,7 @@ use core::{
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
 };
+pub use interrupt_model_used::InterruptModelUsed;
 use log::{error, info, trace, warn};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
