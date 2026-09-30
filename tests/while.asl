@@ -51,11 +51,33 @@ DefinitionBlock("while.aml", "DSDT", 1, "RSACPI", "WHILE", 1) {
         CHEK(Local0, 0)
     }
 
+    Method(T5) {
+        // Test `Continue` from within an If block (adapted from uACPI's `while-continue.asl`)
+        Local0 = 1
+        Local1 = 10
+
+        While (Local0) {
+            If (Local1--) {
+                Debug = "Incrementing Local0 & continuing"
+                Local0++
+                Debug = Local0
+                Continue
+            }
+
+            Debug = "Local1 is 0, breaking"
+            Break
+        }
+
+        CHEK(Local0, 10)
+        CHEK(Local1, 0)
+    }
+
     Method(MAIN) {
         T1()
         T2()
         T3()
         T4()
+        T5()
 
         Return(FCNT)
     }

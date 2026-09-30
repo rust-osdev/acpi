@@ -2865,7 +2865,8 @@ where
         } else {
             loop {
                 let Some(block) = context.block_stack.pop() else { Err(AmlError::ContinueOutsideOfWhile)? };
-                if let BlockKind::While { start_pc, start_nanos } = block.kind {
+                context.current_block = block;
+                if let BlockKind::While { start_pc, start_nanos } = context.current_block.kind {
                     context.current_block.pc = start_pc;
                     start = start_nanos;
                     break;
