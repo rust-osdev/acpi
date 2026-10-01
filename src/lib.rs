@@ -191,9 +191,9 @@ where
             if num_entries > 0 {
                 unsafe {
                     let entry = if self.rsdt_entry_size == 4 {
-                        *table_entries_ptr.cast::<u32>() as usize
+                        table_entries_ptr.cast::<u32>().read_unaligned() as usize
                     } else {
-                        *table_entries_ptr.cast::<u64>() as usize
+                        table_entries_ptr.cast::<u64>().read_unaligned() as usize
                     };
                     table_entries_ptr = table_entries_ptr.byte_add(self.rsdt_entry_size);
                     num_entries -= 1;
