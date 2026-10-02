@@ -777,12 +777,17 @@ where
                          *      logic to add some `Uninitialized`s, then go round again to complete
                          *      the in-flight operation.
                          *
-                         * To make these consistent, we always remove the block here, making sure
-                         * we've finished it as a sanity check.
+                         * To make these consistent, we always remove the block here. The package
+                         * element count is authoritative, so any bytes after the declared
+                         * elements belong to the following AML terms.
                          */
                         assert_eq!(context.current_block.kind, BlockKind::Package);
-                        assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
+                        let package_end_pc = context.current_block.pc;
                         context.current_block = context.block_stack.pop().unwrap();
+                        // The package's element count is authoritative. If its encoded length
+                        // extends into following AML terms, resume parsing immediately after the
+                        // declared elements instead of skipping those terms.
+                        context.current_block.pc = package_end_pc;
                         context.contribute_arg(Argument::Object(Object::Package(elements).wrap()));
                         context.retire_op(op);
                     }
