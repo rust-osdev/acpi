@@ -284,14 +284,11 @@ where
     // This PhysicalMapping is dropped when the interpreter is dropped, and if you use logging in
     // the handler object you'll see a call to Handler::unmap_physical_region without any
     // corresponding call to Interpreter::map_physical_region.
-    let fake_facs_mapping = PhysicalMapping {
-        raw: RawPhysicalMapping {
-            physical_start: 0x0,
-            virtual_start: NonNull::new(fake_facs_ptr).unwrap(),
-            region_length: 32,
-            mapped_length: 32,
-        },
-        handler: handler.clone(),
+    let fake_facs_mapping = unsafe {
+        PhysicalMapping::new_unchecked(
+            RawPhysicalMapping::new(0x0, NonNull::new(fake_facs_ptr).unwrap(), 32, 32),
+            handler.clone(),
+        )
     };
     Interpreter::new(handler, 2, fake_registers, Some(fake_facs_mapping))
 }

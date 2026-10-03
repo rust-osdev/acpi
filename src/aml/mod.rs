@@ -44,6 +44,7 @@ use alloc::{
 use bit_field::BitField;
 use core::{
     mem,
+    ptr,
     slice,
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
@@ -206,7 +207,7 @@ where
             };
             let stream = unsafe {
                 slice::from_raw_parts(
-                    mapping.raw.virtual_start.as_ptr().byte_add(mem::size_of::<SdtHeader>()) as *const u8,
+                    ptr::from_ref(&*mapping).byte_add(size_of::<SdtHeader>()) as *const u8,
                     table.length as usize - mem::size_of::<SdtHeader>(),
                 )
             };
