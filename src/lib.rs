@@ -63,12 +63,12 @@ pub mod rsdp;
 pub mod sdt;
 
 pub use pci_types::PciAddress;
+pub use physical_mapping::{PhysicalMapping, RawPhysicalMapping};
 pub use sdt::{fadt::PowerProfile, hpet::HpetInfo, madt::MadtError};
 
 use crate::sdt::{SdtHeader, Signature};
-use core::{mem, ptr};
+use core::mem;
 use log::warn;
-pub use physical_mapping::{PhysicalMapping, RawPhysicalMapping};
 use rsdp::Rsdp;
 
 /// `AcpiTables` represents a platform's of ACPI static tables, enumerated from the RSDT/XSDT. It
@@ -177,9 +177,9 @@ where
     /// Iterate over the **physical** addresses of the SDTs.
     pub fn table_entries(&self) -> impl Iterator<Item = usize> {
         let mut table_entries_ptr =
-            unsafe { ptr::from_ref(&*self.rsdt_mapping).byte_add(size_of::<SdtHeader>()) }.cast::<u8>();
+            unsafe { self.rsdt_mapping.as_ptr().byte_add(size_of::<SdtHeader>()) }.cast::<u8>();
         let mut num_entries =
-            (self.rsdt_mapping.get_raw().get_region_length().saturating_sub(mem::size_of::<SdtHeader>()))
+            (self.rsdt_mapping.raw().region_length().saturating_sub(mem::size_of::<SdtHeader>()))
                 / self.rsdt_entry_size;
 
         core::iter::from_fn(move || {

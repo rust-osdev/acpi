@@ -1,9 +1,8 @@
 #![feature(negative_impls)]
 
-use acpi::{PhysicalMapping, aml::Interpreter};
+use acpi::{PhysicalMapping, aml::Interpreter, registers::FixedRegisters};
 use aml_test_tools::handlers::null_handler::NullHandler;
 use static_assertions::{assert_impl_all, assert_not_impl_any};
-use acpi::registers::FixedRegisters;
 
 struct NoSend {}
 impl !Send for NoSend {}

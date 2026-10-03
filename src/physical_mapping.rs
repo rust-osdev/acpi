@@ -49,7 +49,7 @@ impl<T: ?Sized> RawPhysicalMapping<T> {
         Self { physical_start, virtual_start, region_length, mapped_length }
     }
 
-    pub fn get_physical_start(&self) -> usize {
+    pub fn physical_start(&self) -> usize {
         self.physical_start
     }
 
@@ -60,15 +60,15 @@ impl<T: ?Sized> RawPhysicalMapping<T> {
     /// The returned pointer must not be used to create duplicate references to the same address,
     /// or any other action that would violate the Rust aliasing rules. Always try to access the
     /// stored data by dereferencing a PhysicalMapping.
-    pub unsafe fn get_virtual_start(&self) -> NonNull<T> {
+    pub unsafe fn virtual_start(&self) -> NonNull<T> {
         self.virtual_start
     }
 
-    pub fn get_region_length(&self) -> usize {
+    pub fn region_length(&self) -> usize {
         self.region_length
     }
 
-    pub fn get_mapped_length(&self) -> usize {
+    pub fn mapped_length(&self) -> usize {
         self.mapped_length
     }
 }
@@ -130,8 +130,33 @@ where
         unsafe { Pin::new_unchecked(self.raw.virtual_start.as_ref()) }
     }
 
-    pub fn get_raw(&self) -> RawPhysicalMapping<T> {
+    pub fn raw(&self) -> RawPhysicalMapping<T> {
         self.raw
+    }
+
+    /// Return the underlying pointer.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer must not be aliased with any references to `&mut self` or pointers
+    /// returned by [`Self::as_mut_ptr`] - that is, normal Rust pointer rules apply.
+    pub unsafe fn as_ptr(&self) -> *const T {
+        self.raw.virtual_start.as_ptr()
+    }
+
+    /// Return the underlying pointer, for use in a `mut` context.
+    ///
+    /// # Safety
+    ///
+    /// **This `mut` pointer is not protected against aliasing by being taken from an `&mut self`**
+    /// \- it would be very easy to create multiple `mut` pointers, or a `mut` pointer alongside
+    /// non-`mut` references. The caller must not create or use such pointers.
+    ///
+    /// Alternatively, users calling write_volatile may rely on the idea that writes to memory
+    /// outside the Rust allocation system are allowed to avoid the above rule - see the docs for
+    /// [`core::ptr::write_volatile`] for details on that.
+    pub unsafe fn as_mut_ptr(&self) -> *mut T {
+        self.raw.virtual_start.as_ptr()
     }
 }
 
