@@ -1076,6 +1076,11 @@ where
                             context.retire_op(op);
                         }
                     }
+                    Opcode::Match => {
+                        extract_args!(op => [Argument::Object(search_pkg), Argument::ByteData(opcode_a), Argument::Object(operand_a), Argument::ByteData(opcode_b), Argument::Object(operand_b), Argument::Object(start_index)]);
+
+                        panic!("Match!");
+                    }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -1200,17 +1205,35 @@ where
                 }
                 Err(other_err) => return Err(other_err),
             };
+            let resolve_behaviour = context.in_flight.last().map(|op| op.resolve_behaviour());
             match opcode {
                 Opcode::Zero => {
-                    /*
-                     * This represents a `Zero` operand that should create an `Integer` operand in
-                     * most places, but could also encode a `NullName` if we are expecting a
-                     * `Target`. We handle the latter in logic for stores to targets.
-                     */
-                    context.contribute_arg(Argument::Object(Object::Integer(0).wrap()));
+                    if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
+                        // This represents a 0 argument to a match statement (`MTR`)
+                        context.contribute_arg(Argument::ByteData(0));
+                    } else {
+                        /*
+                         * This represents a `Zero` operand that should create an `Integer` operand in
+                         * most places, but could also encode a `NullName` if we are expecting a
+                         * `Target`. We handle the latter in logic for stores to targets.
+                         */
+                        context.contribute_arg(Argument::Object(Object::Integer(0).wrap()));
+                    }
                 }
                 Opcode::One => {
-                    context.contribute_arg(Argument::Object(Object::Integer(1).wrap()));
+                    if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
+                        // As above, this represents a 1 argument to a match statement (`MEQ`)
+                        context.contribute_arg(Argument::ByteData(1));
+                    } else {
+                        context.contribute_arg(Argument::Object(Object::Integer(1).wrap()));
+                    }
+                }
+                Opcode::MatchOpcode(opcode) => {
+                    if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
+                        context.contribute_arg(Argument::ByteData(opcode));
+                    } else {
+                        Err(AmlError::InternalError("TODO: Better error".into()))?
+                    }
                 }
                 Opcode::Ones => {
                     context.contribute_arg(Argument::Object(Object::Integer(u64::MAX).wrap()));
@@ -1590,11 +1613,7 @@ where
                     context.current_block.pc -= 1;
                     let name = context.namestring()?;
 
-                    let behaviour = context
-                        .in_flight
-                        .last()
-                        .map(|op| op.resolve_behaviour())
-                        .unwrap_or(ResolveBehaviour::TermArg);
+                    let behaviour = resolve_behaviour.unwrap_or(ResolveBehaviour::TermArg);
                     match behaviour {
                         // XXX: `NullName` is handled separately given its ambiguity with `Zero`
                         ResolveBehaviour::SimpleName | ResolveBehaviour::SuperName | ResolveBehaviour::Target => {
@@ -1676,6 +1695,9 @@ where
                         ResolveBehaviour::Placeholder => {
                             panic!("Invalid resolve behaviour for name to be resolved!")
                         }
+                        ResolveBehaviour::MatchOpcode => {
+                            Err(AmlError::InternalError("TODO: Better error".into()))?
+                        }
                     }
                 }
 
@@ -1726,14 +1748,17 @@ where
                     opcode,
                     &[ResolveBehaviour::TermArg, ResolveBehaviour::TermArg, ResolveBehaviour::Target],
                 )),
-                /*
-                 * TODO
-                 * Match is a difficult opcode to parse, as it interleaves dynamic arguments and
-                 * random bytes that need to be extracted as you go. I think we'll need to use 1+
-                 * internal in-flight ops to parse the static bytedatas as we go, and then retire
-                 * the real op at the end.
-                 */
-                Opcode::Match => todo!(),
+                Opcode::Match => context.start(OpInFlight::new(
+                    opcode,
+                    &[
+                        ResolveBehaviour::TermArg,
+                        ResolveBehaviour::MatchOpcode,
+                        ResolveBehaviour::TermArg,
+                        ResolveBehaviour::MatchOpcode,
+                        ResolveBehaviour::TermArg,
+                        ResolveBehaviour::TermArg,
+                    ],
+                )),
 
                 Opcode::CreateBitField
                 | Opcode::CreateByteField
@@ -2955,6 +2980,8 @@ enum ResolveBehaviour {
     /// Used with [`OpInFlight::new_with`] to represent arguments that have already been resolved
     /// when an operation enters flight.
     Placeholder,
+    /// The match statement takes two single byte arguments - the "match opcode".
+    MatchOpcode,
 }
 
 #[derive(Debug)]
@@ -3117,6 +3144,7 @@ impl MethodContext {
         Ok(match opcode {
             0x00 => Opcode::Zero,
             0x01 => Opcode::One,
+            0x02..0x06 => Opcode::MatchOpcode(opcode as u8),
             0x06 => Opcode::Alias,
             0x08 => Opcode::Name,
             0x0a => Opcode::BytePrefix,
@@ -3368,6 +3396,7 @@ impl MethodContext {
 enum Opcode {
     Zero,
     One,
+    MatchOpcode(u8),
     Alias,
     Name,
     BytePrefix,
@@ -3601,5 +3630,35 @@ pub enum IntegerSize {
 impl IntegerSize {
     pub fn from_revision(revision: u8) -> IntegerSize {
         if revision >= 2 { IntegerSize::EightBytes } else { IntegerSize::FourBytes }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MatchOp {
+    MTR,
+    MEQ,
+    MLE,
+    MLT,
+    MGE,
+    MGT,
+}
+
+impl TryFrom<&Argument> for MatchOp {
+    type Error = AmlError;
+
+    fn try_from(value: &Argument) -> Result<Self, Self::Error> {
+        let Argument::ByteData(opcode) = value else {
+            return Err(AmlError::InternalError("TODO: Better error".into()));
+        };
+
+        Ok(match opcode {
+            0 => Self::MTR,
+            1 => Self::MEQ,
+            2 => Self::MLE,
+            3 => Self::MLT,
+            4 => Self::MGE,
+            5 => Self::MGT,
+            _ => Err(AmlError::InternalError("TODO: Better error".into()))?,
+        })
     }
 }
