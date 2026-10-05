@@ -17,6 +17,8 @@
  */
 
 mod interrupt_model_used;
+mod match_expr;
+
 pub mod namespace;
 pub mod object;
 pub mod op_region;
@@ -51,6 +53,7 @@ use core::{
 };
 pub use interrupt_model_used::InterruptModelUsed;
 use log::{error, info, trace, warn};
+use match_expr::do_match;
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
     DeviceStatus,
@@ -1079,7 +1082,21 @@ where
                     Opcode::Match => {
                         extract_args!(op => [Argument::Object(search_pkg), Argument::ByteData(opcode_a), Argument::Object(operand_a), Argument::ByteData(opcode_b), Argument::Object(operand_b), Argument::Object(start_index)]);
 
-                        panic!("Match!");
+                        let Object::Package(ref pkg) = **search_pkg else {
+                            return Err(AmlError::InternalError("TODO: Better error".into()));
+                        };
+
+                        let result = do_match(
+                            pkg,
+                            opcode_a.try_into()?,
+                            operand_a.as_integer()?,
+                            opcode_b.try_into()?,
+                            operand_b.as_integer()?,
+                            start_index.as_integer()?,
+                        );
+
+                        context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
+                        context.retire_op(op);
                     }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
@@ -1207,6 +1224,10 @@ where
             };
             let resolve_behaviour = context.in_flight.last().map(|op| op.resolve_behaviour());
             match opcode {
+                // Opcodes Zero and One overlap with the Match Opcodes that are only used in the
+                // match expression. It's reasonable to assume that if Zero or One appear at the
+                // time we expect a Match Opcode, then they *are* Match Opcodes instead of regular
+                // arguments.
                 Opcode::Zero => {
                     if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
                         // This represents a 0 argument to a match statement (`MTR`)
@@ -3630,35 +3651,5 @@ pub enum IntegerSize {
 impl IntegerSize {
     pub fn from_revision(revision: u8) -> IntegerSize {
         if revision >= 2 { IntegerSize::EightBytes } else { IntegerSize::FourBytes }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum MatchOp {
-    MTR,
-    MEQ,
-    MLE,
-    MLT,
-    MGE,
-    MGT,
-}
-
-impl TryFrom<&Argument> for MatchOp {
-    type Error = AmlError;
-
-    fn try_from(value: &Argument) -> Result<Self, Self::Error> {
-        let Argument::ByteData(opcode) = value else {
-            return Err(AmlError::InternalError("TODO: Better error".into()));
-        };
-
-        Ok(match opcode {
-            0 => Self::MTR,
-            1 => Self::MEQ,
-            2 => Self::MLE,
-            3 => Self::MLT,
-            4 => Self::MGE,
-            5 => Self::MGT,
-            _ => Err(AmlError::InternalError("TODO: Better error".into()))?,
-        })
     }
 }
