@@ -774,12 +774,34 @@ where
                          *      logic to add some `Uninitialized`s, then go round again to complete
                          *      the in-flight operation.
                          *
-                         * To make these consistent, we always remove the block here, making sure
-                         * we've finished it as a sanity check.
+                         * To make these consistent, we always remove the block here. If the next
+                         * byte cannot start a package element, it unambiguously starts a following
+                         * AML term even if the package's encoded length extends past it. Bytes
+                         * which could start a package element remain governed by the encoded
+                         * length because their ownership is ambiguous.
                          */
                         assert_eq!(context.current_block.kind, BlockKind::Package);
-                        assert_eq!(context.peek(), Err(AmlError::RunOutOfStream));
+                        let package_suffix = context.peek();
+                        let suffix_is_package_element = package_suffix.as_ref().is_ok_and(|opcode| {
+                            let extended_opcode = if *opcode == 0x5b {
+                                context.current_block.stream.get(context.current_block.pc + 1).copied()
+                            } else {
+                                None
+                            };
+                            could_start_package_element(*opcode, extended_opcode)
+                        });
+                        let package_length_overruns_elements =
+                            package_suffix.is_ok() && !suffix_is_package_element;
+                        assert!(
+                            package_length_overruns_elements || package_suffix == Err(AmlError::RunOutOfStream)
+                        );
+                        let package_end_pc = context.current_block.pc;
                         context.current_block = context.block_stack.pop().unwrap();
+                        if package_length_overruns_elements {
+                            // Recover only when the next term cannot be parsed as a package
+                            // element; a NameString may also be an initializer.
+                            context.current_block.pc = package_end_pc;
+                        }
                         context.contribute_arg(Argument::Object(Object::Package(elements).wrap()));
                         context.retire_op(op);
                     }
@@ -3361,6 +3383,26 @@ impl MethodContext {
         }
 
         Ok(self.current_block.stream()[self.current_block.pc])
+    }
+}
+
+/// Whether the first byte(s) can encode a `PackageElement` (DataRefObject or NameString).
+fn could_start_package_element(opcode: u8, extended_opcode: Option<u8>) -> bool {
+    match opcode {
+        0x00..=0x01
+        | 0x0a..=0x0e
+        | 0x11..=0x13
+        | 0x2e..=0x2f
+        | 0x30..=0x39
+        | 0x41..=0x5a
+        | 0x5c
+        | 0x5e..=0x6e
+        | 0x71
+        | 0x83
+        | 0x88
+        | 0xff => true,
+        0x5b => matches!(extended_opcode, Some(0x30 | 0x31)),
+        _ => false,
     }
 }
 
