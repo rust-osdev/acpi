@@ -133,10 +133,6 @@ pub type NoSendInterpreter<H> = BaseInterpreter<H, dyn RegionHandler>;
 /// An Interpreter that is known to be Send + Sync. The version you should prefer by default.
 pub type Interpreter<H> = BaseInterpreter<H, dyn RegionHandler + Send + Sync>;
 
-// TODO: Make sure to remove these two lines after Interpreter really is Send + Sync.
-unsafe impl<H> Send for Interpreter<H> where H: Handler + Send {}
-unsafe impl<H> Sync for Interpreter<H> where H: Handler + Send {}
-
 /// The value returned by the `Revision` opcode.
 const INTERPRETER_REVISION: u64 = 1;
 
