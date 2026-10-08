@@ -9,7 +9,6 @@
  *  - Load and LoadTable
  *  - DefDataRegion
  *  - Notify
- *  - DefMatch
  *
  *  - Method recursion depth?
  *  - Loop timeouts
@@ -53,7 +52,7 @@ use core::{
 };
 pub use interrupt_model_used::InterruptModelUsed;
 use log::{error, info, trace, warn};
-use match_expr::do_match;
+use match_expr::{MatchOp, do_match};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
     DeviceStatus,
@@ -1080,7 +1079,14 @@ where
                         }
                     }
                     Opcode::Match => {
-                        extract_args!(op => [Argument::Object(search_pkg), Argument::ByteData(opcode_a), Argument::Object(operand_a), Argument::ByteData(opcode_b), Argument::Object(operand_b), Argument::Object(start_index)]);
+                        extract_args!(op => [
+                            Argument::Object(search_pkg),
+                            Argument::MatchOp(opcode_a),
+                            Argument::Object(operand_a),
+                            Argument::MatchOp(opcode_b),
+                            Argument::Object(operand_b),
+                            Argument::Object(start_index)]
+                        );
 
                         let Object::Package(ref pkg) = **search_pkg else {
                             return Err(AmlError::InternalError("TODO: Better error".into()));
@@ -1088,9 +1094,9 @@ where
 
                         let result = do_match(
                             pkg,
-                            opcode_a.try_into()?,
+                            opcode_a,
                             operand_a.as_integer()?,
-                            opcode_b.try_into()?,
+                            opcode_b,
                             operand_b.as_integer()?,
                             start_index.as_integer()?,
                         );
@@ -1222,36 +1228,22 @@ where
                 }
                 Err(other_err) => return Err(other_err),
             };
-            let resolve_behaviour = context.in_flight.last().map(|op| op.resolve_behaviour());
+
             match opcode {
-                // Opcodes Zero and One overlap with the Match Opcodes that are only used in the
-                // match expression. It's reasonable to assume that if Zero or One appear at the
-                // time we expect a Match Opcode, then they *are* Match Opcodes instead of regular
-                // arguments.
                 Opcode::Zero => {
-                    if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
-                        // This represents a 0 argument to a match statement (`MTR`)
-                        context.contribute_arg(Argument::ByteData(0));
-                    } else {
-                        /*
-                         * This represents a `Zero` operand that should create an `Integer` operand in
-                         * most places, but could also encode a `NullName` if we are expecting a
-                         * `Target`. We handle the latter in logic for stores to targets.
-                         */
-                        context.contribute_arg(Argument::Object(Object::Integer(0).wrap()));
-                    }
+                    /*
+                     * This represents a `Zero` operand that should create an `Integer` operand in
+                     * most places, but could also encode a `NullName` if we are expecting a
+                     * `Target`. We handle the latter in logic for stores to targets.
+                     */
+                    context.contribute_arg(Argument::Object(Object::Integer(0).wrap()));
                 }
                 Opcode::One => {
-                    if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
-                        // As above, this represents a 1 argument to a match statement (`MEQ`)
-                        context.contribute_arg(Argument::ByteData(1));
-                    } else {
-                        context.contribute_arg(Argument::Object(Object::Integer(1).wrap()));
-                    }
+                    context.contribute_arg(Argument::Object(Object::Integer(1).wrap()));
                 }
-                Opcode::MatchOpcode(opcode) => {
-                    if Some(ResolveBehaviour::MatchOpcode) == resolve_behaviour {
-                        context.contribute_arg(Argument::ByteData(opcode));
+                Opcode::MatchOp(opcode) => {
+                    if context.expecting_match_opcode() {
+                        context.contribute_arg(Argument::MatchOp(opcode));
                     } else {
                         Err(AmlError::InternalError("TODO: Better error".into()))?
                     }
@@ -1634,6 +1626,7 @@ where
                     context.current_block.pc -= 1;
                     let name = context.namestring()?;
 
+                    let resolve_behaviour = context.in_flight.last().map(|op| op.resolve_behaviour());
                     let behaviour = resolve_behaviour.unwrap_or(ResolveBehaviour::TermArg);
                     match behaviour {
                         // XXX: `NullName` is handled separately given its ambiguity with `Zero`
@@ -3021,6 +3014,7 @@ enum Argument {
     DWordData(u32),
     TrackedPc(usize),
     PkgLength(usize),
+    MatchOp(MatchOp),
 }
 
 impl OpInFlight {
@@ -3162,10 +3156,25 @@ impl MethodContext {
             other => other as u16,
         };
 
+        // Opcodes Zero and One overlap with the Match Opcodes that are only used in the match
+        // expression. It's reasonable to assume that if Zero or One appear at the time we expect a
+        // Match Opcode, then they *are* Match Opcodes instead of regular arguments.
         Ok(match opcode {
-            0x00 => Opcode::Zero,
-            0x01 => Opcode::One,
-            0x02..0x06 => Opcode::MatchOpcode(opcode as u8),
+            0x00 => {
+                if self.expecting_match_opcode() {
+                    Opcode::MatchOp(opcode.into())
+                } else {
+                    Opcode::Zero
+                }
+            }
+            0x01 => {
+                if self.expecting_match_opcode() {
+                    Opcode::MatchOp(opcode.into())
+                } else {
+                    Opcode::One
+                }
+            }
+            0x02..0x06 => Opcode::MatchOp(opcode.into()),
             0x06 => Opcode::Alias,
             0x08 => Opcode::Name,
             0x0a => Opcode::BytePrefix,
@@ -3411,13 +3420,18 @@ impl MethodContext {
 
         Ok(self.current_block.stream()[self.current_block.pc])
     }
+
+    fn expecting_match_opcode(&self) -> bool {
+        let resolve_behaviour = self.in_flight.last().map(|op| op.resolve_behaviour());
+        resolve_behaviour.is_some_and(|rb| matches!(rb, ResolveBehaviour::MatchOpcode))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Opcode {
     Zero,
     One,
-    MatchOpcode(u8),
+    MatchOp(MatchOp),
     Alias,
     Name,
     BytePrefix,
