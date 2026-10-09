@@ -16,7 +16,7 @@ pub fn do_match(
         };
 
         if match_comparison(v, op_a, operand_a) && match_comparison(v, op_b, operand_b) {
-            return idx as u64;
+            return start_index + idx as u64;
         }
     }
 
@@ -50,6 +50,7 @@ pub enum MatchOp {
 mod tests {
     use super::*;
     use crate::aml::object::Object;
+    use std::string::ToString;
 
     #[test]
     fn empty_package_doesnt_match() {
@@ -60,5 +61,48 @@ mod tests {
     fn basic_match() {
         let pkg = &([0, 1, 2, 3].iter().map(|i| Object::Integer(*i as u64).wrap()).collect());
         assert_eq!(2, do_match(pkg, &MatchOp::MEQ, 2, &MatchOp::MTR, 0, 0));
+    }
+
+    #[test]
+    fn skips_strings() {
+        let pkg = [
+            Object::Integer(0),
+            Object::String("1".to_string()),
+            Object::String("2".to_string()),
+            Object::Integer(3),
+        ]
+        .into_iter()
+        .map(|o| o.wrap())
+        .collect();
+
+        assert_eq!(3, do_match(&pkg, &MatchOp::MGT, 2, &MatchOp::MTR, 0, 0));
+    }
+
+    #[test]
+    fn skips_packages() {
+        let pkg = [Object::Integer(0), Object::Package(vec![Object::Integer(1).wrap()]), Object::Integer(2)]
+            .into_iter()
+            .map(|o| o.wrap())
+            .collect();
+
+        assert_eq!(2, do_match(&pkg, &MatchOp::MGE, 2, &MatchOp::MTR, 0, 0));
+    }
+
+    #[test]
+    fn second_op_also_works() {
+        let pkg = &([0, 1, 2, 3].iter().map(|i| Object::Integer(*i as u64).wrap()).collect());
+        assert_eq!(2, do_match(pkg, &MatchOp::MTR, 0, &MatchOp::MEQ, 2, 0));
+    }
+
+    #[test]
+    fn impossible_match_returns_ones() {
+        let pkg = &([0, 1, 2, 3].iter().map(|i| Object::Integer(*i as u64).wrap()).collect());
+        assert_eq!(ONES, do_match(pkg, &MatchOp::MEQ, 2, &MatchOp::MLT, 1, 0));
+    }
+
+    #[test]
+    fn offset_works_correctly() {
+        let pkg = &([1, 1, 1, 1].iter().map(|i| Object::Integer(*i as u64).wrap()).collect());
+        assert_eq!(2, do_match(pkg, &MatchOp::MEQ, 1, &MatchOp::MTR, 0, 2));
     }
 }
