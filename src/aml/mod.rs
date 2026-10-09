@@ -1089,7 +1089,10 @@ where
                         );
 
                         let Object::Package(ref pkg) = **search_pkg else {
-                            return Err(AmlError::InternalError("TODO: Better error".into()));
+                            return Err(AmlError::ObjectNotOfExpectedType {
+                                expected: ObjectType::Package,
+                                got: search_pkg.typ(),
+                            });
                         };
 
                         let result = do_match(
@@ -1244,7 +1247,7 @@ where
                     if context.expecting_match_opcode() {
                         context.contribute_arg(Argument::MatchOp(opcode));
                     } else {
-                        Err(AmlError::InternalError("TODO: Better error".into()))?
+                        Err(AmlError::IllegalOpcode(opcode as u16))?
                     }
                 }
                 Opcode::Ones => {
@@ -1711,9 +1714,7 @@ where
                         ResolveBehaviour::Placeholder => {
                             panic!("Invalid resolve behaviour for name to be resolved!")
                         }
-                        ResolveBehaviour::MatchOpcode => {
-                            Err(AmlError::InternalError("TODO: Better error".into()))?
-                        }
+                        ResolveBehaviour::MatchOpcode => Err(AmlError::InvalidArgType)?,
                     }
                 }
 
@@ -3659,6 +3660,12 @@ pub enum AmlError {
 
     /// The maximum length of time a loop ([`LOOP_TIMEOUT_NS`]) can execute for has been exceeded.
     LoopTimeout,
+
+    /// The provided argument to the current operation is invalid.
+    ///
+    /// For example, trying to pass an object as the Operation parameter in a Match expression is
+    /// invalid.
+    InvalidArgType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

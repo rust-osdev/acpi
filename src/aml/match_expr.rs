@@ -36,13 +36,14 @@ fn match_comparison(value: u64, op: &MatchOp, operand: u64) -> bool {
 
 #[allow(clippy::upper_case_acronyms)] // Allow the same capitalisation as the spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u16)]
 pub enum MatchOp {
-    MTR,
-    MEQ,
-    MLE,
-    MLT,
-    MGE,
-    MGT,
+    MTR = 0,
+    MEQ = 1,
+    MLE = 2,
+    MLT = 3,
+    MGE = 4,
+    MGT = 5,
 }
 
 #[cfg(test)]
