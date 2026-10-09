@@ -1,4 +1,4 @@
-use crate::aml::{AmlError, object::Package};
+use crate::aml::object::Package;
 
 const ONES: u64 = !0;
 
@@ -43,20 +43,6 @@ pub enum MatchOp {
     MLT,
     MGE,
     MGT,
-}
-
-impl From<u16> for MatchOp {
-    fn from(value: u16) -> Self {
-        match value {
-            0 => Self::MTR,
-            1 => Self::MEQ,
-            2 => Self::MLE,
-            3 => Self::MLT,
-            4 => Self::MGE,
-            5 => Self::MGT,
-            _ => panic!("Invalid Match Opcode"),
-        }
-    }
 }
 
 #[cfg(test)]

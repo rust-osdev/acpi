@@ -1228,7 +1228,6 @@ where
                 }
                 Err(other_err) => return Err(other_err),
             };
-
             match opcode {
                 Opcode::Zero => {
                     /*
@@ -1626,8 +1625,11 @@ where
                     context.current_block.pc -= 1;
                     let name = context.namestring()?;
 
-                    let resolve_behaviour = context.in_flight.last().map(|op| op.resolve_behaviour());
-                    let behaviour = resolve_behaviour.unwrap_or(ResolveBehaviour::TermArg);
+                    let behaviour = context
+                        .in_flight
+                        .last()
+                        .map(|op| op.resolve_behaviour())
+                        .unwrap_or(ResolveBehaviour::TermArg);
                     match behaviour {
                         // XXX: `NullName` is handled separately given its ambiguity with `Zero`
                         ResolveBehaviour::SimpleName | ResolveBehaviour::SuperName | ResolveBehaviour::Target => {
@@ -3162,19 +3164,22 @@ impl MethodContext {
         Ok(match opcode {
             0x00 => {
                 if self.expecting_match_opcode() {
-                    Opcode::MatchOp(opcode.into())
+                    Opcode::MatchOp(MatchOp::MTR)
                 } else {
                     Opcode::Zero
                 }
             }
             0x01 => {
                 if self.expecting_match_opcode() {
-                    Opcode::MatchOp(opcode.into())
+                    Opcode::MatchOp(MatchOp::MEQ)
                 } else {
                     Opcode::One
                 }
             }
-            0x02..0x06 => Opcode::MatchOp(opcode.into()),
+            0x02 => Opcode::MatchOp(MatchOp::MLE),
+            0x03 => Opcode::MatchOp(MatchOp::MLT),
+            0x04 => Opcode::MatchOp(MatchOp::MGE),
+            0x05 => Opcode::MatchOp(MatchOp::MGT),
             0x06 => Opcode::Alias,
             0x08 => Opcode::Name,
             0x0a => Opcode::BytePrefix,
