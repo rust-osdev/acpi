@@ -2,8 +2,9 @@
 
 mod test_infra;
 
-use aml_test_tools::handlers::null_handler::NullHandler;
-use crate::test_infra::run_opcodes_test;
+use crate::test_infra::run_opcodes_test_with_result;
+use aml_test_tools::{RunTestResult, TestFailureReason, handlers::null_handler::NullHandler};
+use std::assert_matches;
 
 #[test]
 fn invalid_arg_to_match() {
@@ -40,6 +41,20 @@ fn invalid_arg_to_match() {
         0xA4, 0x0A, 0x00, // Return byte 0
     ];
 
-    let handler = NullHandler;
-    run_opcodes_test(&opcodes, handler);
+    let r = run_opcodes_test_with_result(&opcodes, NullHandler);
+    assert_matches!(r, RunTestResult::Failed(_, TestFailureReason::ParseFail(_)))
+}
+
+#[test]
+fn invalid_use_of_match_opcode() {
+    let opcodes = vec![
+        // Attempt something like `Local1 = MGT`
+        0x70, 0x05, 0x61,
+        // `Return (0)` (If the line above works, then 0 is returned and the test result is `Pass`,
+        // rather than the `Failed` that we expect)
+        0xA4, 0x0A, 0x00
+    ];
+
+    let r = run_opcodes_test_with_result(&opcodes, NullHandler);
+    assert_matches!(r, RunTestResult::Failed(_, TestFailureReason::ParseFail(_)))
 }
