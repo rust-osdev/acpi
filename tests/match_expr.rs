@@ -21,6 +21,7 @@ fn invalid_arg_to_match() {
     //         Return (0)
     //     }
     // }
+    // ```
     let opcodes = vec![
         0x08, // Name op
         0x41, 0x41, 0x41, 0x41, // "AAAA"
@@ -52,7 +53,7 @@ fn invalid_use_of_match_opcode() {
         0x70, 0x05, 0x61,
         // `Return (0)` (If the line above works, then 0 is returned and the test result is `Pass`,
         // rather than the `Failed` that we expect)
-        0xA4, 0x0A, 0x00
+        0xA4, 0x0A, 0x00,
     ];
 
     let r = run_opcodes_test_with_result(&opcodes, NullHandler);
