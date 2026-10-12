@@ -69,7 +69,7 @@ impl Namespace {
                     if args.len() != 1 {
                         return Err(AmlError::MethodArgCountIncorrect);
                     }
-                    let Object::String(ref feature) = *args[0] else {
+                    let Object::String(ref feature) = *args[0].clone().unwrap_reference() else {
                         return Err(AmlError::ObjectNotOfExpectedType {
                             expected: ObjectType::String,
                             got: args[0].typ(),
