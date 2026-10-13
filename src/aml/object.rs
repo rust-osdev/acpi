@@ -222,6 +222,39 @@ impl WrappedObject {
             target = inner.clone();
         }
     }
+
+    /// Decide where to store the result of a `CopyObject` command.
+    ///
+    /// This depends on the object referenced:
+    ///    - Locals are overwritten
+    ///    - Args are overwritten, unless they are references, in which case the referenced object is overwritten
+    ///    - Objects referenced by name are overwritten
+    ///    - Index references cause the object at the index to be overwritten
+    ///    - Other reference operations are not allowed
+    ///
+    /// This is defined in the
+    /// [Object Storing and Copying Rules](https://uefi.org/specs/ACPI/6.6/19_ASL_Reference.html#object-storing-and-copying-rules)
+    /// table of the ACPI spec.
+    pub(crate) fn unwrap_ref_for_copyobject(self) -> Result<WrappedObject, AmlError> {
+        let Object::Reference { kind, ref inner } = *self else {
+            return Err(AmlError::InternalError("Target of CopyObject must be a reference".to_string()));
+        };
+
+        let dst = match kind {
+            ReferenceKind::Named | ReferenceKind::Local => inner.clone().unwrap_transparent_reference(),
+            ReferenceKind::Arg => {
+                if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
+                    inner_inner.clone().unwrap_reference()
+                } else {
+                    self
+                }
+            }
+            ReferenceKind::Index => todo!(),
+            ReferenceKind::RefOf | ReferenceKind::Unresolved => return Err(AmlError::StoreToInvalidReferenceType),
+        };
+
+        Ok(dst)
+    }
 }
 
 impl ops::Deref for WrappedObject {
