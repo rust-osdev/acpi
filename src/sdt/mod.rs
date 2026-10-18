@@ -1,4 +1,5 @@
 pub mod bgrt;
+pub mod dmar;
 pub mod facs;
 pub mod fadt;
 pub mod hpet;
