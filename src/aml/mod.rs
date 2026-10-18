@@ -9,7 +9,6 @@
  *  - Load and LoadTable
  *  - DefDataRegion
  *  - Notify
- *  - DefMatch
  *
  *  - Method recursion depth?
  *  - Loop timeouts
@@ -17,6 +16,8 @@
  */
 
 mod interrupt_model_used;
+mod match_expr;
+
 pub mod namespace;
 pub mod object;
 pub mod op_region;
@@ -51,6 +52,7 @@ use core::{
 };
 pub use interrupt_model_used::InterruptModelUsed;
 use log::{error, info, trace, warn};
+use match_expr::{MatchOp, do_match};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
     DeviceStatus,
@@ -1076,6 +1078,35 @@ where
                             context.retire_op(op);
                         }
                     }
+                    Opcode::Match => {
+                        extract_args!(op => [
+                            Argument::Object(search_pkg),
+                            Argument::MatchOp(opcode_a),
+                            Argument::Object(operand_a),
+                            Argument::MatchOp(opcode_b),
+                            Argument::Object(operand_b),
+                            Argument::Object(start_index)]
+                        );
+
+                        let Object::Package(ref pkg) = **search_pkg else {
+                            return Err(AmlError::ObjectNotOfExpectedType {
+                                expected: ObjectType::Package,
+                                got: search_pkg.typ(),
+                            });
+                        };
+
+                        let result = do_match(
+                            pkg,
+                            opcode_a,
+                            operand_a.as_integer()?,
+                            opcode_b,
+                            operand_b.as_integer()?,
+                            start_index.as_integer()?,
+                        );
+
+                        context.contribute_arg(Argument::Object(Object::Integer(result).wrap()));
+                        context.retire_op(op);
+                    }
                     _ => panic!("Unexpected operation has created in-flight op!"),
                 }
             }
@@ -1211,6 +1242,13 @@ where
                 }
                 Opcode::One => {
                     context.contribute_arg(Argument::Object(Object::Integer(1).wrap()));
+                }
+                Opcode::MatchOp(opcode) => {
+                    if context.expecting_match_opcode() {
+                        context.contribute_arg(Argument::MatchOp(opcode));
+                    } else {
+                        Err(AmlError::IllegalOpcode(opcode as u16))?
+                    }
                 }
                 Opcode::Ones => {
                     context.contribute_arg(Argument::Object(Object::Integer(u64::MAX).wrap()));
@@ -1676,6 +1714,7 @@ where
                         ResolveBehaviour::Placeholder => {
                             panic!("Invalid resolve behaviour for name to be resolved!")
                         }
+                        ResolveBehaviour::MatchOpcode => Err(AmlError::InvalidArgType)?,
                     }
                 }
 
@@ -1726,14 +1765,17 @@ where
                     opcode,
                     &[ResolveBehaviour::TermArg, ResolveBehaviour::TermArg, ResolveBehaviour::Target],
                 )),
-                /*
-                 * TODO
-                 * Match is a difficult opcode to parse, as it interleaves dynamic arguments and
-                 * random bytes that need to be extracted as you go. I think we'll need to use 1+
-                 * internal in-flight ops to parse the static bytedatas as we go, and then retire
-                 * the real op at the end.
-                 */
-                Opcode::Match => todo!(),
+                Opcode::Match => context.start(OpInFlight::new(
+                    opcode,
+                    &[
+                        ResolveBehaviour::TermArg,
+                        ResolveBehaviour::MatchOpcode,
+                        ResolveBehaviour::TermArg,
+                        ResolveBehaviour::MatchOpcode,
+                        ResolveBehaviour::TermArg,
+                        ResolveBehaviour::TermArg,
+                    ],
+                )),
 
                 Opcode::CreateBitField
                 | Opcode::CreateByteField
@@ -2955,6 +2997,8 @@ enum ResolveBehaviour {
     /// Used with [`OpInFlight::new_with`] to represent arguments that have already been resolved
     /// when an operation enters flight.
     Placeholder,
+    /// The match statement takes two single byte arguments - the "match opcode".
+    MatchOpcode,
 }
 
 #[derive(Debug)]
@@ -2973,6 +3017,7 @@ enum Argument {
     DWordData(u32),
     TrackedPc(usize),
     PkgLength(usize),
+    MatchOp(MatchOp),
 }
 
 impl OpInFlight {
@@ -3114,9 +3159,28 @@ impl MethodContext {
             other => other as u16,
         };
 
+        // Opcodes Zero and One overlap with the Match Opcodes that are only used in the match
+        // expression. It's reasonable to assume that if Zero or One appear at the time we expect a
+        // Match Opcode, then they *are* Match Opcodes instead of regular arguments.
         Ok(match opcode {
-            0x00 => Opcode::Zero,
-            0x01 => Opcode::One,
+            0x00 => {
+                if self.expecting_match_opcode() {
+                    Opcode::MatchOp(MatchOp::MTR)
+                } else {
+                    Opcode::Zero
+                }
+            }
+            0x01 => {
+                if self.expecting_match_opcode() {
+                    Opcode::MatchOp(MatchOp::MEQ)
+                } else {
+                    Opcode::One
+                }
+            }
+            0x02 => Opcode::MatchOp(MatchOp::MLE),
+            0x03 => Opcode::MatchOp(MatchOp::MLT),
+            0x04 => Opcode::MatchOp(MatchOp::MGE),
+            0x05 => Opcode::MatchOp(MatchOp::MGT),
             0x06 => Opcode::Alias,
             0x08 => Opcode::Name,
             0x0a => Opcode::BytePrefix,
@@ -3362,12 +3426,18 @@ impl MethodContext {
 
         Ok(self.current_block.stream()[self.current_block.pc])
     }
+
+    fn expecting_match_opcode(&self) -> bool {
+        let resolve_behaviour = self.in_flight.last().map(|op| op.resolve_behaviour());
+        resolve_behaviour.is_some_and(|rb| matches!(rb, ResolveBehaviour::MatchOpcode))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Opcode {
     Zero,
     One,
+    MatchOp(MatchOp),
     Alias,
     Name,
     BytePrefix,
@@ -3590,6 +3660,12 @@ pub enum AmlError {
 
     /// The maximum length of time a loop ([`LOOP_TIMEOUT_NS`]) can execute for has been exceeded.
     LoopTimeout,
+
+    /// The provided argument to the current operation is invalid.
+    ///
+    /// For example, trying to pass an object as the Operation parameter in a Match expression is
+    /// invalid.
+    InvalidArgType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

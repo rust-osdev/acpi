@@ -11,6 +11,8 @@ use static_assertions::assert_impl_all;
 
 type NativeMethod = dyn Fn(&[WrappedObject]) -> Result<WrappedObject, AmlError> + Send + Sync;
 
+pub type Package = Vec<WrappedObject>;
+
 #[derive(Clone)]
 pub enum Object {
     Uninitialized,
@@ -26,7 +28,7 @@ pub enum Object {
     Reference { kind: ReferenceKind, inner: WrappedObject },
     NamePath { name: AmlName, scope: AmlName },
     OpRegion(OpRegion),
-    Package(Vec<WrappedObject>),
+    Package(Package),
     PowerResource { system_level: u8, resource_order: u16 },
     Processor { proc_id: u8, pblk_address: u32, pblk_length: u8 },
     RawDataBuffer,
