@@ -1,3 +1,25 @@
+//! The Multiple APIC Description Table (MADT) is a static table that describes the platform's
+//! interrupt configuration. Despite the name, it supports description of interrupt models for
+//! different platforms:
+//!    - The PC-AT dual i8259 interrupt controller
+//!    - The Advanced Programmable Interrupt Controller (APIC)
+//!    - The Intel Streamlined Advanced Interrupt Controller (SAPIC)
+//!    - The Generic Interrupt Controller (GIC) on ARM
+//!    - The LoongArch Programmable Interrupt Controller (LPIC) on LoongArch
+//!    - The RISC-V Interrupt Controller (RINTC)
+//!
+//! Please note that support for the various interrupt controller descriptions are in different
+//! stages in this crate.
+//!
+//! The MADT is a variably-sized structure that contains a header, followed by a number of entries.
+//! It is therefore `!Unpin` - you can enumerate the entries like so:
+//! ```rust,ignore
+//! let madt = acpi_tables.find_table::<Madt>().unwrap();
+//! for entry in madt.get().entries() {
+//!     ...
+//! }
+//! ```
+
 use crate::{
     AcpiError,
     AcpiTable,
