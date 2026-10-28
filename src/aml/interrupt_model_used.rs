@@ -17,11 +17,12 @@ use crate::{
 #[derive(Debug, Clone, Copy)]
 pub enum InterruptModelUsed {
     /// 0 - PIC mode
-    PicMode,
+    PicMode = 0,
     /// 1 - APIC mode
-    ApicMode,
+    ApicMode = 1,
     /// 2 - SAPIC mode
-    SapicMode,
+    SapicMode = 2,
+    // NOTE: 3 is reserved
     /// 4 – GIC model
     GicModel = 4,
     /// 5 – LPIC model
