@@ -227,20 +227,34 @@ where
     let fake_registers = Arc::new(acpi::registers::FixedRegisters {
         pm1_event_registers: acpi::registers::Pm1EventRegisterBlock {
             pm1_event_length: 8,
-            pm1a: unsafe {
+            pm1a_sts: unsafe {
                 MappedGas::map_gas(
                     acpi::address::GenericAddress {
                         address_space: acpi::address::AddressSpace::SystemIo,
-                        bit_width: 32,
+                        bit_width: 16,
                         bit_offset: 0,
-                        access_size: 1,
+                        access_size: 0,
                         address: 0x400,
                     },
                     handler.clone(),
                 )
                 .unwrap()
             },
-            pm1b: None,
+            pm1a_en: unsafe {
+                MappedGas::map_gas(
+                    acpi::address::GenericAddress {
+                        address_space: acpi::address::AddressSpace::SystemIo,
+                        bit_width: 16,
+                        bit_offset: 0,
+                        access_size: 0,
+                        address: 0x410,
+                    },
+                    handler.clone(),
+                )
+                .unwrap()
+            },
+            pm1b_sts: None,
+            pm1b_en: None,
         },
         pm1_control_registers: acpi::registers::Pm1ControlRegisterBlock {
             pm1a: unsafe {

@@ -13,12 +13,26 @@ where
 {
     pub fn new(fadt: &Fadt, handler: H) -> Result<FixedRegisters<H>, AcpiError> {
         let pm1_event_registers = {
-            let pm1a = unsafe { MappedGas::map_gas(fadt.pm1a_event_block()?, handler.clone())? };
-            let pm1b = match fadt.pm1b_event_block()? {
-                Some(gas) => Some(unsafe { MappedGas::map_gas(gas, handler.clone())? }),
-                None => None,
+            let (pm1a_sts, pm1a_en) = {
+                let (sts, en) = fadt.pm1a_event_block()?;
+                unsafe { (MappedGas::map_gas(sts, handler.clone())?, MappedGas::map_gas(en, handler.clone())?) }
             };
-            Pm1EventRegisterBlock { pm1_event_length: fadt.pm1_event_length as usize, pm1a, pm1b }
+            let (pm1b_sts, pm1b_en) = match fadt.pm1b_event_block()? {
+                Some((sts, en)) => unsafe {
+                    (
+                        Some(MappedGas::map_gas(sts, handler.clone())?),
+                        Some(MappedGas::map_gas(en, handler.clone())?),
+                    )
+                },
+                None => (None, None),
+            };
+            Pm1EventRegisterBlock {
+                pm1_event_length: fadt.pm1_event_length as usize,
+                pm1a_sts,
+                pm1a_en,
+                pm1b_sts,
+                pm1b_en,
+            }
         };
         let pm1_control_registers = {
             let pm1a = unsafe { MappedGas::map_gas(fadt.pm1a_control_block()?, handler.clone())? };
@@ -43,8 +57,10 @@ where
 /// control whether an event should fire.
 pub struct Pm1EventRegisterBlock<H: Handler> {
     pub pm1_event_length: usize,
-    pub pm1a: MappedGas<H>,
-    pub pm1b: Option<MappedGas<H>>,
+    pub pm1a_sts: MappedGas<H>,
+    pub pm1a_en: MappedGas<H>,
+    pub pm1b_sts: Option<MappedGas<H>>,
+    pub pm1b_en: Option<MappedGas<H>>,
 }
 
 bitflags! {
@@ -70,32 +86,33 @@ where
     /// Note that global enable (GBL_EN) must be set for any SCI interrupts to be fired.
     /// For most flags you set to enable and clear to disable.
     /// But for PCIe wake the flag is set to disable and clear to enable.
-    pub fn set_enable_flags(&self, events: Pm1EventFlags) {
-        let enable_offset = self.pm1_event_length as u64 / 2;
+    pub fn set_enable_flags(&self, events: Pm1EventFlags) -> Result<(), AcpiError> {
         let bits = events.known_bits();
-        self.pm1a.write_u16(enable_offset, bits);
-        if let Some(pm1b) = &self.pm1b {
-            pm1b.write_u16(enable_offset, bits);
+        self.pm1a_en.write(bits as u64)?;
+        if let Some(pm1b_en) = &self.pm1b_en {
+            pm1b_en.write(bits as u64)?;
         }
+        Ok(())
     }
 
-    pub fn pending_events(&self) -> Pm1EventFlags {
+    pub fn pending_events(&self) -> Result<Pm1EventFlags, AcpiError> {
         let bits = {
-            let mut bits = self.pm1a.read_u16(0);
-            if let Some(pm1b) = &self.pm1b {
-                bits |= pm1b.read_u16(0);
+            let mut bits = self.pm1a_sts.read()?;
+            if let Some(pm1b_sts) = &self.pm1b_sts {
+                bits |= pm1b_sts.read()?;
             }
             bits
         };
-        Pm1EventFlags::from_bits_retain(bits)
+        Ok(Pm1EventFlags::from_bits_retain(bits as u16))
     }
 
-    pub fn clear_events(&self, events: Pm1EventFlags) {
+    pub fn clear_events(&self, events: Pm1EventFlags) -> Result<(), AcpiError> {
         let bits = events.known_bits();
-        self.pm1a.write_u16(0, bits);
-        if let Some(pm1b) = &self.pm1b {
-            pm1b.write_u16(0, bits);
+        self.pm1a_sts.write(bits as u64)?;
+        if let Some(pm1b_sts) = &self.pm1b_sts {
+            pm1b_sts.write(bits as u64)?;
         }
+        Ok(())
     }
 }
 
