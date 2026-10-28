@@ -85,7 +85,7 @@ impl<H: Handler, A: Allocator + Clone> AcpiPlatform<H, A> {
         /*
          * Disable all fixed event interrupts to start, including the global flag.
          */
-        self.registers.pm1_event_registers.set_enable_flags(Pm1EventFlags::empty());
+        self.registers.pm1_event_registers.set_enable_flags(Pm1EventFlags::empty())?;
 
         // TODO: deal with GPEs
 

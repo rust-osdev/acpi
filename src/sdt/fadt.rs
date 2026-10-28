@@ -169,39 +169,88 @@ impl Fadt {
         }
     }
 
-    pub fn pm1a_event_block(&self) -> Result<GenericAddress, AcpiError> {
+    /// Construct two `GenericAddress`s for the two registers within the PM1a event block -
+    /// `PM1a_STS` and `PM1a_EN`. Each register consists of half of the overall event register
+    /// block.
+    pub fn pm1a_event_block(&self) -> Result<(GenericAddress, GenericAddress), AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1a_event_block.access(self.header().revision) }
             && raw.address != 0x0
         {
-            return GenericAddress::from_raw(raw);
+            let block = GenericAddress::from_raw(raw)?;
+            let sts = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: block.bit_width / 2,
+                bit_offset: 0,
+                access_size: 0,
+                address: block.address,
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: block.bit_width / 2,
+                bit_offset: 0,
+                access_size: 0,
+                address: block.address + (block.bit_width / 2 / 8) as u64,
+            };
+            Ok((sts, en))
+        } else {
+            // Calculate individual register width **in bytes** - half the block is STS, half EN
+            let reg_width = self.pm1_event_length / 2;
+            let sts = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.pm1a_event_block),
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.pm1a_event_block) + reg_width as u64,
+            };
+            Ok((sts, en))
         }
-
-        Ok(GenericAddress {
-            address_space: AddressSpace::SystemIo,
-            bit_width: self.pm1_event_length * 8,
-            bit_offset: 0,
-            access_size: 0,
-            address: self.pm1a_event_block.into(),
-        })
     }
 
-    pub fn pm1b_event_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+    pub fn pm1b_event_block(&self) -> Result<Option<(GenericAddress, GenericAddress)>, AcpiError> {
         if let Some(raw) = unsafe { self.x_pm1b_event_block.access(self.header().revision) }
             && raw.address != 0x0
         {
-            return Ok(Some(GenericAddress::from_raw(raw)?));
-        }
-
-        if self.pm1b_event_block != 0 {
-            Ok(Some(GenericAddress {
+            let block = GenericAddress::from_raw(raw)?;
+            let sts = GenericAddress {
                 address_space: AddressSpace::SystemIo,
-                bit_width: self.pm1_event_length * 8,
+                bit_width: block.bit_width / 2,
                 bit_offset: 0,
                 access_size: 0,
-                address: self.pm1b_event_block.into(),
-            }))
+                address: block.address,
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: block.bit_width / 2,
+                bit_offset: 0,
+                access_size: 0,
+                address: block.address + (block.bit_width / 2 / 8) as u64,
+            };
+            Ok(Some((sts, en)))
         } else {
-            Ok(None)
+            // Calculate individual register width **in bytes** - half the block is STS, half EN
+            let reg_width = self.pm1_event_length / 2;
+            let sts = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.pm1b_event_block),
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.pm1b_event_block) + reg_width as u64,
+            };
+            Ok(Some((sts, en)))
         }
     }
 
@@ -288,43 +337,85 @@ impl Fadt {
         }
     }
 
-    pub fn gpe0_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+    pub fn gpe0_block(&self) -> Result<Option<(GenericAddress, GenericAddress)>, AcpiError> {
         if let Some(raw) = unsafe { self.x_gpe0_block.access(self.header().revision) }
             && raw.address != 0x0
         {
-            return Ok(Some(GenericAddress::from_raw(raw)?));
-        }
-
-        if self.gpe0_block != 0 {
-            Ok(Some(GenericAddress {
+            let block = GenericAddress::from_raw(raw)?;
+            let sts = GenericAddress {
                 address_space: AddressSpace::SystemIo,
-                bit_width: self.gpe0_block_length * 8,
+                bit_width: block.bit_width / 2,
                 bit_offset: 0,
                 access_size: 0,
-                address: self.gpe0_block.into(),
-            }))
+                address: block.address,
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: block.bit_width / 2,
+                bit_offset: 0,
+                access_size: 0,
+                address: block.address + (block.bit_width / 2 / 8) as u64,
+            };
+            Ok(Some((sts, en)))
         } else {
-            Ok(None)
+            // Calculate individual register width **in bytes** - half the block is STS, half EN
+            let reg_width = self.gpe0_block_length / 2;
+            let sts = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.gpe0_block),
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.gpe0_block) + reg_width as u64,
+            };
+            Ok(Some((sts, en)))
         }
     }
 
-    pub fn gpe1_block(&self) -> Result<Option<GenericAddress>, AcpiError> {
+    pub fn gpe1_block(&self) -> Result<Option<(GenericAddress, GenericAddress)>, AcpiError> {
         if let Some(raw) = unsafe { self.x_gpe1_block.access(self.header().revision) }
             && raw.address != 0x0
         {
-            return Ok(Some(GenericAddress::from_raw(raw)?));
-        }
-
-        if self.gpe1_block != 0 {
-            Ok(Some(GenericAddress {
+            let block = GenericAddress::from_raw(raw)?;
+            let sts = GenericAddress {
                 address_space: AddressSpace::SystemIo,
-                bit_width: self.gpe1_block_length * 8,
+                bit_width: block.bit_width / 2,
                 bit_offset: 0,
                 access_size: 0,
-                address: self.gpe1_block.into(),
-            }))
+                address: block.address,
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: block.bit_width / 2,
+                bit_offset: 0,
+                access_size: 0,
+                address: block.address + (block.bit_width / 2 / 8) as u64,
+            };
+            Ok(Some((sts, en)))
         } else {
-            Ok(None)
+            // Calculate individual register width **in bytes** - half the block is STS, half EN
+            let reg_width = self.gpe1_block_length / 2;
+            let sts = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.gpe1_block),
+            };
+            let en = GenericAddress {
+                address_space: AddressSpace::SystemIo,
+                bit_width: reg_width * 8,
+                bit_offset: 0,
+                access_size: 0,
+                address: u64::from(self.gpe1_block) + reg_width as u64,
+            };
+            Ok(Some((sts, en)))
         }
     }
 
