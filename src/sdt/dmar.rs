@@ -1,3 +1,47 @@
+//! Intel DMA Remapping (DMAR) table.
+//!
+//! Supports the [DMAR table](`Dmar`) and its [possible entries](`DmarEntry`).
+//!
+//! Follows the definitions in the
+//! ["Intel(R) Virtualization Technology for Directed I/O Architecture Specification", section 8.1.](https://software.intel.com/content/dam/develop/public/us/en/documents/vt-directed-io-spec.pdf)
+//! Most details of the various structures and fields are not repeated here - see the spec for
+//! details.
+//!
+//! At the root is the [DMAR table](`Dmar`). It has one function [`entries`](`Dmar::entries`),
+//! returning an iterator over the [`DmarEntry`] enum. This can contain the structs [`DrhdEntry`],
+//! [`RmrrEntry`], [`AtsrEntry`], [`RhsaEntry`], [`AnddEntry`], [`SatcEntry`], or [`SidpEntry`].
+//! Some of these contain [`DeviceScope`]s also returned as iterator via the `device_scopes` method.
+//!
+//! For example, using the following code on QEMU:
+//!
+//! ```rust,ignore
+//! let dmar = platform.tables.find_table::<Dmar>().unwrap();
+//! let dmar = dmar.get();
+//! log::info!("DMAR: {dmar:?}");
+//! for entry in dmar.entries() {
+//!     log::info!("DMAR entry: {entry:?}");
+//!     if let DmarEntry::Drhd(drhd) = entry {
+//!         for scope in drhd.device_scopes() {
+//!             log::info!("Device scope: {scope:?}, path: {:?}", scope.path());
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! prints something like:
+//!
+//! ```text
+//! INFO : DMAR: Dmar { header: SdtHeader { signature: "DMAR", length: 120, revision: 1, checksum: 4, oem_id: [66, 79, 67, 72, 83, 32], oem_table_id: [66, 88, 80, 67, 32, 32, 32, 32], oem_revision: 1, creator_id: [66, 88, 80, 67], creator_revision: 1 }, host_address_width: 47, flags: 1, _reserved: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], _pinned: PhantomPinned }
+//! INFO : DMAR entry: Drhd(DrhdEntry { header: DmarEntryHeader { entry_type: 0, length: 72 }, flags: 0, size: 0, segment_number: 0, register_base_address: 4275634176 })
+//! INFO : Device scope: DeviceScope { scope_type: 3, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_bus_number: 255 }, path: Ok([DeviceScopePathComponent { device: 0, function: 0 }])
+//! INFO : Device scope: DeviceScope { scope_type: 1, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_bus_number: 0 }, path: Ok([DeviceScopePathComponent { device: 0, function: 0 }])
+//! INFO : Device scope: DeviceScope { scope_type: 1, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_bus_number: 0 }, path: Ok([DeviceScopePathComponent { device: 1, function: 0 }])
+//! INFO : Device scope: DeviceScope { scope_type: 1, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_bus_number: 0 }, path: Ok([DeviceScopePathComponent { device: 2, function: 0 }])
+//! INFO : Device scope: DeviceScope { scope_type: 1, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_bus_number: 0 }, path: Ok([DeviceScopePathComponent { device: 31, function: 0 }])
+//! INFO : Device scope: DeviceScope { scope_type: 1, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_bus_number: 0 }, path: Ok([DeviceScopePathComponent { device: 31, function: 2 }])
+//! INFO : Device scope: DeviceScope { scope_type: 1, length: 8, flags: 0, _reserved: 0, enumeration_id: 0, start_b
+//! ```
+
 use crate::{
     AcpiTable,
     sdt::{SdtHeader, Signature},
@@ -12,6 +56,9 @@ use core::{
 };
 use log::warn;
 
+/// Intel DMA Remapping (DMAR) table.
+///
+/// See the [module docs](crate::sdt::dmar) for a brief description of this table and how to use it.
 #[repr(C, packed)]
 #[derive(Debug)]
 pub struct Dmar {
@@ -31,6 +78,7 @@ unsafe impl AcpiTable for Dmar {
 }
 
 impl Dmar {
+    /// Returns an iterator over the entries contained in this table.
     pub fn entries(self: Pin<&Self>) -> DmarEntryIter<'_> {
         let ptr = unsafe { Pin::into_inner_unchecked(self) as *const Dmar as *const u8 };
         DmarEntryIter {
@@ -152,6 +200,7 @@ pub struct DmarEntryHeader {
 macro_rules! device_scopes {
     ($type:ty) => {
         impl $type {
+            /// Returns an iterator over the device scopes contained in this entry.
             pub fn device_scopes(&self) -> DeviceScopeIter<'_> {
                 let ptr = self as *const $type as *const u8;
                 DeviceScopeIter {
@@ -164,6 +213,7 @@ macro_rules! device_scopes {
     };
 }
 
+/// DMA Remapping Hardware Unit Definition
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct DrhdEntry {
@@ -176,6 +226,7 @@ pub struct DrhdEntry {
 
 device_scopes!(DrhdEntry);
 
+/// Reserved Memory Region Reporting Definition
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct RmrrEntry {
@@ -188,6 +239,7 @@ pub struct RmrrEntry {
 
 device_scopes!(RmrrEntry);
 
+/// Root Port Address Translation Service (ATS) Reporting Definition
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct AtsrEntry {
@@ -199,6 +251,7 @@ pub struct AtsrEntry {
 
 device_scopes!(AtsrEntry);
 
+/// Remapping Hardware Static Affinity Definition
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct RhsaEntry {
@@ -208,6 +261,7 @@ pub struct RhsaEntry {
     pub proximity_domain: u32,
 }
 
+/// ACPI Namespace Device Declaration
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct AnddEntry {
@@ -245,6 +299,7 @@ impl AnddEntry {
     }
 }
 
+/// SoC Integrated Address Translation Cache Reporting
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct SatcEntry {
@@ -256,6 +311,7 @@ pub struct SatcEntry {
 
 device_scopes!(SatcEntry);
 
+/// SoC Integrated Device Property Reporting
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
 pub struct SidpEntry {
