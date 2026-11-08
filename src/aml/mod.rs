@@ -504,7 +504,6 @@ where
                     Opcode::Add
                     | Opcode::Subtract
                     | Opcode::Multiply
-                    | Opcode::Divide
                     | Opcode::ShiftLeft
                     | Opcode::ShiftRight
                     | Opcode::Mod
@@ -513,6 +512,7 @@ where
                     | Opcode::Or
                     | Opcode::Nor
                     | Opcode::Xor => self.do_binary_maths(&mut context, op)?,
+                    Opcode::Divide => self.do_divide(&mut context, op)?,
                     Opcode::Not | Opcode::FindSetLeftBit | Opcode::FindSetRightBit => {
                         self.do_unary_maths(&mut context, op)?;
                     }
@@ -1952,8 +1952,7 @@ where
     }
 
     fn do_binary_maths(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
-        extract_args!(op[0..3] => [Argument::Object(left), Argument::Object(right), Argument::Object(target)]);
-        let target2 = if op.op == Opcode::Divide { Some(&op.arguments[3]) } else { None };
+        extract_args!(op => [Argument::Object(left), Argument::Object(right), Argument::Object(target)]);
 
         let left = left.clone().unwrap_transparent_reference().to_integer(self.integer_size)?;
         let right = right.clone().unwrap_transparent_reference().to_integer(self.integer_size)?;
@@ -1962,15 +1961,9 @@ where
             Opcode::Add => left.wrapping_add(right),
             Opcode::Subtract => left.wrapping_sub(right),
             Opcode::Multiply => left.wrapping_mul(right),
-            Opcode::Divide => {
-                if let Some(Argument::Object(remainder)) = target2 {
-                    self.do_store(remainder.clone(), Object::Integer(left.wrapping_rem(right)).wrap())?;
-                }
-                left.wrapping_div_euclid(right)
-            }
             Opcode::ShiftLeft => left.wrapping_shl(right as u32),
             Opcode::ShiftRight => left.wrapping_shr(right as u32),
-            Opcode::Mod => left.wrapping_rem(right),
+            Opcode::Mod => left.checked_rem(right).ok_or(AmlError::DivideByZero)?,
             Opcode::Nand => !(left & right),
             Opcode::And => left & right,
             Opcode::Or => left | right,
@@ -1981,6 +1974,25 @@ where
 
         let result = Object::Integer(result).wrap();
         let result = self.do_store(target.clone(), result)?;
+        context.contribute_arg(Argument::Object(result));
+        context.retire_op(op);
+        Ok(())
+    }
+
+    fn do_divide(&self, context: &mut MethodContext, op: OpInFlight) -> Result<(), AmlError> {
+        extract_args!(op => [
+            Argument::Object(dividend),
+            Argument::Object(divisor),
+            Argument::Object(remainder_target),
+            Argument::Object(quotient_target)
+        ]);
+
+        let dividend = dividend.clone().unwrap_transparent_reference().to_integer(self.integer_size)?;
+        let divisor = divisor.clone().unwrap_transparent_reference().to_integer(self.integer_size)?;
+        let quotient = dividend.checked_div(divisor).ok_or(AmlError::DivideByZero)?;
+
+        self.do_store(remainder_target.clone(), Object::Integer(dividend % divisor).wrap())?;
+        let result = self.do_store(quotient_target.clone(), Object::Integer(quotient).wrap())?;
         context.contribute_arg(Argument::Object(result));
         context.retire_op(op);
         Ok(())
@@ -3673,6 +3685,9 @@ pub enum AmlError {
 
     /// The maximum length of time a loop ([`LOOP_TIMEOUT_NS`]) can execute for has been exceeded.
     LoopTimeout,
+
+    /// A `Divide` or `Mod` by zero.
+    DivideByZero,
 
     /// The provided argument to the current operation is invalid.
     ///
