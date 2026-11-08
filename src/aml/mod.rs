@@ -829,7 +829,7 @@ where
                             Argument::PkgLength(then_length),
                             Argument::Object(predicate),
                         ]);
-                        let predicate = predicate.as_integer()?;
+                        let predicate = predicate.clone().unwrap_transparent_reference().as_integer()?;
                         let remaining_then_length = then_length - (context.current_block.pc - start_pc);
 
                         if predicate > 0 {
