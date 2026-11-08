@@ -72,12 +72,23 @@ DefinitionBlock("while.aml", "DSDT", 1, "RSACPI", "WHILE", 1) {
         CHEK(Local1, 0)
     }
 
+    Method(T6) {
+        // Test `If` with a local in the predicate, as `While` in T5
+        Local0 = 1
+        Local1 = 0
+        If (Local0) {
+            Local1 = 1
+        }
+        CHEK(Local1, 1)
+    }
+
     Method(MAIN) {
         T1()
         T2()
         T3()
         T4()
         T5()
+        T6()
 
         Return(FCNT)
     }
