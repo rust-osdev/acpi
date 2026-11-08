@@ -239,7 +239,9 @@ impl Namespace {
         } else {
             // If search rules don't apply, simply resolve it against the starting scope
             let name = path.resolve(starting_scope)?;
-            let (level, last_seg) = self.get_level_for_path(&path.resolve(starting_scope)?)?;
+            let Ok((level, last_seg)) = self.get_level_for_path(&name) else {
+                return Err(AmlError::ObjectDoesNotExist(path.clone()));
+            };
 
             if let Some((_, object)) = level.values.get(&last_seg) {
                 Ok((name, object.clone()))
