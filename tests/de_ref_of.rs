@@ -95,3 +95,37 @@ DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
     let handler = NullHandler {};
     test_infra::run_aml_test(AML, handler);
 }
+
+#[test]
+fn test_deref_of_package_string_element() {
+    const AML: &str = r#"
+DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
+    Name (TGT, 0xaa)
+    Name (PKG, Package () { "\\TGT" })
+
+    Method (MAIN, 0, NotSerialized) {
+        Return (ObjectType (DerefOf (PKG[0])) - 2)
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}
+
+#[test]
+fn test_deref_of_ref_to_string() {
+    const AML: &str = r#"
+DefinitionBlock ("", "SSDT", 2, "RSACPI", "DerefOf", 0x00000002) {
+    Name (STR, "TestString")
+
+    Method(MAIN, 0, NotSerialized) {
+        Local0 = RefOf(STR)
+        Return (DerefOf(Local0) != "TestString")
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}

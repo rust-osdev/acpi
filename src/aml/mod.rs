@@ -2451,11 +2451,13 @@ where
     }
 
     fn do_deref_of(&self, object: WrappedObject, current_scope: &AmlName) -> Result<WrappedObject, AmlError> {
+        let object = object.unwrap_transparent_reference();
+        let through_reference = matches!(*object, Object::Reference { .. });
         let object = self.resolve_name_path(object)?;
         match &*object {
             Object::BufferField { .. } => Ok(object.read_buffer_field(self.integer_size)?.wrap()),
             Object::FieldUnit(field) => self.do_field_read(field),
-            Object::String(path) => {
+            Object::String(path) if !through_reference => {
                 let path = AmlName::from_str(path)?;
                 let (_, object) = self.namespace.lock().search(&path, current_scope)?;
                 Ok(object.clone())
