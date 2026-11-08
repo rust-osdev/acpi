@@ -78,6 +78,11 @@ DefinitionBlock ("", "SSDT", 2, "uTEST", "TESTTABL", 0xF0F0F0F0)
         Local1 = "0xFFFFFFFFFFFFFFFF"
         CHEK(Local0, Local1)
 
+        // String
+        Local0 = ToString(Buffer { 0x41, 0x42, 0x00, 0x43 }, Ones)
+        Local1 = "AB"
+        CHEK(Local0, Local1)
+
         // Buffer
         Local0 = ToBuffer(Buffer { 1, 2, 3 })
         Local1 = Buffer { 1, 2, 3 }
