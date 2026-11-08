@@ -2144,7 +2144,7 @@ where
         let result = if source.is_empty() {
             Object::String(String::new())
         } else {
-            let mut buffer = source.split_inclusive(|b| *b == b'\0').next().unwrap();
+            let mut buffer = source.split(|b| *b == b'\0').next().unwrap();
             if length < usize::MAX {
                 buffer = &buffer[0..usize::min(length, buffer.len())];
             }
