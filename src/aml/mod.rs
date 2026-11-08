@@ -2388,7 +2388,7 @@ where
             }
             Object::Package(ref package) => {
                 let Some(element) = package.get(index_value as usize) else { Err(AmlError::IndexOutOfBounds)? };
-                Object::Reference { kind: ReferenceKind::RefOf, inner: element.clone() }
+                Object::Reference { kind: ReferenceKind::Index, inner: element.clone() }
             }
             _ => Err(AmlError::IndexOutOfBounds)?,
         }
@@ -2467,7 +2467,7 @@ where
 
     /// Perform a store of `object` into `target`, matching the expected behaviour of `DefStore`,
     /// which depends on the target:
-    ///    - Locals and Index references are overwritten, unless the Local contains a reference
+    ///    - Locals and Index references are overwritten, unless the Local or element contains a reference
     ///      (e.g. obtained via `RefOf`), in which case a store is performed to the referenced
     ///      object with implicit casting.
     ///    - Args are overwritten, unless they contain a reference, in which case the referenced
@@ -2563,7 +2563,7 @@ where
                     inner.clone().unwrap_transparent_reference()
                 }
             }
-            ReferenceKind::Index => todo!(),
+            ReferenceKind::Index => inner.clone(),
             ReferenceKind::RefOf | ReferenceKind::Unresolved => return Err(AmlError::StoreToInvalidReferenceType),
         };
 
