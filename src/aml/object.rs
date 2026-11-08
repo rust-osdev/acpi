@@ -189,7 +189,11 @@ impl WrappedObject {
         // for the strange Windows NT behaviour handled in the `match arg_to_local` statement below.
         let mut arg_to_local: Option<WrappedObject> = None;
 
-        let mut target = self;
+        // A package element is replaced, unless it holds a reference
+        let mut target = match *self {
+            Object::Reference { kind: ReferenceKind::Index, ref inner } => inner.clone(),
+            _ => self.clone(),
+        };
 
         loop {
             let Object::Reference { kind, ref inner } = *target else {
