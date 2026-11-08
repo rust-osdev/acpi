@@ -13,7 +13,8 @@ support many other platform capabilities.
 This crate provides a limited API that can be used without an allocator, for example for use
 from a bootloader. This API will allow you to search for the RSDP, enumerate over the available
 tables, and interact with the tables using their raw structures. All other functionality is
-behind an `alloc` feature (enabled by default) and requires an allocator.
+behind an `alloc` feature (enabled by default) and requires an allocator. The `platform`
+module is behind a `platform` feature (enabled by default), which needs a nightly compiler.
 
 With an allocator, this crate provides a richer higher-level interfaces to the static tables, as
 well as a dynamic interpreter for AML - the bytecode format encoded in the DSDT and SSDT tables.

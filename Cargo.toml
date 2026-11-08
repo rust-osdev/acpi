@@ -33,8 +33,9 @@ pretty_env_logger = "0.5.0"
 serial_test = "4.0.1"
 
 [features]
-default = ["alloc", "aml"]
+default = ["alloc", "aml", "platform"]
 alloc = []
+platform = ["alloc"]
 aml = [
     "alloc",
     "dep:lock_api",
