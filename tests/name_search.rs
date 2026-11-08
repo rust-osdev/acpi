@@ -45,3 +45,19 @@ DefinitionBlock("", "DSDT", 1, "RSACPI", "NAMING", 1) {
     let handler = NullHandler {};
     test_infra::run_aml_test(AML, handler);
 }
+
+#[test]
+fn test_cond_ref_of_missing_parent() {
+    const AML: &str = r#"
+DefinitionBlock("", "DSDT", 1, "RSACPI", "NAMING", 1) {
+    External (\_SB.NOPE.XXXX, IntObj)
+
+    Method (MAIN, 0, NotSerialized) {
+        Return (CondRefOf (\_SB.NOPE.XXXX))
+    }
+}
+"#;
+
+    let handler = NullHandler {};
+    test_infra::run_aml_test(AML, handler);
+}
