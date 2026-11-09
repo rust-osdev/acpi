@@ -677,13 +677,11 @@ where
                         }
                     }
                     Opcode::Notify => {
-                        // TODO: may need special handling on the node to get path?
-                        extract_args!(op => [Argument::Namestring(name), Argument::Object(value)]);
-                        let value = value.as_integer()?;
-
-                        info!("Notify {:?} with value {}", name, value);
-                        // TODO: support
-                        return Err(AmlError::LibUnimplemented);
+                        // TODO: support notify handlers (ACPICA without one ignores it too)
+                        extract_args!(op => [Argument::Object(object), Argument::Object(value)]);
+                        let value = value.clone().unwrap_transparent_reference().as_integer()?;
+                        info!("Ignoring Notify of {} with value {}", object, value);
+                        context.retire_op(op);
                     }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
                     Opcode::ToBCD => self.do_to_bcd(&mut context, op)?,
