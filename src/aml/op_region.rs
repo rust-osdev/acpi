@@ -1,11 +1,33 @@
 use crate::aml::{AmlError, namespace::AmlName};
+use pci_types::PciAddress;
+use spinning_top::Spinlock;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct OpRegion {
     pub space: RegionSpace,
     pub base: u64,
     pub length: u64,
     pub parent_device_path: AmlName,
+    /// The address of the device a `PCI_Config` region is in, resolved on first access.
+    pub(crate) pci_address: Spinlock<Option<PciAddress>>,
+}
+
+impl OpRegion {
+    pub(crate) fn new(space: RegionSpace, base: u64, length: u64, parent_device_path: AmlName) -> OpRegion {
+        OpRegion { space, base, length, parent_device_path, pci_address: Spinlock::new(None) }
+    }
+}
+
+impl Clone for OpRegion {
+    fn clone(&self) -> Self {
+        OpRegion {
+            space: self.space,
+            base: self.base,
+            length: self.length,
+            parent_device_path: self.parent_device_path.clone(),
+            pci_address: Spinlock::new(*self.pci_address.lock()),
+        }
+    }
 }
 
 pub trait RegionHandler {
