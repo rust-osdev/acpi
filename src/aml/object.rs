@@ -342,7 +342,7 @@ impl Object {
                     });
                 }
             };
-            if *length <= integer_size as usize {
+            if *length <= integer_size as usize * 8 {
                 let mut dst = [0u8; 8];
                 copy_bits(buffer, *offset, &mut dst, 0, *length);
                 Ok(Object::Integer(u64::from_le_bytes(dst)))
