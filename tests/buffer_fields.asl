@@ -20,4 +20,23 @@ DefinitionBlock("buffer_fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
     // `Y` should end up as `Integer(0x07060504)` (`Integer(117835012)` in decimal)
     Name(Y, 4)
     Y = DWRD
+
+    Name(FCNT, 0)
+
+    Method (CHEK, 2) {
+        If (Arg0 != Arg1) {
+            FCNT++
+        }
+    }
+
+    Method (T1) {
+        // Fields up to 64 bits wide read as integers
+        CHEK(WORD, 0x0302)
+        CHEK(DWRD, 0x07060504)
+    }
+
+    Method (MAIN) {
+        T1()
+        Return (FCNT)
+    }
 }
