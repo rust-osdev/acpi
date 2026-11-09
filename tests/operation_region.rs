@@ -8,6 +8,7 @@ use aml_test_tools::handlers::std_test_handler::{
     write_u8,
 };
 use pci_types::PciAddress;
+use std::{sync::mpsc, thread, time::Duration};
 
 mod test_infra;
 
@@ -186,4 +187,62 @@ fn test_region_in_pci_device() {
 
     let handler = construct_std_handler(expected_commands.to_vec());
     test_infra::run_aml_test(AML, handler);
+}
+
+/// Regression test: storing to a field in a `PCI_Config` region must not deadlock when the
+/// device's address is computed by a method. Accessing a `PCI_Config` region evaluates the
+/// device's `_SEG`/`_BBN`/`_ADR` objects, which are allowed to be methods. A method that
+/// stores to an implicit target (e.g. arithmetic without one) re-enters `do_store`, which used
+/// to deadlock on the object token. The test runs on a separate thread with a timeout, so a
+/// regression fails instead of hanging the whole test harness.
+#[test]
+fn test_region_in_pci_device_with_method_adr() {
+    const AML: &str = r#"DefinitionBlock("", "DSDT", 1, "RSACPI", "OPREG", 1) {
+    Device(TEST) {
+        Name (_BBN, 3)
+        Name (_SEG, 4)
+        // The arithmetic must be on named objects, or iasl constant-folds it away.
+        Name (DEVN, 0x1E)
+        Name (FUNC, 7)
+        Method (_ADR, 0, NotSerialized) {
+            Return (Add (ShiftLeft (DEVN, 16), FUNC))
+        }
+
+        OperationRegion(MEM, PCI_Config, 0x40, 0x20)
+        Field(MEM, ByteAcc, NoLock, Preserve) {
+        Offset (0x10),
+            DATA, 8
+        }
+
+        Method(RDWR, 0, NotSerialized) {
+            DATA = 0xA5
+            Return (DATA)
+        }
+    }
+
+    Method(MAIN, 0, NotSerialized) {
+        Local0 = ^TEST.RDWR()
+        // Remember that returning zero indicates success.
+        Return (Local0 != 0xA5)
+    }
+}
+"#;
+
+    let address: PciAddress = PciAddress::new(4, 3, 0x1e, 7);
+    let expected_commands: Vec<Command> = vec![
+        create_mutex(),
+        // DATA = 0xA5
+        write_pci_u8(address, 0x50, 0xA5),
+        read_pci_u8(address, 0x50, 0xA5),
+    ];
+
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let handler = construct_std_handler(expected_commands);
+        test_infra::run_aml_test(AML, handler);
+        let _ = tx.send(());
+    });
+
+    rx.recv_timeout(Duration::from_secs(30))
+        .expect("interpreter deadlocked evaluating a PCI address method during a field store");
 }

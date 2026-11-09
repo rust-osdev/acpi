@@ -710,12 +710,12 @@ where
                         let region_offset = region_offset.clone().unwrap_transparent_reference();
                         let region_length = region_length.clone().unwrap_transparent_reference();
 
-                        let region = Object::OpRegion(OpRegion {
-                            space: RegionSpace::from(*region_space),
-                            base: region_offset.as_integer()?,
-                            length: region_length.as_integer()?,
-                            parent_device_path: context.current_scope.clone(),
-                        });
+                        let region = Object::OpRegion(OpRegion::new(
+                            RegionSpace::from(*region_space),
+                            region_offset.as_integer()?,
+                            region_length.as_integer()?,
+                            context.current_scope.clone(),
+                        ));
                         self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap())?;
                         context.retire_op(op);
                     }
@@ -735,12 +735,12 @@ where
                             "DefDataRegion encountered in AML! We don't actually support these - produced region will be incorrect"
                         );
 
-                        let region = Object::OpRegion(OpRegion {
-                            space: RegionSpace::SystemMemory,
-                            base: 0,
-                            length: 0,
-                            parent_device_path: context.current_scope.clone(),
-                        });
+                        let region = Object::OpRegion(OpRegion::new(
+                            RegionSpace::SystemMemory,
+                            0,
+                            0,
+                            context.current_scope.clone(),
+                        ));
                         self.namespace.lock().insert(name.resolve(&context.current_scope)?, region.wrap())?;
                         context.retire_op(op);
                     }
@@ -2521,7 +2521,20 @@ where
                          * write-then-read pattern. We should perform a read in those cases and
                          * return that instead.
                          */
-                        Object::FieldUnit(field_unit) => self.do_field_write(field_unit, object.clone())?,
+                        Object::FieldUnit(field_unit) => {
+                            /*
+                             * Accessing a `PCI_Config` region needs the address of its device,
+                             * which comes from evaluating `_SEG`, `_BBN` and `_ADR`. These can be
+                             * methods that take the object token themselves, so resolve them with
+                             * the token released (as ACPICA does around region setup), then make
+                             * the access itself under the token.
+                             */
+                            let field_unit = field_unit.clone();
+                            drop(token);
+                            self.resolve_field_pci_addresses(&field_unit)?;
+                            let _token = self.object_token.lock();
+                            self.do_field_write(&field_unit, object.clone())?
+                        }
 
                         _ => {
                             return Err(AmlError::InvalidOperationOnObject {
@@ -2797,7 +2810,7 @@ where
                 }
             }),
             RegionSpace::PciConfig => {
-                let address = self.pci_address_for_device(&region.parent_device_path)?;
+                let address = self.pci_address_for_region(region)?;
                 let offset = region.base as u16 + offset as u16;
                 match length {
                     1 => Ok(self.handler.read_pci_u8(address, offset) as u64),
@@ -2864,7 +2877,7 @@ where
                 Ok(())
             }
             RegionSpace::PciConfig => {
-                let address = self.pci_address_for_device(&region.parent_device_path)?;
+                let address = self.pci_address_for_region(region)?;
                 let offset = region.base as u16 + offset as u16;
                 match length {
                     1 => self.handler.write_pci_u8(address, offset, value as u8),
@@ -2894,11 +2907,45 @@ where
         }
     }
 
+    /// Resolve the device addresses of all `PCI_Config` regions accessed through `field`. This may
+    /// evaluate AML, so must be called without the object token held.
+    fn resolve_field_pci_addresses(&self, field: &FieldUnit) -> Result<(), AmlError> {
+        let resolve_region = |region: &WrappedObject| {
+            let Object::OpRegion(ref region) = **region else { panic!() };
+            if region.space == RegionSpace::PciConfig {
+                self.pci_address_for_region(region)?;
+            }
+            Ok(())
+        };
+
+        match field.kind {
+            FieldUnitKind::Normal { ref region } => resolve_region(region),
+            FieldUnitKind::Bank { ref region, ref bank, .. } => {
+                let Object::FieldUnit(ref bank) = **bank else { panic!() };
+                self.resolve_field_pci_addresses(bank)?;
+                resolve_region(region)
+            }
+            FieldUnitKind::Index { ref index, ref data } => {
+                let Object::FieldUnit(ref index) = **index else { panic!() };
+                let Object::FieldUnit(ref data) = **data else { panic!() };
+                self.resolve_field_pci_addresses(index)?;
+                self.resolve_field_pci_addresses(data)
+            }
+        }
+    }
+
+    /// Get the address of the device a `PCI_Config` region is in. It is resolved once per region,
+    /// like ACPICA's region setup, as evaluating `_SEG`, `_BBN` and `_ADR` may run AML.
+    fn pci_address_for_region(&self, region: &OpRegion) -> Result<PciAddress, AmlError> {
+        if let Some(address) = *region.pci_address.lock() {
+            return Ok(address);
+        }
+        let address = self.pci_address_for_device(&region.parent_device_path)?;
+        *region.pci_address.lock() = Some(address);
+        Ok(address)
+    }
+
     fn pci_address_for_device(&self, path: &AmlName) -> Result<PciAddress, AmlError> {
-        /*
-         * TODO: it's not ideal to do these reads for every native access. See if we can
-         * cache them somewhere?
-         */
         let seg = match self.evaluate_if_present(AmlName::from_str("_SEG").unwrap().resolve(path)?, vec![])? {
             Some(value) => value.as_integer()?,
             None => 0,
