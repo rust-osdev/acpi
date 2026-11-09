@@ -862,7 +862,7 @@ where
                     | opcode @ Opcode::CreateQWordField => {
                         extract_args!(op => [Argument::Object(buffer), Argument::Object(index)]);
                         let name = context.namestring()?;
-                        let index = index.as_integer()?;
+                        let index = index.clone().unwrap_transparent_reference().as_integer()?;
                         let (offset, length) = match opcode {
                             Opcode::CreateBitField => (index, 1),
                             Opcode::CreateByteField => (index * 8, 8),
@@ -880,8 +880,8 @@ where
                     Opcode::CreateField => {
                         extract_args!(op => [Argument::Object(buffer), Argument::Object(bit_index), Argument::Object(num_bits)]);
                         let name = context.namestring()?;
-                        let bit_index = bit_index.as_integer()?;
-                        let num_bits = num_bits.as_integer()?;
+                        let bit_index = bit_index.clone().unwrap_transparent_reference().as_integer()?;
+                        let num_bits = num_bits.clone().unwrap_transparent_reference().as_integer()?;
 
                         self.namespace.lock().insert(
                             name.resolve(&context.current_scope)?,

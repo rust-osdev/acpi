@@ -35,8 +35,27 @@ DefinitionBlock("buffer_fields.aml", "DSDT", 1, "RSACPI", "BUFFLD", 1) {
         CHEK(DWRD, 0x07060504)
     }
 
+    Method (GETD, 1) {
+        CreateDWordField(X, Arg0, FLD)
+        Return (FLD)
+    }
+
+    Method (GETF, 2) {
+        Local0 = Arg0
+        Local1 = Arg1
+        CreateField(X, Local0, Local1, FLD)
+        Return (FLD)
+    }
+
+    Method (T2) {
+        // The index and size of a field from an argument or a local
+        CHEK(GETD(4), 0x07060504)
+        CHEK(GETF(32, 16), 0x0504)
+    }
+
     Method (MAIN) {
         T1()
+        T2()
         Return (FCNT)
     }
 }
