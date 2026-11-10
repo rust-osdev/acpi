@@ -381,7 +381,7 @@ impl Object {
 
     /// Replace this object's contents with that of a `new` object, applying implicit casting rules
     /// as needed. This follows the NT interpreter's creative interpretation of implicit casts, which is
-    /// effectively a byte-wise transmutation.
+    /// effectively a byte-wise transmutation. A buffer keeps its length, unless it's empty.
     pub fn replace_with_implicit_casting(&mut self, new: Object) -> Result<(), AmlError> {
         let new_bytes = match new {
             Object::Integer(value) => &value.to_le_bytes(),
@@ -401,7 +401,12 @@ impl Object {
                 *value = String::from_utf8_lossy(new_bytes).split('\0').next().unwrap().to_string();
             }
             Object::Buffer(value) => {
-                *value = new_bytes.to_vec();
+                if value.is_empty() {
+                    value.resize(new_bytes.len(), 0);
+                }
+                let n = usize::min(new_bytes.len(), value.len());
+                value[..n].copy_from_slice(&new_bytes[..n]);
+                value[n..].fill(0);
             }
             _ => return Err(AmlError::InvalidImplicitCast { from: self.typ(), to: new.typ() }),
         }
