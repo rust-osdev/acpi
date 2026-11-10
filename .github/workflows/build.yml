@@ -24,7 +24,7 @@ jobs:
             FEATURES: '--no-default-features'
           - TARGET: i686-unknown-linux-gnu
             OS: ubuntu-latest
-            FEATURES: '--no-default-features --features alloc'
+            FEATURES: '--no-default-features --features platform'
           # Without `platform`, the crate builds with a stable compiler.
           - TARGET: x86_64-unknown-linux-gnu
             OS: ubuntu-latest

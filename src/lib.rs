@@ -6,9 +6,9 @@
 //!
 //! This crate provides a limited API that can be used without an allocator, for example for use
 //! from a bootloader. This API will allow you to search for the RSDP, enumerate over the available
-//! tables, and interact with the tables using their raw structures. All other functionality is
-//! behind an `alloc` feature (enabled by default) and requires an allocator. The `platform`
-//! module is behind a `platform` feature (enabled by default), which needs a nightly compiler.
+//! tables, and interact with the tables using their raw structures. All other functionality
+//! requires an allocator: the AML interpreter (the `aml` feature) and the `platform` module (the
+//! `platform` feature, which needs a nightly compiler), both enabled by default.
 //!
 //! With an allocator, this crate also provides higher-level interfaces to the static tables, as
 //! well as a dynamic interpreter for AML - the bytecode format encoded in the DSDT and SSDT
@@ -51,7 +51,7 @@
 #[cfg(test)]
 extern crate std;
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "aml", feature = "platform"))]
 extern crate alloc;
 
 pub mod address;
