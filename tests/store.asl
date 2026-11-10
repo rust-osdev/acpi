@@ -177,6 +177,20 @@ DefinitionBlock ("", "DSDT", 2, "RSACPI", "TESTTABL", 0xF0F0F0F0)
         }
     }
 
+    Method (T10) {
+        Name(BUF, Buffer (4) { 0xff, 0xff, 0xff, 0xff })
+        BUF = Buffer () { 1, 2 }
+        CHEK(BUF, Buffer () { 1, 2, 0, 0 })
+        BUF = Buffer () { 1, 2, 3, 4, 5, 6 }
+        CHEK(BUF, Buffer () { 1, 2, 3, 4 })
+    }
+
+    Method (T11) {
+        Name(BUF, Buffer (0) {})
+        BUF = Buffer () { 1, 2 }
+        CHEK(BUF, Buffer () { 1, 2 })
+    }
+
     Method (MAIN, 0, NotSerialized) {
         T1()
         T2()
@@ -196,6 +210,8 @@ DefinitionBlock ("", "DSDT", 2, "RSACPI", "TESTTABL", 0xF0F0F0F0)
         U4() // references-8
         U5() // references-9
         U6() // references-10
+        T10()
+        T11()
 
         Return (FCNT)
     }
