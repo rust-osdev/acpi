@@ -9,6 +9,7 @@ use core::{
     pin::Pin,
 };
 use log::warn;
+use static_assertions::const_assert;
 
 /// Represents the SRAT (System Resource Affinity Table). This is a variable length table that
 /// allows devices (processors, memory ranges, and generic 'initiators') to be associated with
@@ -120,12 +121,12 @@ pub struct EntryHeader {
  * The sizes the specification gives each affinity structure. An entry is read by casting the
  * table's bytes, so a layout that drifts from these misreads every field after the drift.
  */
-const _: () = assert!(mem::size_of::<LocalApicAffinity>() == 16);
-const _: () = assert!(mem::size_of::<MemoryAffinity>() == 40);
-const _: () = assert!(mem::size_of::<LocalApicX2Affinity>() == 24);
-const _: () = assert!(mem::size_of::<GiccAffinity>() == 18);
-const _: () = assert!(mem::size_of::<GicItsAffinity>() == 12);
-const _: () = assert!(mem::size_of::<GicInitiatorAffinity>() == 32);
+const_assert!(mem::size_of::<LocalApicAffinity>() == 16);
+const_assert!(mem::size_of::<MemoryAffinity>() == 40);
+const_assert!(mem::size_of::<LocalApicX2Affinity>() == 24);
+const_assert!(mem::size_of::<GiccAffinity>() == 18);
+const_assert!(mem::size_of::<GicItsAffinity>() == 12);
+const_assert!(mem::size_of::<GicInitiatorAffinity>() == 32);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
