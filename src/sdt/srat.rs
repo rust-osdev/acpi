@@ -9,6 +9,7 @@ use core::{
     pin::Pin,
 };
 use log::warn;
+use static_assertions::const_assert;
 
 /// Represents the SRAT (System Resource Affinity Table). This is a variable length table that
 /// allows devices (processors, memory ranges, and generic 'initiators') to be associated with
@@ -113,8 +114,19 @@ impl<'a> Iterator for SratEntryIter<'a> {
 #[repr(C, packed)]
 pub struct EntryHeader {
     pub typ: u8,
-    pub length: u16,
+    pub length: u8,
 }
+
+/*
+ * The sizes the specification gives each affinity structure. An entry is read by casting the
+ * table's bytes, so a layout that drifts from these misreads every field after the drift.
+ */
+const_assert!(mem::size_of::<LocalApicAffinity>() == 16);
+const_assert!(mem::size_of::<MemoryAffinity>() == 40);
+const_assert!(mem::size_of::<LocalApicX2Affinity>() == 24);
+const_assert!(mem::size_of::<GiccAffinity>() == 18);
+const_assert!(mem::size_of::<GicItsAffinity>() == 12);
+const_assert!(mem::size_of::<GicInitiatorAffinity>() == 32);
 
 #[derive(Clone, Copy, Debug)]
 #[repr(C, packed)]
@@ -179,7 +191,7 @@ impl MemoryAffinity {
 
     pub fn length(&self) -> u64 {
         let mut length = self.length_low as u64;
-        length.set_bits(32..64, self.base_address_high as u64);
+        length.set_bits(32..64, self.length_high as u64);
         length
     }
 }
@@ -225,4 +237,59 @@ pub struct GicInitiatorAffinity {
     pub device_handle: [u8; 16],
     pub flags: u32,
     _reserved1: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An SRAT with one processor entry and one memory entry above 4GiB, laid out byte by byte
+    /// as the specification gives it.
+    fn table() -> [u8; 48 + 16 + 40] {
+        let mut bytes = [0u8; 48 + 16 + 40];
+        bytes[0..4].copy_from_slice(b"SRAT");
+        bytes[4..8].copy_from_slice(&(48u32 + 16 + 40).to_le_bytes());
+
+        let processor = &mut bytes[48..64];
+        processor[0] = 0;
+        processor[1] = 16;
+        processor[2] = 1; // Proximity domain, low byte
+        processor[3] = 3; // APIC id
+        processor[4..8].copy_from_slice(&1u32.to_le_bytes()); // Enabled
+
+        let memory = &mut bytes[64..104];
+        memory[0] = 1;
+        memory[1] = 40;
+        memory[2..6].copy_from_slice(&1u32.to_le_bytes()); // Proximity domain
+        memory[8..12].copy_from_slice(&0u32.to_le_bytes()); // Base, low
+        memory[12..16].copy_from_slice(&1u32.to_le_bytes()); // Base, high
+        memory[16..20].copy_from_slice(&0x8000_0000u32.to_le_bytes()); // Length, low
+        memory[20..24].copy_from_slice(&2u32.to_le_bytes()); // Length, high
+        memory[28..32].copy_from_slice(&1u32.to_le_bytes()); // Enabled
+        bytes
+    }
+
+    #[test]
+    fn entries_follow_the_specified_layout() {
+        let bytes = table();
+        let srat = unsafe { Pin::new_unchecked(&*(bytes.as_ptr() as *const Srat)) };
+        let mut entries = srat.entries();
+
+        let Some(SratEntry::LocalApicAffinity(processor)) = entries.next() else {
+            panic!("first entry is not the processor affinity structure");
+        };
+        assert_eq!(processor.apic_id, 3);
+        assert_eq!(processor.proximity_domain(), 1);
+        assert!({ processor.flags }.contains(LocalApicAffinityFlags::ENABLED));
+
+        let Some(SratEntry::MemoryAffinity(memory)) = entries.next() else {
+            panic!("second entry is not the memory affinity structure");
+        };
+        assert_eq!({ memory.proximity_domain }, 1);
+        assert_eq!(memory.base_address(), 0x1_0000_0000);
+        assert_eq!(memory.length(), 0x2_8000_0000);
+        assert!({ memory.flags }.contains(MemoryAffinityFlags::ENABLED));
+
+        assert!(entries.next().is_none());
+    }
 }
