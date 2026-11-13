@@ -8,7 +8,6 @@
  *  - Correct DefStore / DefCopyObject behaviour
  *  - Load and LoadTable
  *  - DefDataRegion
- *  - Notify
  *
  *  - Method recursion depth?
  *  - Loop timeouts
@@ -677,10 +676,13 @@ where
                         }
                     }
                     Opcode::Notify => {
-                        // TODO: support notify handlers (ACPICA without one ignores it too)
                         extract_args!(op => [Argument::Object(object), Argument::Object(value)]);
                         let value = value.clone().unwrap_transparent_reference().as_integer()?;
-                        info!("Ignoring Notify of {} with value {}", object, value);
+                        // The handler is told the path of the notified object, so find which namespace entry
+                        // holds the object the operand (a name, argument, local or reference) resolved to.
+                        let object = object.clone().unwrap_reference();
+                        let path = self.namespace.lock().path_of(&object).ok_or(AmlError::ObjectNotInNamespace)?;
+                        self.handler.handle_notify(&path, value);
                         context.retire_op(op);
                     }
                     Opcode::FromBCD => self.do_from_bcd(&mut context, op)?,
@@ -3624,6 +3626,9 @@ pub enum AmlError {
     LevelDoesNotExist(AmlName),
     NameCollision(AmlName),
     ObjectDoesNotExist(AmlName),
+    /// An operation that identifies an object by its namespace path (e.g. `Notify`) was given an object that is
+    /// not held by any namespace entry.
+    ObjectNotInNamespace,
 
     NoCurrentOp,
     ElseFoundWithoutCorrespondingIf,

@@ -113,6 +113,13 @@ assert_impl_all!(Object: Send, Sync);
 #[derive(Clone, Debug)]
 pub struct WrappedObject(Arc<UnsafeCell<Object>>);
 
+impl WrappedObject {
+    /// Returns `true` if both wrappers refer to the same underlying object.
+    pub(crate) fn ptr_eq(&self, other: &WrappedObject) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 unsafe impl Send for WrappedObject {}
 unsafe impl Sync for WrappedObject {}
 
