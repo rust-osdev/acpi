@@ -521,15 +521,14 @@ where
                         let operand = operand.clone().unwrap_reference();
                         let token = self.object_token.lock();
 
-                        let operand = unsafe {operand.gain_mut(&token)};
+                        let operand = unsafe { operand.gain_mut(&token) };
                         let value = match operand {
-                            Object::Integer(operand) => {
-                                *operand
-                            }
-                            Object::BufferField{..} => {
-                                operand.to_integer(self.integer_size)?
-                            }
-                            _ => Err(AmlError::ObjectNotOfExpectedType { expected: ObjectType::Integer, got: operand.typ() })?
+                            Object::Integer(operand) => *operand,
+                            Object::BufferField { .. } => operand.to_integer(self.integer_size)?,
+                            _ => Err(AmlError::ObjectNotOfExpectedType {
+                                expected: ObjectType::Integer,
+                                got: operand.typ(),
+                            })?,
                         };
 
                         let new_value = match op.op {
@@ -542,10 +541,10 @@ where
                             Object::Integer(operand) => {
                                 *operand = new_value;
                             }
-                            Object::BufferField{..} => {
+                            Object::BufferField { .. } => {
                                 operand.write_buffer_field(&new_value.to_le_bytes(), &token)?;
                             }
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         }
 
                         context.contribute_arg(Argument::Object(Object::Integer(new_value).wrap()));
@@ -2540,35 +2539,29 @@ where
         Ok(object)
     }
 
-    /// Copy `object` into `target`, matching the expected behaviour of `DefCopyObject`, which
-    /// depends on the object referenced:
-    ///    - Locals are overwritten
-    ///    - Args are overwritten, unless they are references, in which case the referenced object is overwritten
-    ///    - Objects referenced by name are overwritten
-    ///    - Index references cause the object at the index to be overwritten
-    ///    - Other reference operations are not allowed
+    /// Copy `object` into `target`, matching the expected behaviour of `DefCopyObject`.
+    ///
+    /// Those rules break into two parts:
+    /// 1. How to deal with Args, Locals, references - which are dealt with by
+    ///    [`WrappedObject::unwrap_ref_for_copyobject`]
+    /// 2. What to do when copying over objects of various types, which are dealt with here.
     fn do_copy_object(&self, target: WrappedObject, object: WrappedObject) -> Result<(), AmlError> {
-        let Object::Reference { kind, ref inner } = *target else {
-            return Err(AmlError::InternalError("Target of CopyObject must be a reference".to_string()));
-        };
+        let dst = target.unwrap_ref_for_copyobject()?;
         let object = object.clone().unwrap_transparent_reference();
         let token = self.object_token.lock();
 
-        let dst = match kind {
-            ReferenceKind::Named | ReferenceKind::Local => inner.clone().unwrap_transparent_reference(),
-            ReferenceKind::Arg => {
-                if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
-                    inner_inner.clone()
-                } else {
-                    inner.clone().unwrap_transparent_reference()
-                }
+        match *dst {
+            Object::BufferField { .. } => {
+                unsafe { dst.gain_mut(&token) }
+                    .write_buffer_field(object.to_buffer(self.integer_size)?.as_slice(), &token)?;
             }
-            ReferenceKind::Index => inner.clone(),
-            ReferenceKind::RefOf | ReferenceKind::Unresolved => return Err(AmlError::StoreToInvalidReferenceType),
-        };
-
-        unsafe {
-            *dst.gain_mut(&token) = (*object).clone();
+            Object::FieldUnit(ref field_unit) => self.do_field_write(field_unit, object.clone())?,
+            _ => {
+                // TODO: This is definitively *unsound* if dst and object are one and the same...
+                // (due to mut and non-mut refs existing simultaneously)
+                let mut_ref = unsafe { dst.gain_mut(&token) };
+                *mut_ref = (*object).clone();
+            }
         }
 
         Ok(())
