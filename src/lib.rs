@@ -6,8 +6,9 @@
 //!
 //! This crate provides a limited API that can be used without an allocator, for example for use
 //! from a bootloader. This API will allow you to search for the RSDP, enumerate over the available
-//! tables, and interact with the tables using their raw structures. All other functionality is
-//! behind an `alloc` feature (enabled by default) and requires an allocator.
+//! tables, and interact with the tables using their raw structures. All other functionality
+//! requires an allocator: the AML interpreter (the `aml` feature) and the `platform` module (the
+//! `platform` feature, which needs a nightly compiler), both enabled by default.
 //!
 //! With an allocator, this crate also provides higher-level interfaces to the static tables, as
 //! well as a dynamic interpreter for AML - the bytecode format encoded in the DSDT and SSDT
@@ -31,9 +32,10 @@
 //! Once you have an [`AcpiTables`], you can search for relevant tables, or use the higher-level
 //! interfaces, such as [`PowerProfile`], or [`HpetInfo`].
 //!
-//! If you have the `aml` feature enabled then you can construct an
+//! If you have the `aml` and `platform` features enabled then you can construct an
 //! [AML interpreter](`crate::aml::Interpreter`) by first constructing an
-//! [`AcpiPlatform`](platform::AcpiPlatform) and then the interpreter:
+//! [`AcpiPlatform`](platform::AcpiPlatform) and then the interpreter (without `platform`, use
+//! [`Interpreter::new`](crate::aml::Interpreter::new) and load the tables yourself):
 //!
 //! ```ignore,rust
 //! let mut acpi_handler = YourHandler::new(/*args*/);
@@ -43,20 +45,20 @@
 //! ```
 
 #![no_std]
-#![cfg_attr(feature = "alloc", feature(allocator_ext))]
+#![cfg_attr(feature = "platform", feature(allocator_ext))]
 
 #[cfg_attr(test, macro_use)]
 #[cfg(test)]
 extern crate std;
 
-#[cfg(feature = "alloc")]
+#[cfg(any(feature = "aml", feature = "platform"))]
 extern crate alloc;
 
 pub mod address;
 #[cfg(feature = "aml")]
 pub mod aml;
 pub mod physical_mapping;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "platform")]
 pub mod platform;
 pub mod registers;
 pub mod rsdp;
