@@ -335,6 +335,25 @@ impl Namespace {
         Ok((current_level, *last_seg))
     }
 
+    /// Find the absolute path of the (non-alias) namespace entry that holds exactly this object, compared by
+    /// identity rather than by value.
+    pub(crate) fn path_of(&self, object: &WrappedObject) -> Option<AmlName> {
+        fn search_level(level: &NamespaceLevel, scope: &AmlName, object: &WrappedObject) -> Option<AmlName> {
+            let found = level.values.iter().find_map(|(seg, (flags, held))| {
+                (!flags.is_alias() && held.ptr_eq(object)).then(|| AmlName::from_name_seg(*seg).resolve(scope).ok())
+            });
+            if let Some(found) = found {
+                return found;
+            }
+            level.children.iter().find_map(|(seg, child)| {
+                let child_scope = AmlName::from_name_seg(*seg).resolve(scope).ok()?;
+                search_level(child, &child_scope, object)
+            })
+        }
+
+        search_level(&self.root, &AmlName::root(), object)
+    }
+
     /// Traverse the namespace, calling `f` on each namespace level. `f` returns a `Result<bool, AmlError>` -
     /// errors terminate the traversal and are propagated, and the `bool` on the successful path marks whether the
     /// children of the level should also be traversed.
