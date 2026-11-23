@@ -237,7 +237,8 @@ impl WrappedObject {
     /// table of the ACPI spec.
     ///
     /// This function requires an ObjectToken as it *may* update the referenced object if it is an
-    /// Arg reference that does not contain a "true" reference. (In that case,
+    /// Arg reference that does not contain a "true" reference. (In that case, the Arg is rebound
+    /// to a new, uninitialised object - as described within the function body.)
     pub(crate) fn unwrap_ref_for_copyobject(self, token: &ObjectToken) -> Result<WrappedObject, AmlError> {
         let Object::Reference { kind, ref inner } = *self else {
             return Err(AmlError::InternalError("Target of CopyObject must be a reference".to_string()));
