@@ -47,7 +47,7 @@ DefinitionBlock ("", "DSDT", 2, "RSCAPI", "CPYOBJCT", 0xF0F0F0F0) {
 
     Method (T3IN, 1) {
         CopyObject("Something else", Arg0)
-        CHEK(Arg0, "Something else")
+        CHEK(DeRefOf(Arg0), "Something else")
     }
 
     // When doing CopyObject to Arg, multiple RefOfs are skipped over before rebinding (row 1 of the table)

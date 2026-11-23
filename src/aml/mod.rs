@@ -2557,9 +2557,9 @@ where
     ///    [`WrappedObject::unwrap_ref_for_copyobject`]
     /// 2. What to do when copying over objects of various types, which are dealt with here.
     fn do_copy_object(&self, target: WrappedObject, object: WrappedObject) -> Result<(), AmlError> {
-        let dst = target.unwrap_ref_for_copyobject()?;
-        let object = object.clone().unwrap_transparent_reference();
         let token = self.object_token.lock();
+        let dst = target.unwrap_ref_for_copyobject(&token)?;
+        let object = object.clone().unwrap_transparent_reference();
 
         match *dst {
             Object::BufferField { .. } => {
@@ -2567,15 +2567,6 @@ where
                     .write_buffer_field(object.to_buffer(self.integer_size)?.as_slice(), &token)?;
             }
             Object::FieldUnit(ref field_unit) => self.do_field_write(field_unit, object.clone())?,
-            Object::Reference { kind: ReferenceKind::Arg, .. } => {
-                // This is the only rule not fully handled by `unwrap_ref_for_copyobject` - Args
-                // that aren't references are updated only in the callee function, and changes are
-                // not visible to the caller.
-                //
-                // We need to replace the `inner` object, otherwise we'd overwrite the
-                // `WrappedObject` that is shared with the caller.
-                unsafe { dst.gain_mut(&token) }.set_arg_inner(object.clone());
-            }
             _ => {
                 // TODO: This is definitively *unsound* if dst and object are one and the same...
                 // (due to mut and non-mut refs existing simultaneously)
