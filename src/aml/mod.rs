@@ -1611,9 +1611,7 @@ where
                 }
                 Opcode::Arg(arg) => {
                     let arg = context.args[arg as usize].clone();
-                    context.contribute_arg(Argument::Object(
-                        Object::Reference { kind: ReferenceKind::Arg, inner: arg }.wrap(),
-                    ));
+                    context.contribute_arg(Argument::Object(arg));
                 }
                 Opcode::Store => context.start(OpInFlight::new(
                     Opcode::Store,
@@ -2556,6 +2554,15 @@ where
                     .write_buffer_field(object.to_buffer(self.integer_size)?.as_slice(), &token)?;
             }
             Object::FieldUnit(ref field_unit) => self.do_field_write(field_unit, object.clone())?,
+            Object::Reference { kind: ReferenceKind::Arg, .. } => {
+                // This is the only rule not fully handled by `unwrap_ref_for_copyobject` - Args
+                // that aren't references are updated only in the callee function, and changes are
+                // not visible to the caller.
+                //
+                // We need to replace the `inner` object, otherwise we'd overwrite the
+                // `WrappedObject` that is shared with the caller.
+                unsafe { dst.gain_mut(&token) }.set_arg_inner(object.clone());
+            }
             _ => {
                 // TODO: This is definitively *unsound* if dst and object are one and the same...
                 // (due to mut and non-mut refs existing simultaneously)
@@ -3098,7 +3105,9 @@ impl MethodContext {
             current_block: block,
             block_stack: Vec::new(),
             in_flight: Vec::new(),
-            args: core::array::from_fn(|_| Object::Uninitialized.wrap()),
+            args: core::array::from_fn(|_| {
+                Object::Reference { kind: ReferenceKind::Arg, inner: Object::Uninitialized.wrap() }.wrap()
+            }),
             locals: core::array::from_fn(|_| Object::Uninitialized.wrap()),
             current_scope: AmlName::root(),
             _method: None,
@@ -3117,7 +3126,8 @@ impl MethodContext {
             let block =
                 Block { stream: code.clone(), pc: 0, kind: BlockKind::Method { method_scope: scope.clone() } };
             let args = core::array::from_fn(|i| {
-                if let Some(arg) = args.get(i) { arg.clone() } else { Object::Uninitialized.wrap() }
+                let inner = args.get(i).cloned().unwrap_or_else(|| Object::Uninitialized.wrap());
+                Object::Reference { kind: ReferenceKind::Arg, inner }.wrap()
             });
             let context = MethodContext {
                 current_block: block,

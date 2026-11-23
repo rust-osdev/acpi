@@ -243,11 +243,18 @@ impl WrappedObject {
         let dst = match kind {
             ReferenceKind::Named | ReferenceKind::Local => inner.clone().unwrap_transparent_reference(),
             ReferenceKind::Arg => {
-                if let Object::Reference { kind: _, inner: ref inner_inner } = **inner {
-                    inner_inner.clone().unwrap_reference()
-                } else {
-                    self
+                // Only a `RefOf` is followed (through however many there are, and any transparent
+                // references between them). Otherwise the Arg is rebound: the Arg reference itself
+                // is returned, and the caller must repoint it at the copied object (see
+                // `Object::set_arg_inner`), leaving whatever was passed in untouched.
+                if !matches!(**inner, Object::Reference { kind: ReferenceKind::RefOf, .. }) {
+                    return Ok(self);
                 }
+                let mut dst = inner.clone();
+                while let Object::Reference { kind: ReferenceKind::RefOf, inner: ref target } = *dst {
+                    dst = target.clone().unwrap_transparent_reference();
+                }
+                dst
             }
             ReferenceKind::Index => todo!(),
             ReferenceKind::RefOf | ReferenceKind::Unresolved => return Err(AmlError::StoreToInvalidReferenceType),
@@ -278,6 +285,14 @@ impl fmt::Display for WrappedObject {
 }
 
 impl Object {
+    /// Repoint an `Arg` reference at a new object. Panics if `self` is not an `Arg` reference.
+    pub(crate) fn set_arg_inner(&mut self, new_inner: WrappedObject) {
+        match self {
+            Object::Reference { kind: ReferenceKind::Arg, inner } => *inner = new_inner,
+            _ => panic!("set_arg_inner called on a non-Arg object"),
+        }
+    }
+
     pub fn wrap(self) -> WrappedObject {
         WrappedObject::new(self)
     }
@@ -825,5 +840,135 @@ mod tests {
 
         assert!(Arc::ptr_eq(&target.0, &string.0));
         assert!(implicit_cast_reqd);
+    }
+
+    fn make_ref(kind: ReferenceKind, inner: &WrappedObject) -> WrappedObject {
+        Object::Reference { kind, inner: inner.clone() }.wrap()
+    }
+
+    #[test]
+    fn copyobject_non_reference_is_error() {
+        let result = Object::Integer(1).wrap().unwrap_ref_for_copyobject();
+        assert!(matches!(result, Err(AmlError::InternalError(_))));
+    }
+
+    #[test]
+    fn copyobject_refof_and_unresolved_are_errors() {
+        let integer = Object::Integer(1).wrap();
+        for kind in [ReferenceKind::RefOf, ReferenceKind::Unresolved] {
+            let result = make_ref(kind, &integer).unwrap_ref_for_copyobject();
+            assert!(matches!(result, Err(AmlError::StoreToInvalidReferenceType)));
+        }
+    }
+
+    #[test]
+    fn copyobject_local_overwrites_local_value() {
+        // CopyObject(x, Local0), where Local0 holds an integer
+        let value = Object::Integer(1).wrap();
+        let local0 = make_ref(ReferenceKind::Local, &value);
+
+        let dst = local0.unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &value.0));
+    }
+
+    #[test]
+    fn copyobject_local_holding_refof_overwrites_the_reference() {
+        // Local1 = RefOf(Local0)
+        // CopyObject(x, Local1)
+        // Local1 is replaced wholesale - Local0 must not be touched.
+        let value = Object::Integer(1).wrap();
+        let local0 = make_ref(ReferenceKind::Local, &value);
+        let ref_of = make_ref(ReferenceKind::RefOf, &local0);
+        let local1 = make_ref(ReferenceKind::Local, &ref_of);
+
+        let dst = local1.unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &ref_of.0));
+    }
+
+    #[test]
+    fn copyobject_arg_holding_value_rebinds_arg() {
+        // Method called with an integer by value: Arg0 itself is returned to be rebound, so it
+        // remains an Arg reference (now to the copied object) and the passed value is untouched.
+        let value = Object::Integer(1).wrap();
+        let arg0 = make_ref(ReferenceKind::Arg, &value);
+
+        let dst = arg0.clone().unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &arg0.0));
+    }
+
+    #[test]
+    fn copyobject_arg_holding_reference_overwrites_referenced_object() {
+        // Local0 = 1
+        // MEFD(RefOf(Local0)); inside MEFD: CopyObject(x, Arg0)
+        let value = Object::Integer(1).wrap();
+        let local0 = make_ref(ReferenceKind::Local, &value);
+        let ref_of = make_ref(ReferenceKind::RefOf, &local0);
+        let arg0 = make_ref(ReferenceKind::Arg, &ref_of);
+
+        let dst = arg0.unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &value.0));
+    }
+
+    #[test]
+    fn copyobject_arg_holding_local_rebinds_arg() {
+        // Local0 = 1
+        // MEFD(Local0) (Local passed directly); inside MEFD: CopyObject(x, Arg0)
+        // The Arg is rebound; Local0 is not affected.
+        let value = Object::Integer(1).wrap();
+        let local0 = make_ref(ReferenceKind::Local, &value);
+        let arg0 = make_ref(ReferenceKind::Arg, &local0);
+
+        let dst = arg0.clone().unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &arg0.0));
+    }
+
+    #[test]
+    fn copyobject_arg_holding_named_rebinds_arg() {
+        // Name(TST, "String")
+        // MEFD(TST); inside MEFD: CopyObject(x, Arg0)
+        // The Arg is rebound; TST is not affected.
+        let value = Object::String("String".to_string()).wrap();
+        let named = make_ref(ReferenceKind::Named, &value);
+        let arg0 = make_ref(ReferenceKind::Arg, &named);
+
+        let dst = arg0.clone().unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &arg0.0));
+    }
+
+    #[test]
+    fn copyobject_arg_skips_multiple_refofs() {
+        // Name(TST, "String")
+        // Local0 = RefOf(TST)
+        // MEFD(RefOf(Local0)); inside MEFD: CopyObject(x, Arg0)
+        let value = Object::String("String".to_string()).wrap();
+        let named = make_ref(ReferenceKind::Named, &value);
+        let inner_ref_of = make_ref(ReferenceKind::RefOf, &named);
+        let local0_cell = inner_ref_of;
+        let local0 = make_ref(ReferenceKind::Local, &local0_cell);
+        let outer_ref_of = make_ref(ReferenceKind::RefOf, &local0);
+        let arg0 = make_ref(ReferenceKind::Arg, &outer_ref_of);
+
+        let dst = arg0.unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &value.0));
+    }
+
+    #[test]
+    fn copyobject_named_overwrites_named_object() {
+        let value = Object::Integer(1).wrap();
+        let named = make_ref(ReferenceKind::Named, &value);
+
+        let dst = named.unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &value.0));
+    }
+
+    #[test]
+    fn copyobject_named_through_nested_transparent_references() {
+        // A Local holding a Named object (e.g. as produced by Local0 = NAME)
+        let value = Object::Integer(1).wrap();
+        let named = make_ref(ReferenceKind::Named, &value);
+        let local0 = make_ref(ReferenceKind::Local, &named);
+
+        let dst = local0.unwrap_ref_for_copyobject().unwrap();
+        assert!(Arc::ptr_eq(&dst.0, &value.0));
     }
 }
