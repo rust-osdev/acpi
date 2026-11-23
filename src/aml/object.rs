@@ -235,7 +235,10 @@ impl WrappedObject {
     /// This is defined in the
     /// [Object Storing and Copying Rules](https://uefi.org/specs/ACPI/6.6/19_ASL_Reference.html#object-storing-and-copying-rules)
     /// table of the ACPI spec.
-    pub(crate) fn unwrap_ref_for_copyobject(self) -> Result<WrappedObject, AmlError> {
+    ///
+    /// This function requires an ObjectToken as it *may* update the referenced object if it is an
+    /// Arg reference that does not contain a "true" reference. (In that case,
+    pub(crate) fn unwrap_ref_for_copyobject(self, token: &ObjectToken) -> Result<WrappedObject, AmlError> {
         let Object::Reference { kind, ref inner } = *self else {
             return Err(AmlError::InternalError("Target of CopyObject must be a reference".to_string()));
         };
@@ -243,12 +246,18 @@ impl WrappedObject {
         let dst = match kind {
             ReferenceKind::Named | ReferenceKind::Local => inner.clone().unwrap_transparent_reference(),
             ReferenceKind::Arg => {
-                // Only a `RefOf` is followed (through however many there are, and any transparent
-                // references between them). Otherwise the Arg is rebound: the Arg reference itself
-                // is returned, and the caller must repoint it at the copied object (see
-                // `Object::set_arg_inner`), leaving whatever was passed in untouched.
+                // Only a `RefOf` is followed. Otherwise the Arg is rebound: it is repointed at a
+                // new, uninitialised object that is immediately overwritten by this function's
+                // caller.
+                //
+                // This is needed to prevent the CopyObject operation from being visible in any
+                // methods higher up the call stack.
                 if !matches!(**inner, Object::Reference { kind: ReferenceKind::RefOf, .. }) {
-                    return Ok(self);
+                    let new_inner = Object::Uninitialized.wrap();
+                    // SAFETY: Provided by the use of the token, and self being owned rather than
+                    // borrowed in this function.
+                    unsafe { self.gain_mut(token) }.set_arg_inner(new_inner.clone());
+                    return Ok(new_inner);
                 }
                 let mut dst = inner.clone();
                 while let Object::Reference { kind: ReferenceKind::RefOf, inner: ref target } = *dst {
@@ -285,8 +294,10 @@ impl fmt::Display for WrappedObject {
 }
 
 impl Object {
-    /// Repoint an `Arg` reference at a new object. Panics if `self` is not an `Arg` reference.
-    pub(crate) fn set_arg_inner(&mut self, new_inner: WrappedObject) {
+    /// Repoint an `Arg` reference at a new object, for use during a CopyObject operation
+    ///
+    /// See [`WrappedObject::unwrap_ref_for_copyobject`] for details.
+    fn set_arg_inner(&mut self, new_inner: WrappedObject) {
         match self {
             Object::Reference { kind: ReferenceKind::Arg, inner } => *inner = new_inner,
             _ => panic!("set_arg_inner called on a non-Arg object"),
@@ -842,13 +853,30 @@ mod tests {
         assert!(implicit_cast_reqd);
     }
 
+    fn token() -> ObjectToken {
+        // SAFETY: tests are single-threaded per-object and no interpreter exists in these unit
+        // tests.
+        unsafe { ObjectToken::create_interpreter_token() }
+    }
+
+    /// Check that `arg` is still an Arg reference, now pointing at the new uninitialised `dst`
+    /// rather than at the `original` object it was passed.
+    fn assert_arg_rebound(arg: &WrappedObject, dst: &WrappedObject, original: &WrappedObject) {
+        let Object::Reference { kind: ReferenceKind::Arg, ref inner } = **arg else {
+            panic!("Arg is no longer an Arg reference");
+        };
+        assert!(Arc::ptr_eq(&inner.0, &dst.0));
+        assert!(!Arc::ptr_eq(&dst.0, &original.0));
+        assert_eq!(dst.typ(), ObjectType::Uninitialized);
+    }
+
     fn make_ref(kind: ReferenceKind, inner: &WrappedObject) -> WrappedObject {
         Object::Reference { kind, inner: inner.clone() }.wrap()
     }
 
     #[test]
     fn copyobject_non_reference_is_error() {
-        let result = Object::Integer(1).wrap().unwrap_ref_for_copyobject();
+        let result = Object::Integer(1).wrap().unwrap_ref_for_copyobject(&token());
         assert!(matches!(result, Err(AmlError::InternalError(_))));
     }
 
@@ -856,7 +884,7 @@ mod tests {
     fn copyobject_refof_and_unresolved_are_errors() {
         let integer = Object::Integer(1).wrap();
         for kind in [ReferenceKind::RefOf, ReferenceKind::Unresolved] {
-            let result = make_ref(kind, &integer).unwrap_ref_for_copyobject();
+            let result = make_ref(kind, &integer).unwrap_ref_for_copyobject(&token());
             assert!(matches!(result, Err(AmlError::StoreToInvalidReferenceType)));
         }
     }
@@ -867,7 +895,7 @@ mod tests {
         let value = Object::Integer(1).wrap();
         let local0 = make_ref(ReferenceKind::Local, &value);
 
-        let dst = local0.unwrap_ref_for_copyobject().unwrap();
+        let dst = local0.unwrap_ref_for_copyobject(&token()).unwrap();
         assert!(Arc::ptr_eq(&dst.0, &value.0));
     }
 
@@ -881,19 +909,19 @@ mod tests {
         let ref_of = make_ref(ReferenceKind::RefOf, &local0);
         let local1 = make_ref(ReferenceKind::Local, &ref_of);
 
-        let dst = local1.unwrap_ref_for_copyobject().unwrap();
+        let dst = local1.unwrap_ref_for_copyobject(&token()).unwrap();
         assert!(Arc::ptr_eq(&dst.0, &ref_of.0));
     }
 
     #[test]
     fn copyobject_arg_holding_value_rebinds_arg() {
-        // Method called with an integer by value: Arg0 itself is returned to be rebound, so it
-        // remains an Arg reference (now to the copied object) and the passed value is untouched.
+        // Method called with an integer by value: Arg0 is repointed at a new uninitialised object,
+        // so it remains an Arg reference and the passed value is untouched.
         let value = Object::Integer(1).wrap();
         let arg0 = make_ref(ReferenceKind::Arg, &value);
 
-        let dst = arg0.clone().unwrap_ref_for_copyobject().unwrap();
-        assert!(Arc::ptr_eq(&dst.0, &arg0.0));
+        let dst = arg0.clone().unwrap_ref_for_copyobject(&token()).unwrap();
+        assert_arg_rebound(&arg0, &dst, &value);
     }
 
     #[test]
@@ -905,7 +933,7 @@ mod tests {
         let ref_of = make_ref(ReferenceKind::RefOf, &local0);
         let arg0 = make_ref(ReferenceKind::Arg, &ref_of);
 
-        let dst = arg0.unwrap_ref_for_copyobject().unwrap();
+        let dst = arg0.unwrap_ref_for_copyobject(&token()).unwrap();
         assert!(Arc::ptr_eq(&dst.0, &value.0));
     }
 
@@ -918,8 +946,8 @@ mod tests {
         let local0 = make_ref(ReferenceKind::Local, &value);
         let arg0 = make_ref(ReferenceKind::Arg, &local0);
 
-        let dst = arg0.clone().unwrap_ref_for_copyobject().unwrap();
-        assert!(Arc::ptr_eq(&dst.0, &arg0.0));
+        let dst = arg0.clone().unwrap_ref_for_copyobject(&token()).unwrap();
+        assert_arg_rebound(&arg0, &dst, &local0);
     }
 
     #[test]
@@ -931,8 +959,8 @@ mod tests {
         let named = make_ref(ReferenceKind::Named, &value);
         let arg0 = make_ref(ReferenceKind::Arg, &named);
 
-        let dst = arg0.clone().unwrap_ref_for_copyobject().unwrap();
-        assert!(Arc::ptr_eq(&dst.0, &arg0.0));
+        let dst = arg0.clone().unwrap_ref_for_copyobject(&token()).unwrap();
+        assert_arg_rebound(&arg0, &dst, &named);
     }
 
     #[test]
@@ -948,7 +976,7 @@ mod tests {
         let outer_ref_of = make_ref(ReferenceKind::RefOf, &local0);
         let arg0 = make_ref(ReferenceKind::Arg, &outer_ref_of);
 
-        let dst = arg0.unwrap_ref_for_copyobject().unwrap();
+        let dst = arg0.unwrap_ref_for_copyobject(&token()).unwrap();
         assert!(Arc::ptr_eq(&dst.0, &value.0));
     }
 
@@ -957,7 +985,7 @@ mod tests {
         let value = Object::Integer(1).wrap();
         let named = make_ref(ReferenceKind::Named, &value);
 
-        let dst = named.unwrap_ref_for_copyobject().unwrap();
+        let dst = named.unwrap_ref_for_copyobject(&token()).unwrap();
         assert!(Arc::ptr_eq(&dst.0, &value.0));
     }
 
@@ -968,7 +996,7 @@ mod tests {
         let named = make_ref(ReferenceKind::Named, &value);
         let local0 = make_ref(ReferenceKind::Local, &named);
 
-        let dst = local0.unwrap_ref_for_copyobject().unwrap();
+        let dst = local0.unwrap_ref_for_copyobject(&token()).unwrap();
         assert!(Arc::ptr_eq(&dst.0, &value.0));
     }
 }
