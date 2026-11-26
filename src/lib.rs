@@ -471,6 +471,15 @@ pub trait Handler: Clone {
             fatal_arg
         );
     }
+
+    /// Called when AML executes a `Notify` operation. `object` is the absolute namespace path of the
+    /// device, processor or thermal zone being notified, and `value` is the notification value.
+    ///
+    /// This mirrors the notify handlers of ACPICA. The host is expected to act on the notification
+    /// (e.g. by re-enumerating a device or re-reading a battery status). The default implementation
+    /// ignores the notification, as ACPICA does when no handler is installed.
+    #[cfg(feature = "aml")]
+    fn handle_notify(&self, _object: &aml::namespace::AmlName, _value: u64) {}
 }
 
 impl<H: Handler> Handler for &H {
@@ -633,6 +642,12 @@ impl<H: Handler> Handler for &H {
     #[cfg(feature = "aml")]
     fn handle_fatal_error(&self, fatal_type: u8, fatal_code: u32, fatal_arg: u64) {
         (**self).handle_fatal_error(fatal_type, fatal_code, fatal_arg)
+    }
+
+    #[inline]
+    #[cfg(feature = "aml")]
+    fn handle_notify(&self, object: &aml::namespace::AmlName, value: u64) {
+        (**self).handle_notify(object, value)
     }
 }
 

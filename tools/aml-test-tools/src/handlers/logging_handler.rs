@@ -183,4 +183,9 @@ where
         info!("Debug store: {}", object);
         self.next_handler.handle_debug(object);
     }
+
+    fn handle_notify(&self, object: &acpi::aml::namespace::AmlName, value: u64) {
+        info!("Notify of {} with value {}", object, value);
+        self.next_handler.handle_notify(object, value);
+    }
 }
