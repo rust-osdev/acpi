@@ -24,15 +24,14 @@ pub mod op_region;
 pub mod pci_routing;
 pub mod resource;
 
+#[cfg(feature = "platform")]
+use crate::{AcpiError, platform::AcpiPlatform};
 use crate::{
-    AcpiError,
-    AmlTable,
     Handle,
     Handler,
     PhysicalMapping,
-    platform::AcpiPlatform,
     registers::{FixedRegisters, Pm1ControlBit},
-    sdt::{SdtHeader, facs::Facs, fadt::Fadt},
+    sdt::facs::Facs,
 };
 use alloc::{
     boxed::Box,
@@ -45,13 +44,11 @@ use alloc::{
 use bit_field::BitField;
 use core::{
     mem,
-    ptr,
-    slice,
     str::FromStr,
     sync::atomic::{AtomicU64, Ordering},
 };
 pub use interrupt_model_used::InterruptModelUsed;
-use log::{error, info, trace, warn};
+use log::{info, trace, warn};
 use match_expr::{MatchOp, do_match};
 use namespace::{AmlName, Namespace, NamespaceLevelKind};
 use object::{
@@ -190,7 +187,15 @@ where
     }
 
     /// Construct a new [`Interpreter`] with the given [`AcpiPlatform`].
+    #[cfg(feature = "platform")]
     pub fn new_from_platform(platform: &AcpiPlatform<H>) -> Result<BaseInterpreter<H, R>, AcpiError> {
+        use crate::{
+            AmlTable,
+            sdt::{SdtHeader, fadt::Fadt},
+        };
+        use core::{ptr, slice};
+        use log::error;
+
         fn load_table<H, R>(interpreter: &BaseInterpreter<H, R>, table: AmlTable) -> Result<(), AcpiError>
         where
             H: Handler,
